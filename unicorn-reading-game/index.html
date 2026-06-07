@@ -26,6 +26,7 @@
       <button id="collection-btn" class="icon-btn" aria-label="My friends">🎒<span id="collection-count" class="count">0</span></button>
       <button id="replay-btn" class="icon-btn" aria-label="Hear again">🔁</button>
       <button id="mute-btn" class="icon-btn" aria-label="Sound on/off">🔊</button>
+      <button id="settings-btn" class="icon-btn" aria-label="Voice settings">⚙️</button>
     </div>
 
     <!-- Quest banner: the current goal + a tray of tokens to fill -->
@@ -42,6 +43,19 @@
   <div id="friend-toast" class="hidden">
     <div class="toast-emoji"></div>
     <div class="toast-text">New friend!</div>
+  </div>
+
+  <!-- Voice settings (for a grown-up): pick the nicest voice on this phone -->
+  <div id="settings-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>Choose a voice</h2>
+      <p class="settings-note">Pick the one that sounds best on this phone, then tap “Try”. Voices come from your device.</p>
+      <div id="voice-list"></div>
+      <div class="settings-buttons">
+        <button id="voice-try" class="close-btn alt">▶ Try</button>
+        <button id="settings-close" class="close-btn">Done</button>
+      </div>
+    </div>
   </div>
 
   <!-- Collection of unlocked friends -->
