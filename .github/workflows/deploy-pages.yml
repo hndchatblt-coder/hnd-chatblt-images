@@ -2,12 +2,13 @@ name: Deploy Unicorn Reading to GitHub Pages
 
 # Publishes the unicorn-reading-game/ folder as the site root, so the live URL
 # is simply https://<owner>.github.io/<repo>/ (no subfolder in the path).
+#
+# Manual-only (workflow_dispatch): GitHub Pages must be enabled once by the repo
+# owner first (Settings -> Pages -> Source: "GitHub Actions") because a CI token
+# cannot enable Pages itself. After that, run this workflow from the Actions tab
+# (or re-run it after each push) to publish. Until then, the game is testable via
+# jsDelivr with no setup: see unicorn-reading-game/README.md.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'unicorn-reading-game/**'
-      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 permissions:
