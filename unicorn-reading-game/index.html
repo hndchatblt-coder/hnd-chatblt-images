@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffd6f5" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>Unicorn Reading</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./src/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <!-- HUD overlay -->
+  <div id="hud" class="hidden">
+    <div id="stars" class="badge"><span class="star">⭐</span><span id="star-count">0</span></div>
+    <div class="right-buttons">
+      <button id="collection-btn" class="icon-btn" aria-label="My friends">🎒<span id="collection-count" class="count">0</span></button>
+      <button id="replay-btn" class="icon-btn" aria-label="Hear again">🔁</button>
+      <button id="mute-btn" class="icon-btn" aria-label="Sound on/off">🔊</button>
+    </div>
+
+    <!-- Quest banner: the current goal + a tray of tokens to fill -->
+    <div id="quest">
+      <div id="quest-title"></div>
+      <div id="quest-slots"></div>
+    </div>
+
+    <div id="hint"></div>
+    <button id="next-btn" class="next-btn disabled" aria-label="Next word">→</button>
+  </div>
+
+  <!-- "New friend unlocked" toast -->
+  <div id="friend-toast" class="hidden">
+    <div class="toast-emoji"></div>
+    <div class="toast-text">New friend!</div>
+  </div>
+
+  <!-- Collection of unlocked friends -->
+  <div id="collection-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>My Magical Friends</h2>
+      <div id="collection-grid"></div>
+      <button id="collection-close" class="close-btn">Keep playing</button>
+    </div>
+  </div>
+
+  <!-- Start screen (also unlocks audio on first tap) -->
+  <div id="start-screen">
+    <div class="start-card">
+      <div class="start-unicorn">🦄</div>
+      <h1>Unicorn Reading</h1>
+      <p>Tap each letter, hear its sound, then blend them into a word — earn stars and collect magical friends!</p>
+      <div class="tap-to-play">▶ Tap to play</div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
