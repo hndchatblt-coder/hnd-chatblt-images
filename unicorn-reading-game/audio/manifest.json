@@ -1,0 +1,6 @@
+{
+  "_comment": "List the recordings you've added so the game uses them instead of the text-to-speech fallback. Use lowercase names without the .mp3 extension. Example: \"phonemes\": [\"c\", \"a\", \"t\"], \"words\": [\"cat\"], \"cheer\": true. (If you delete this file, the game will auto-detect files on demand instead.)",
+  "phonemes": [],
+  "words": [],
+  "cheer": false
+}
