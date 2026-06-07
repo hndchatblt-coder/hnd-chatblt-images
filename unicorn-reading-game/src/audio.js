@@ -22,6 +22,15 @@ const MANIFEST_URL = './audio/manifest.json';
 const PHONEME_DIR = './audio/phonemes/';
 const WORD_DIR = './audio/words/';
 const EXT = '.mp3';
+const VOICE_KEY = 'unicorn-reading-voice';
+
+// Sounds that can be held/stretched (vowels + continuant consonants). These get
+// spoken slowly and drawn-out so they're clear for blending. Everything else is
+// a short "stop" sound (b, c, d, g, ...) spoken briskly to keep the trailing
+// "uh" as small as text-to-speech allows.
+const CONTINUANTS = new Set(['a', 'e', 'i', 'o', 'u', 'f', 'l', 'm', 'n', 'r', 's', 'v', 'z']);
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 export class AudioManager {
   constructor() {
@@ -37,18 +46,72 @@ export class AudioManager {
     this._cache = new Map();
     this._tts = ('speechSynthesis' in window) ? window.speechSynthesis : null;
     this._voice = null;
+    this._savedVoiceURI = null;
+    try { this._savedVoiceURI = localStorage.getItem(VOICE_KEY); } catch (_) {}
     if (this._tts) {
-      const pickVoice = () => {
-        const voices = this._tts.getVoices();
-        // Prefer an English voice; a "child"/female voice if available.
-        this._voice =
-          voices.find(v => /en[-_]?(GB|AU)/i.test(v.lang)) ||
-          voices.find(v => /^en/i.test(v.lang)) ||
-          voices[0] || null;
-      };
-      pickVoice();
-      this._tts.onvoiceschanged = pickVoice;
+      this._pickVoice();
+      // Voices often load asynchronously (especially on mobile).
+      this._tts.onvoiceschanged = () => { this._pickVoice(); if (this.onVoicesChanged) this.onVoicesChanged(); };
     }
+  }
+
+  // All available English voices, best-sounding first.
+  englishVoices() {
+    if (!this._tts) return [];
+    return this._tts.getVoices()
+      .filter(v => /^en/i.test(v.lang))
+      .map(v => ({ v, s: this._scoreVoice(v) }))
+      .sort((a, b) => b.s - a.s)
+      .map(x => x.v);
+  }
+
+  // Heuristic quality score: prefer natural/local AU & GB female voices.
+  _scoreVoice(v) {
+    let s = 0;
+    const lang = (v.lang || '').replace('_', '-');
+    if (/^en-AU/i.test(lang)) s += 50;
+    else if (/^en-GB/i.test(lang)) s += 40;
+    else if (/^en-(IE|NZ|ZA)/i.test(lang)) s += 28;
+    else if (/^en-US/i.test(lang)) s += 22;
+    else s += 10;
+    const name = (v.name || '').toLowerCase();
+    if (/(enhanced|premium|natural|neural|siri)/.test(name)) s += 22;
+    if (/(female|samantha|karen|catherine|serena|stephanie|fiona|moira|tessa|martha|amelia|aria|jenny|sonia|libby|natasha|google uk english female|google australian)/.test(name)) s += 16;
+    if (/compact/.test(name)) s -= 12;
+    if (v.localService) s += 8; // works offline, consistent across launches
+    return s;
+  }
+
+  _pickVoice() {
+    if (!this._tts) return;
+    const voices = this._tts.getVoices();
+    let chosen = null;
+    if (this._savedVoiceURI) chosen = voices.find(v => v.voiceURI === this._savedVoiceURI) || null;
+    if (!chosen) chosen = this.englishVoices()[0] || voices[0] || null;
+    this._voice = chosen;
+  }
+
+  currentVoiceURI() { return this._voice ? this._voice.voiceURI : null; }
+
+  setVoiceByURI(uri) {
+    if (!this._tts) return;
+    const v = this._tts.getVoices().find(x => x.voiceURI === uri);
+    if (!v) return;
+    this._voice = v;
+    this._savedVoiceURI = uri;
+    try { localStorage.setItem(VOICE_KEY, uri); } catch (_) {}
+  }
+
+  // Speak a short blending sample ("c - a - t ... cat!") with a given voice,
+  // so a parent can audition voices in the settings panel.
+  async sample(uri) {
+    const v = uri ? this._tts.getVoices().find(x => x.voiceURI === uri) : this._voice;
+    for (const l of ['c', 'a', 't']) {
+      await this._speakPhoneme(l, v);
+      await wait(180);
+    }
+    await wait(150);
+    await this._speak('cat', { rate: 0.85, pitch: 1.05, voice: v });
   }
 
   // Must be called from within a user-gesture handler on mobile.
@@ -166,18 +229,28 @@ export class AudioManager {
     });
   }
 
-  _speak(text, { rate = 0.85, pitch = 1.25 } = {}) {
+  _speak(text, { rate = 0.85, pitch = 1.1, voice } = {}) {
     return new Promise((resolve) => {
       if (!this._tts) { resolve(); return; }
       this._tts.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      if (this._voice) u.voice = this._voice;
+      const vv = voice || this._voice;
+      if (vv) { u.voice = vv; u.lang = vv.lang; }
       u.rate = rate;
       u.pitch = pitch;
       u.onend = () => resolve();
       u.onerror = () => resolve();
       this._tts.speak(u);
     });
+  }
+
+  // Speak a single letter SOUND via TTS, tuned for phonics blending.
+  _speakPhoneme(letter, voice) {
+    const l = letter.toLowerCase();
+    const hint = PHONEME_HINTS[l] || l;
+    const stretchy = CONTINUANTS.has(l);
+    // Continuants: slow & held. Stops: brisk to minimise the trailing schwa.
+    return this._speak(hint, { rate: stretchy ? 0.5 : 0.9, pitch: 1.1, voice });
   }
 
   // Play the pure sound of a single letter (for blending).
@@ -189,9 +262,7 @@ export class AudioManager {
     if (url) {
       try { await this._playFile(url); return; } catch (_) { /* fall through */ }
     }
-    // Fallback: speak a phoneme hint slowly. Stretch vowels/continuants.
-    const hint = PHONEME_HINTS[l] || l;
-    await this._speak(hint, { rate: 0.7, pitch: 1.2 });
+    await this._speakPhoneme(l);
   }
 
   // Play the whole blended word.
@@ -202,7 +273,7 @@ export class AudioManager {
     if (url) {
       try { await this._playFile(url); return; } catch (_) { /* fall through */ }
     }
-    await this._speak(word, { rate: 0.8, pitch: 1.15 });
+    await this._speak(word, { rate: 0.85, pitch: 1.05 });
   }
 
   // Short spoken praise on success.
@@ -214,6 +285,6 @@ export class AudioManager {
     if (url) {
       try { await this._playFile(url); return; } catch (_) { /* fall through */ }
     }
-    await this._speak(cheers[Math.floor(Math.random() * cheers.length)], { rate: 0.95, pitch: 1.4 });
+    await this._speak(cheers[Math.floor(Math.random() * cheers.length)], { rate: 0.95, pitch: 1.25 });
   }
 }

@@ -276,6 +276,11 @@ class Game {
       collectionGrid: document.getElementById('collection-grid'),
       collectionClose: document.getElementById('collection-close'),
       friendToast: document.getElementById('friend-toast'),
+      settingsBtn: document.getElementById('settings-btn'),
+      settingsScreen: document.getElementById('settings-screen'),
+      settingsClose: document.getElementById('settings-close'),
+      voiceList: document.getElementById('voice-list'),
+      voiceTry: document.getElementById('voice-try'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderQuest();
@@ -349,6 +354,47 @@ class Game {
     });
     this.el.collectionScreen.addEventListener('click', (e) => {
       if (e.target === this.el.collectionScreen) this.el.collectionScreen.classList.add('hidden');
+    });
+
+    // Voice settings
+    this.el.settingsBtn.addEventListener('click', () => {
+      this.audio.unlock();
+      this._renderVoiceList();
+      this.el.settingsScreen.classList.remove('hidden');
+    });
+    this.el.settingsClose.addEventListener('click', () => this.el.settingsScreen.classList.add('hidden'));
+    this.el.settingsScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.settingsScreen) this.el.settingsScreen.classList.add('hidden');
+    });
+    this.el.voiceTry.addEventListener('click', () => this.audio.sample(this._pendingVoiceURI));
+    // Re-render the list if the device finishes loading voices while it's open.
+    this.audio.onVoicesChanged = () => {
+      if (!this.el.settingsScreen.classList.contains('hidden')) this._renderVoiceList();
+    };
+  }
+
+  _renderVoiceList() {
+    const voices = this.audio.englishVoices();
+    this._pendingVoiceURI = this.audio.currentVoiceURI();
+    this.el.voiceList.innerHTML = '';
+    if (!voices.length) {
+      this.el.voiceList.innerHTML = '<div class="settings-note">No voices found on this device yet — try again in a moment.</div>';
+      return;
+    }
+    voices.forEach((v) => {
+      const row = document.createElement('div');
+      row.className = 'voice-row' + (v.voiceURI === this._pendingVoiceURI ? ' selected' : '');
+      row.innerHTML = `<span class="dot"></span><span class="vname"></span><span class="vlang"></span>`;
+      row.querySelector('.vname').textContent = v.name;
+      row.querySelector('.vlang').textContent = v.lang;
+      row.addEventListener('click', () => {
+        this._pendingVoiceURI = v.voiceURI;
+        this.audio.setVoiceByURI(v.voiceURI);
+        this.el.voiceList.querySelectorAll('.voice-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        this.audio.sample(v.voiceURI);
+      });
+      this.el.voiceList.appendChild(row);
     });
   }
 
@@ -711,8 +757,11 @@ function shuffle(a) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Register the service worker for offline play (PWA).
-  if ('serviceWorker' in navigator) {
+  // Register the service worker for offline play (PWA). Skip it on shared CDN
+  // hosts (jsDelivr / githack) used for quick testing, where an offline cache
+  // would just serve stale files between updates.
+  const onCDN = /jsdelivr|githack|statically/i.test(location.hostname);
+  if ('serviceWorker' in navigator && !onCDN) {
     navigator.serviceWorker.register('./service-worker.js').catch(() => {});
   }
   new Game();

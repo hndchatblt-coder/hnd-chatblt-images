@@ -51,9 +51,9 @@ export const WORDS = [
 // the browser voice toward the pure SOUND ("mmm") rather than the letter NAME
 // ("em"). Recorded audio (see /audio) always sounds better and takes priority.
 export const PHONEME_HINTS = {
-  a: 'aah', b: 'buh', c: 'kuh', d: 'duh', e: 'eh', f: 'fff',
-  g: 'guh', h: 'huh', i: 'ih', j: 'juh', k: 'kuh', l: 'lll',
-  m: 'mmm', n: 'nnn', o: 'oh', p: 'puh', q: 'kwuh', r: 'rrr',
-  s: 'sss', t: 'tuh', u: 'uh', v: 'vvv', w: 'wuh', x: 'ks',
-  y: 'yuh', z: 'zzz',
+  a: 'aaa', b: 'buh', c: 'kuh', d: 'duh', e: 'ehh', f: 'ffff',
+  g: 'guh', h: 'huh', i: 'ihh', j: 'juh', k: 'kuh', l: 'llll',
+  m: 'mmmm', n: 'nnnn', o: 'ohh', p: 'puh', q: 'kwuh', r: 'rrrr',
+  s: 'ssss', t: 'tuh', u: 'uhh', v: 'vvvv', w: 'wuh', x: 'ks',
+  y: 'yuh', z: 'zzzz',
 };
