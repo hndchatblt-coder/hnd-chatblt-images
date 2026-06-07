@@ -11,7 +11,22 @@ a shower of sparkles. A star is earned for every word.
 Built with [three.js](https://threejs.org) (vendored locally) as an installable
 **PWA** — add it to the home screen and it runs full-screen and offline.
 
-## Play it
+## Test on a phone right now (no setup)
+
+Because this repo is public, a CDN can serve the game directly — just open this
+on the phone:
+
+**https://cdn.jsdelivr.net/gh/hndchatblt-coder/hnd-chatblt-images@main/unicorn-reading-game/index.html**
+
+No hosting, no GitHub Pages toggle. (jsDelivr caches `@main` for a while; to force
+the very latest, swap `@main` for a commit hash, e.g. `@<sha>`.) The service
+worker is intentionally disabled on CDN hosts, so this is for quick play/testing
+rather than a home-screen install — for that, use GitHub Pages below.
+
+> Tip for the best voice: open ⚙️ in the top-right and pick the nicest voice on
+> your device, then tap **Try**.
+
+## Play it locally
 
 It uses ES modules and a service worker, so it must be served over `http(s)`
 (not opened as a `file://`). From this folder:
@@ -95,13 +110,20 @@ unicorn-reading-game/
   audio/                  your recordings go here (see its README)
 ```
 
-## Hosting (so it installs on the phone)
+## Hosting (for a real home-screen install)
 
-Any static host works (the game is just files). Easy options:
+For a proper installable PWA (own origin, offline service worker), use GitHub
+Pages:
 
-- **GitHub Pages** — serve this folder; open the URL on the phone → Add to Home
-  Screen.
-- **Netlify / Vercel / Cloudflare Pages** — drag-and-drop or connect the repo,
-  set the publish directory to `unicorn-reading-game`.
+1. **Settings → Pages → Build and deployment → Source: "GitHub Actions"** (a
+   one-time toggle the repo owner must do — a CI token isn't allowed to enable
+   Pages itself).
+2. Run the **"Deploy Unicorn Reading to GitHub Pages"** workflow from the
+   **Actions** tab (`.github/workflows/deploy-pages.yml`). It publishes this
+   folder as the site root.
+3. The site goes live at `https://hndchatblt-coder.github.io/hnd-chatblt-images/`
+   → open on the phone → **Add to Home Screen**.
 
-A PWA needs `https` to install (GitHub Pages and the above all provide it).
+Any other static host works too (Netlify / Vercel / Cloudflare Pages) — point
+the publish directory at `unicorn-reading-game`. A PWA needs `https` to install,
+which all of these provide.
