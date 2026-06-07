@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import { WORDS } from './words.js';
 import { AudioManager } from './audio.js';
+import { QUESTS, FRIENDS, GOAL_SIZE } from './quests.js';
+import { loadProgress, saveProgress } from './progress.js';
 
 // ----------------------------------------------------------------------------
 // Tiny tween engine (no dependencies). Animates numeric properties of an
@@ -175,12 +177,14 @@ class Game {
   constructor() {
     this.audio = new AudioManager();
     this.state = 'start';        // 'start' | 'playing' | 'celebrating'
-    this.stars = 0;
+    this.progress = loadProgress();
+    this.stars = this.progress.stars;
     this.order = shuffle([...WORDS.keys()]);
     this.orderPos = -1;
     this.tiles = [];
     this.expected = 0;           // next tile index the child should tap
     this.particles = [];
+    this.questJustCompleted = false;
     this.clock = new THREE.Clock();
 
     this._initRenderer();
@@ -264,8 +268,48 @@ class Game {
       replay: document.getElementById('replay-btn'),
       next: document.getElementById('next-btn'),
       hint: document.getElementById('hint'),
+      questTitle: document.getElementById('quest-title'),
+      questSlots: document.getElementById('quest-slots'),
+      collectionBtn: document.getElementById('collection-btn'),
+      collectionCount: document.getElementById('collection-count'),
+      collectionScreen: document.getElementById('collection-screen'),
+      collectionGrid: document.getElementById('collection-grid'),
+      collectionClose: document.getElementById('collection-close'),
+      friendToast: document.getElementById('friend-toast'),
     };
-    this.el.stars.textContent = '0';
+    this.el.stars.textContent = String(this.stars);
+    this._renderQuest();
+    this._renderCollection();
+  }
+
+  get quest() { return QUESTS[this.progress.questIndex % QUESTS.length]; }
+
+  // Build the quest banner: title + a row of slots, filled to questProgress.
+  _renderQuest() {
+    const q = this.quest;
+    this.el.questTitle.textContent = `${q.token} ${q.title}`;
+    this.el.questSlots.innerHTML = '';
+    this.slotEls = [];
+    for (let i = 0; i < GOAL_SIZE; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      const filled = i < this.progress.questProgress;
+      slot.textContent = filled ? q.token : '';
+      if (filled) slot.classList.add('filled');
+      this.el.questSlots.appendChild(slot);
+      this.slotEls.push(slot);
+    }
+  }
+
+  _renderCollection() {
+    this.el.collectionCount.textContent = String(this.progress.unlocked);
+    this.el.collectionGrid.innerHTML = '';
+    FRIENDS.forEach((emoji, i) => {
+      const cell = document.createElement('div');
+      cell.className = 'friend-cell' + (i < this.progress.unlocked ? '' : ' locked');
+      cell.textContent = i < this.progress.unlocked ? emoji : '❔';
+      this.el.collectionGrid.appendChild(cell);
+    });
   }
 
   _bindEvents() {
@@ -295,6 +339,17 @@ class Game {
     this.el.next.addEventListener('click', () => {
       if (this.state === 'celebrating') this.nextWord();
     });
+
+    this.el.collectionBtn.addEventListener('click', () => {
+      this._renderCollection();
+      this.el.collectionScreen.classList.remove('hidden');
+    });
+    this.el.collectionClose.addEventListener('click', () => {
+      this.el.collectionScreen.classList.add('hidden');
+    });
+    this.el.collectionScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.collectionScreen) this.el.collectionScreen.classList.add('hidden');
+    });
   }
 
   _onResize() {
@@ -315,6 +370,15 @@ class Game {
   // Word lifecycle
   // --------------------------------------------------------------------------
   nextWord() {
+    // If the last word finished a quest, move on to the next quest variation.
+    if (this.questJustCompleted) {
+      this.questJustCompleted = false;
+      this.progress.questIndex = (this.progress.questIndex + 1) % QUESTS.length;
+      this.progress.questProgress = 0;
+      saveProgress(this.progress);
+      this._renderQuest();
+    }
+
     // clear old tiles
     for (const t of this.tiles) {
       t.mesh.material.map.dispose();
@@ -460,12 +524,88 @@ class Game {
       this._showReward();
       this._burst();
       this.audio.praise();
+
+      // Reward: a star + progress on the current quest.
       this.stars++;
+      this.progress.stars = this.stars;
       this.el.stars.textContent = String(this.stars);
       this._pop(this.el.stars.parentElement);
-      this.el.hint.textContent = 'Tap to keep going →';
+
+      this.progress.questProgress++;
+      this._fillQuestSlot(this.progress.questProgress - 1);
+      const questDone = this.progress.questProgress >= GOAL_SIZE;
+      saveProgress(this.progress);
+
+      if (questDone) {
+        setTimeout(() => this._completeQuest(), 700);
+        this.el.hint.textContent = '';
+      } else {
+        this.el.hint.textContent = 'Tap to keep going →';
+      }
       this.el.next.classList.remove('disabled');
     }, 520);
+  }
+
+  // Animate a flying token from the centre of the screen into a quest slot.
+  _fillQuestSlot(i) {
+    const slot = this.slotEls[i];
+    if (!slot) return;
+    const q = this.quest;
+    const rect = slot.getBoundingClientRect();
+    const fly = document.createElement('div');
+    fly.className = 'fly-token';
+    fly.textContent = q.token;
+    fly.style.left = (window.innerWidth / 2) + 'px';
+    fly.style.top = (window.innerHeight * 0.45) + 'px';
+    document.body.appendChild(fly);
+    // next frame: glide to the slot
+    requestAnimationFrame(() => {
+      fly.style.left = (rect.left + rect.width / 2) + 'px';
+      fly.style.top = (rect.top + rect.height / 2) + 'px';
+      fly.style.transform = 'translate(-50%, -50%) scale(0.7)';
+      fly.style.opacity = '0.9';
+    });
+    setTimeout(() => {
+      fly.remove();
+      slot.textContent = q.token;
+      slot.classList.add('filled');
+      this._pop(slot);
+      this.audio.chime();
+    }, 620);
+  }
+
+  // A whole quest is complete: big celebration + unlock a new friend.
+  _completeQuest() {
+    const q = this.quest;
+    this.audio.fanfare();
+    this._unicornCheer();
+    this._burst([q.token, '✨', '🌈', '⭐', '🎉']);
+    this._burst([q.token, '✨', '💖']);
+
+    // Unlock the next magical friend (if any remain).
+    let friend = null;
+    if (this.progress.unlocked < FRIENDS.length) {
+      friend = FRIENDS[this.progress.unlocked];
+      this.progress.unlocked++;
+      this._renderCollection();
+      this._pop(this.el.collectionBtn);
+    }
+    saveProgress(this.progress);
+
+    setTimeout(() => this.audio.praise(), 900);
+    this._showFriendToast(friend, q.cheer);
+    this.questJustCompleted = true;
+    this.el.hint.textContent = 'Tap for a new adventure →';
+  }
+
+  _showFriendToast(friend, cheer) {
+    const toast = this.el.friendToast;
+    toast.querySelector('.toast-emoji').textContent = friend || '🌟';
+    toast.querySelector('.toast-text').textContent = friend ? 'New friend!' : cheer;
+    toast.classList.remove('hidden');
+    this._pop(toast);
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => toast.classList.add('hidden'), 3200);
   }
 
   _showReward() {
@@ -488,8 +628,7 @@ class Game {
     });
   }
 
-  _burst() {
-    const emojis = ['✨', '⭐', '💖', '🌈', '🦄'];
+  _burst(emojis = ['✨', '⭐', '💖', '🌈', '🦄']) {
     const texCache = (this._burstTex ||= {});
     for (let i = 0; i < 22; i++) {
       const em = emojis[(Math.random() * emojis.length) | 0];

@@ -1,7 +1,7 @@
 // Service worker: caches the game shell so it works offline once installed.
 // Bump CACHE_VERSION whenever you change the app files (or add audio) to force
 // phones to pick up the new version.
-const CACHE_VERSION = 'unicorn-reading-v1';
+const CACHE_VERSION = 'unicorn-reading-v2';
 
 const CORE_ASSETS = [
   './',
@@ -10,6 +10,8 @@ const CORE_ASSETS = [
   './src/main.js',
   './src/words.js',
   './src/audio.js',
+  './src/quests.js',
+  './src/progress.js',
   './src/style.css',
   './audio/manifest.json',
   './vendor/three.module.js',

@@ -34,7 +34,28 @@ Then open the URL on your computer, or — to play on the phone — host the fol
 4. 🦄 jumps, sparkles burst, the picture pops up, and you earn a ⭐.
 5. Tap anywhere (or the → button) for the next word.
 
-HUD buttons: 🔁 replays the sounds/word, 🔊/🔇 toggles sound.
+HUD buttons: 🎒 opens the friends collection, 🔁 replays the sounds/word,
+🔊/🔇 toggles sound.
+
+## Rewards (built to keep a 4-year-old coming back)
+
+Reading words is rewarded on three timescales so there's always something to
+look forward to:
+
+- **Every word** → a ⭐ (the total is saved and grows over days) plus a token
+  that flies up into the quest tray, with a little chime.
+- **Every quest** → finishing a quest of 5 words triggers a fanfare, a shower of
+  themed confetti, and **unlocks a new magical friend** for the collection
+  (🦄🦋🐝🐠 …). Quests rotate through a few **variations of the goal** —
+  *Catch the stars*, *Grow the garden*, *Unicorn picnic*, *Find the treasure*,
+  *Fill the sky*, *Spread the love* — so each mission feels new.
+- **Over time** → the 🎒 **collection** of magical friends fills up (locked
+  silhouettes show what's still to discover).
+
+All progress (stars, friends, current quest) is saved on the device, so it's
+still there next time. Quests and friends live in
+[`src/quests.js`](./src/quests.js); progress storage is in
+[`src/progress.js`](./src/progress.js).
 
 ## Sound
 
@@ -50,9 +71,10 @@ with a **text-to-speech fallback** so it works before any recordings exist.
 
 ## Changing the words
 
-Edit [`src/words.js`](./src/words.js) — each entry is a CVC word plus an emoji
-used as the picture reward. They're grouped by vowel so you can focus on one
-vowel family at a time. No image files needed.
+Edit [`src/words.js`](./src/words.js) — a curated set of ~25 cleanly
+sound-out-able CVC words, each with an emoji used as the picture reward. They're
+grouped by vowel (five per vowel) so you can focus on one vowel family at a time.
+No image files needed.
 
 ## Project layout
 
@@ -64,8 +86,10 @@ unicorn-reading-game/
   src/
     main.js               three.js scene, blending logic, celebration
     words.js              CVC word list + TTS phoneme hints
+    quests.js             quest variations + collectible friends
+    progress.js           saves stars/friends/quest to localStorage
     audio.js              recorded-audio-first audio manager (TTS fallback)
-    style.css             HUD / start screen styles
+    style.css             HUD / start screen / quest / collection styles
   vendor/three.module.js  three.js (local, for offline)
   icons/                  PWA icons (generated from icon.svg)
   audio/                  your recordings go here (see its README)

@@ -23,11 +23,34 @@
   <div id="hud" class="hidden">
     <div id="stars" class="badge"><span class="star">⭐</span><span id="star-count">0</span></div>
     <div class="right-buttons">
+      <button id="collection-btn" class="icon-btn" aria-label="My friends">🎒<span id="collection-count" class="count">0</span></button>
       <button id="replay-btn" class="icon-btn" aria-label="Hear again">🔁</button>
       <button id="mute-btn" class="icon-btn" aria-label="Sound on/off">🔊</button>
     </div>
+
+    <!-- Quest banner: the current goal + a tray of tokens to fill -->
+    <div id="quest">
+      <div id="quest-title"></div>
+      <div id="quest-slots"></div>
+    </div>
+
     <div id="hint"></div>
     <button id="next-btn" class="next-btn disabled" aria-label="Next word">→</button>
+  </div>
+
+  <!-- "New friend unlocked" toast -->
+  <div id="friend-toast" class="hidden">
+    <div class="toast-emoji"></div>
+    <div class="toast-text">New friend!</div>
+  </div>
+
+  <!-- Collection of unlocked friends -->
+  <div id="collection-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>My Magical Friends</h2>
+      <div id="collection-grid"></div>
+      <button id="collection-close" class="close-btn">Keep playing</button>
+    </div>
   </div>
 
   <!-- Start screen (also unlocks audio on first tap) -->
@@ -35,7 +58,7 @@
     <div class="start-card">
       <div class="start-unicorn">🦄</div>
       <h1>Unicorn Reading</h1>
-      <p>Tap each letter, hear its sound, then blend them into a word!</p>
+      <p>Tap each letter, hear its sound, then blend them into a word — earn stars and collect magical friends!</p>
       <div class="tap-to-play">▶ Tap to play</div>
     </div>
   </div>

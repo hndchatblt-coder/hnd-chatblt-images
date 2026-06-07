@@ -2,51 +2,47 @@
 //
 // Each word has:
 //   word   - the letters (lowercase). Tap them one at a time to hear each sound.
-//   emoji  - the picture reward shown when the word is blended (no image files needed).
-//   label  - spoken/displayed name (usually same as word).
+//   emoji  - the picture reward shown when the word is blended (no image files).
 //
-// We deliberately use simple, picturable CVC words a 4-year-old can decode.
-// Words are grouped by vowel so you can introduce one vowel family at a time.
+// All of these are cleanly "sound-out-able": no silent letters, no tricky
+// digraphs — each letter makes its own sound. They're grouped by vowel so you
+// can introduce one vowel family at a time. ~25 words keeps plenty of variety
+// for a young reader without repeating too soon.
 
 export const WORDS = [
   // short 'a'
   { word: 'cat', emoji: '🐱' },
   { word: 'hat', emoji: '🎩' },
-  { word: 'bat', emoji: '🦇' },
-  { word: 'map', emoji: '🗺️' },
-  { word: 'van', emoji: '🚐' },
-  { word: 'jam', emoji: '🍓' },
   { word: 'bag', emoji: '🎒' },
+  { word: 'van', emoji: '🚐' },
+  { word: 'map', emoji: '🗺️' },
 
   // short 'e'
-  { word: 'bed', emoji: '🛏️' },
   { word: 'hen', emoji: '🐔' },
+  { word: 'bed', emoji: '🛏️' },
   { word: 'web', emoji: '🕸️' },
   { word: 'jet', emoji: '✈️' },
-  { word: 'red', emoji: '🟥' },
+  { word: 'egg', emoji: '🥚' },
 
   // short 'i'
   { word: 'pig', emoji: '🐷' },
   { word: 'pin', emoji: '📌' },
   { word: 'fin', emoji: '🐟' },
-  { word: 'lip', emoji: '👄' },
   { word: 'six', emoji: '6️⃣' },
-  { word: 'wig', emoji: '👱' },
+  { word: 'bin', emoji: '🗑️' },
 
   // short 'o'
   { word: 'dog', emoji: '🐶' },
   { word: 'fox', emoji: '🦊' },
   { word: 'box', emoji: '📦' },
-  { word: 'log', emoji: '🪵' },
   { word: 'pot', emoji: '🍲' },
-  { word: 'mop', emoji: '🧽' },
+  { word: 'log', emoji: '🪵' },
 
   // short 'u'
+  { word: 'bug', emoji: '🐛' },
   { word: 'sun', emoji: '☀️' },
   { word: 'bus', emoji: '🚌' },
   { word: 'cup', emoji: '☕' },
-  { word: 'bug', emoji: '🐛' },
-  { word: 'mug', emoji: '🍺' },
   { word: 'nut', emoji: '🥜' },
 ];
 

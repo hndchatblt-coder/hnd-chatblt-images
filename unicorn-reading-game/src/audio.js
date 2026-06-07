@@ -30,6 +30,7 @@ export class AudioManager {
     this.hasManifest = false;
     this.manifest = { phonemes: [], words: [], cheer: false };
     this.ready = this._loadManifest();
+    this._ctx = null;
     // Cache of whether a given URL exists (true/false). Avoids re-requesting.
     this._exists = new Map();
     // Cache of preloaded HTMLAudioElements by URL.
@@ -62,9 +63,45 @@ export class AudioManager {
         this._tts.speak(u);
       } catch (_) { /* ignore */ }
     }
+    // Prepare the WebAudio context for reward sounds (created within a gesture).
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) { this._ctx = new AC(); if (this._ctx.state === 'suspended') this._ctx.resume(); }
+    } catch (_) { this._ctx = null; }
   }
 
   setMuted(m) { this.muted = m; }
+
+  // --- Synthesised reward sounds (no audio files needed) ---
+  _beep(freq, start, dur, { type = 'sine', gain = 0.18 } = {}) {
+    if (!this._ctx) return;
+    const t0 = this._ctx.currentTime + start;
+    const osc = this._ctx.createOscillator();
+    const g = this._ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g).connect(this._ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  // Bright little "ping" when a token is collected.
+  chime() {
+    if (this.muted || !this._ctx) return;
+    this._beep(880, 0, 0.16, { type: 'triangle', gain: 0.16 });
+    this._beep(1320, 0.07, 0.18, { type: 'triangle', gain: 0.13 });
+  }
+
+  // Happy ascending fanfare when a whole quest is completed.
+  fanfare() {
+    if (this.muted || !this._ctx) return;
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+    notes.forEach((f, i) => this._beep(f, i * 0.12, 0.5, { type: 'triangle', gain: 0.16 }));
+    this._beep(1318.5, notes.length * 0.12, 0.6, { type: 'triangle', gain: 0.12 }); // E6 sparkle
+  }
 
   async _loadManifest() {
     try {
