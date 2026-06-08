@@ -8,6 +8,7 @@ const DEFAULTS = {
   unlocked: 0,       // number of friends collected (first N of FRIENDS)
   questIndex: 0,     // which quest variation is active
   questProgress: 0,  // tokens filled in the current quest
+  buddy: 0,          // index into FRIENDS of the active on-screen character
 };
 
 export function loadProgress() {
@@ -24,6 +25,7 @@ export function saveProgress(p) {
     localStorage.setItem(KEY, JSON.stringify({
       stars: p.stars, unlocked: p.unlocked,
       questIndex: p.questIndex, questProgress: p.questProgress,
+      buddy: p.buddy,
     }));
   } catch (_) { /* ignore (e.g. private mode) */ }
 }

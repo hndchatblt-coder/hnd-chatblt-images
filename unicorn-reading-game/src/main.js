@@ -241,10 +241,10 @@ class Game {
     this.highlight = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, transparent: true, opacity: 0, depthWrite: false }));
     this.highlight.scale.set(3.2, 3.2, 1);
     this.highlight.position.set(0, TILE_Y, -0.5);
-    this.scene.add(this.highlight);
+    this.highlight.material.opacity = 0; // unused now (kept to avoid churn)
 
-    // Unicorn
-    this.unicorn = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeEmojiTexture('🦄', 256), transparent: true }));
+    // Buddy character (unicorn by default; swappable for a collected friend)
+    this.unicorn = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeEmojiTexture(FRIENDS[this.progress.buddy] || '🦄', 256), transparent: true }));
     this.unicorn.scale.set(3, 3, 1);
     this.unicorn.position.set(0, 3.3, 0);
     this.scene.add(this.unicorn);
@@ -268,6 +268,7 @@ class Game {
       replay: document.getElementById('replay-btn'),
       next: document.getElementById('next-btn'),
       hint: document.getElementById('hint'),
+      answers: document.getElementById('answers'),
       questTitle: document.getElementById('quest-title'),
       questSlots: document.getElementById('quest-slots'),
       collectionBtn: document.getElementById('collection-btn'),
@@ -312,11 +313,24 @@ class Game {
     this.el.collectionCount.textContent = String(this.progress.unlocked);
     this.el.collectionGrid.innerHTML = '';
     FRIENDS.forEach((emoji, i) => {
+      const unlocked = i < this.progress.unlocked;
       const cell = document.createElement('div');
-      cell.className = 'friend-cell' + (i < this.progress.unlocked ? '' : ' locked');
-      cell.textContent = i < this.progress.unlocked ? emoji : '❔';
+      cell.className = 'friend-cell' + (unlocked ? '' : ' locked') + (unlocked && i === this.progress.buddy ? ' buddy' : '');
+      cell.textContent = unlocked ? emoji : '❔';
+      if (unlocked) cell.addEventListener('click', () => this._setBuddy(i));
       this.el.collectionGrid.appendChild(cell);
     });
+  }
+
+  // Swap the on-screen character for a collected friend.
+  _setBuddy(i) {
+    if (i >= this.progress.unlocked) return;
+    this.progress.buddy = i;
+    saveProgress(this.progress);
+    this.unicorn.material.map.dispose();
+    this.unicorn.material.map = makeEmojiTexture(FRIENDS[i], 256);
+    this._renderCollection();
+    this._unicornCheer(); // little hop to confirm the swap
   }
 
   _bindEvents() {
@@ -341,7 +355,7 @@ class Game {
     });
     this.el.replay.addEventListener('click', () => {
       if (this.state === 'celebrating') this.audio.playWord(this.current.word);
-      else this._replayTappedSoFar();
+      else this._replaySounds();
     });
     this.el.next.addEventListener('click', () => {
       if (this.state === 'celebrating') this.nextWord();
@@ -511,11 +525,10 @@ class Game {
       this.tileGroup.remove(t.mesh);
     }
     this.tiles = [];
-    this.expected = 0;
     this.reward.material.opacity = 0;
     this.reward.scale.set(0.01, 0.01, 1);
     this.el.next.classList.add('disabled');
-    this.el.hint.textContent = 'Tap each letter';
+    this.el.hint.textContent = 'Sound it out, then tap the picture 👇';
 
     this.orderPos = (this.orderPos + 1) % this.order.length;
     if (this.orderPos === 0) this.order = shuffle(this.order); // reshuffle each loop
@@ -528,11 +541,39 @@ class Game {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
       mesh.userData.index = i;
       this.tileGroup.add(mesh);
-      this.tiles.push({ mesh, letter: ch, tapped: false });
+      this.tiles.push({ mesh, letter: ch });
     });
     this._layoutTiles(true);
+    this._renderAnswers();
     this.state = 'playing';
-    this._updateHighlight();
+  }
+
+  // Ten picture choices: the correct one + nine others, shuffled.
+  _renderAnswers() {
+    const correct = this.current.emoji;
+    const others = shuffle(WORDS.map(w => w.emoji).filter(e => e !== correct));
+    const choices = shuffle([correct, ...others.slice(0, 9)]);
+    this.el.answers.classList.remove('hidden');
+    this.el.answers.innerHTML = '';
+    choices.forEach((emoji) => {
+      const btn = document.createElement('button');
+      btn.className = 'answer';
+      btn.textContent = emoji;
+      btn.addEventListener('click', () => this._chooseAnswer(btn, emoji === correct));
+      this.el.answers.appendChild(btn);
+    });
+  }
+
+  _chooseAnswer(btn, isCorrect) {
+    if (this.state !== 'playing') return;
+    if (isCorrect) {
+      btn.classList.add('correct');
+      this._win();
+    } else {
+      btn.classList.add('wrong');
+      this.audio.nope();
+      setTimeout(() => btn.classList.remove('wrong'), 500);
+    }
   }
 
   _layoutTiles(animateIn = false) {
@@ -554,22 +595,10 @@ class Game {
         t.mesh.position.set(x, TILE_Y, 0);
       }
     });
-    this._updateHighlight();
-  }
-
-  _updateHighlight() {
-    if (this.state !== 'playing' || this.expected >= this.tiles.length) {
-      to(this.highlight.material, { opacity: 0 }, 0.2);
-      return;
-    }
-    const t = this.tiles[this.expected];
-    this.highlight.position.set(t.homeX, TILE_Y, -0.5);
-    this.highlight.scale.set(this.tileSize * 1.6, this.tileSize * 1.6, 1);
-    to(this.highlight.material, { opacity: 0.9 }, 0.25);
   }
 
   // --------------------------------------------------------------------------
-  // Interaction
+  // Interaction — tap any letter, any time, to hear its sound (no order).
   // --------------------------------------------------------------------------
   _onPointer(e) {
     if (this.state === 'celebrating') { this.nextWord(); return; }
@@ -582,36 +611,14 @@ class Game {
     const hits = this.raycaster.intersectObjects(this.tiles.map(t => t.mesh));
     if (!hits.length) return;
     const idx = hits[0].object.userData.index;
-
-    // Replay sound of an already-tapped letter.
-    if (this.tiles[idx].tapped && idx !== this.expected) {
-      this.audio.playPhoneme(this.tiles[idx].letter);
-      this._bounce(this.tiles[idx].mesh);
-      return;
-    }
-    if (idx !== this.expected) {
-      // Wrong order: nudge the correct (highlighted) card instead.
-      this._bounce(this.tiles[this.expected].mesh, 0.12);
-      return;
-    }
-
-    // Correct next letter.
-    this.tiles[idx].tapped = true;
     this.audio.playPhoneme(this.tiles[idx].letter);
     this._bounce(this.tiles[idx].mesh);
-    this.expected++;
-    this._updateHighlight();
-
-    if (this.expected >= this.tiles.length) {
-      this.el.hint.textContent = 'Blend it!';
-      setTimeout(() => this._blend(), 480);
-    }
   }
 
-  _replayTappedSoFar() {
+  // Play each letter sound in order (the 🔁 button helps her blend).
+  _replaySounds() {
     let delay = 0;
     for (const t of this.tiles) {
-      if (!t.tapped) break;
       setTimeout(() => this.audio.playPhoneme(t.letter), delay);
       delay += 650;
     }
@@ -628,12 +635,12 @@ class Game {
   }
 
   // --------------------------------------------------------------------------
-  // Blend + celebrate
+  // Win (correct picture chosen) + celebrate
   // --------------------------------------------------------------------------
-  _blend() {
+  _win() {
     this.state = 'celebrating';
-    this._updateHighlight();
     this.el.hint.textContent = '';
+    setTimeout(() => this.el.answers.classList.add('hidden'), 300);
 
     // Slide cards together toward the centre so they read as one word.
     const n = this.tiles.length;
@@ -789,15 +796,10 @@ class Game {
     const t = this.clock.elapsedTime;
     updateTweens(dt);
 
-    // idle unicorn bob
+    // idle buddy bob
     if (this.state !== 'celebrating') {
       this.unicorn.position.y = 3.3 + Math.sin(t * 1.6) * 0.12;
       this.unicorn.material.rotation = Math.sin(t * 1.2) * 0.05;
-    }
-    // highlight pulse
-    if (this.highlight.material.opacity > 0.01) {
-      const k = 1 + Math.sin(t * 4) * 0.07;
-      this.highlight.scale.set(this.tileSize * 1.6 * k, this.tileSize * 1.6 * k, 1);
     }
     // drifting clouds
     for (const cl of this.clouds) {

@@ -43,14 +43,16 @@ Then open the URL on your computer, or — to play on the phone — host the fol
 
 ## How a round works
 
-1. The next letter card glows. Tap it → hear its **sound** (e.g. `c` → "kuh").
-2. Tap the rest in order. (Tapping the wrong one just nudges the glowing card.)
-3. After the last letter, the cards slide together and the **whole word** plays.
-4. 🦄 jumps, sparkles burst, the picture pops up, and you earn a ⭐.
-5. Tap anywhere (or the → button) for the next word.
+1. A short word is shown as letter cards. Tap any letter, as often as you like,
+   to hear its **sound** — that's how she sounds the word out.
+2. Below are **10 pictures**. She wins by tapping the one that **matches the
+   word** (a wrong tap just wiggles — no penalty, keep trying).
+3. On the correct picture: the cards slide together, the **whole word** plays,
+   the buddy jumps, sparkles burst, and you earn a ⭐.
+4. Tap anywhere (or the → button) for the next word.
 
-HUD buttons: 🎒 opens the friends collection, 🔁 replays the sounds/word,
-🔊/🔇 toggles sound.
+HUD buttons: 🎒 friends collection (tap a collected friend to make it your
+on-screen **buddy**), 🔁 replays the sounds, 🔊/🔇 sound, 🎙️ recording studio.
 
 ## Rewards (built to keep a 4-year-old coming back)
 
