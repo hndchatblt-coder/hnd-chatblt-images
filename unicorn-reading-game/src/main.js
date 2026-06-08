@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { WORDS } from './words.js';
 import { AudioManager } from './audio.js';
 import { QUESTS, FRIENDS, GOAL_SIZE } from './quests.js';
-import { loadProgress, saveProgress } from './progress.js';
+import { loadProgress, saveProgress, resetProgress } from './progress.js';
 
 // ----------------------------------------------------------------------------
 // Tiny tween engine (no dependencies). Animates numeric properties of an
@@ -276,6 +276,7 @@ class Game {
       collectionScreen: document.getElementById('collection-screen'),
       collectionGrid: document.getElementById('collection-grid'),
       collectionClose: document.getElementById('collection-close'),
+      resetBtn: document.getElementById('reset-btn'),
       friendToast: document.getElementById('friend-toast'),
       settingsBtn: document.getElementById('settings-btn'),
       settingsScreen: document.getElementById('settings-screen'),
@@ -329,6 +330,21 @@ class Game {
     });
   }
 
+  // Wipe stars/friends/quest/buddy and begin again. Recordings are kept.
+  _resetProgress() {
+    if (!window.confirm('Start over? This clears stars, friends and quests so you begin fresh. (Your recorded sounds are kept.)')) return;
+    this.progress = resetProgress();
+    this.stars = this.progress.stars;
+    this.el.stars.textContent = '0';
+    this.unicorn.material.map.dispose();
+    this.unicorn.material.map = makeEmojiTexture(FRIENDS[this.progress.buddy] || '🦄', 256);
+    this.questJustCompleted = false;
+    this._renderQuest();
+    this._renderCollection();
+    this.el.collectionScreen.classList.add('hidden');
+    this.nextWord();
+  }
+
   // Swap the on-screen character for a collected friend.
   _setBuddy(i) {
     if (i >= this.progress.unlocked) return;
@@ -378,6 +394,7 @@ class Game {
     this.el.collectionScreen.addEventListener('click', (e) => {
       if (e.target === this.el.collectionScreen) this.el.collectionScreen.classList.add('hidden');
     });
+    this.el.resetBtn.addEventListener('click', () => this._resetProgress());
 
     // Recording studio (for a grown-up)
     this._studioTab = 'sounds';

@@ -31,3 +31,10 @@ export function saveProgress(p) {
     }));
   } catch (_) { /* ignore (e.g. private mode) */ }
 }
+
+// Wipe saved progress (stars, friends, quest, buddy) and return fresh defaults.
+// Recorded sounds live in IndexedDB and are intentionally NOT touched here.
+export function resetProgress() {
+  try { localStorage.removeItem(KEY); } catch (_) {}
+  return { ...DEFAULTS };
+}
