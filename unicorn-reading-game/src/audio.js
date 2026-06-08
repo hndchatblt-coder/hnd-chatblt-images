@@ -22,7 +22,8 @@ const MANIFEST_URL = './audio/manifest.json';
 const PHONEME_DIR = './audio/phonemes/';
 const WORD_DIR = './audio/words/';
 const EXT = '.mp3';
-const VOICE_KEY = 'unicorn-reading-voice';
+const REC_DB = 'unicorn-reading';     // IndexedDB holding the grown-up's recordings
+const REC_STORE = 'recordings';
 
 // Sounds that can be held/stretched (vowels + continuant consonants). These get
 // spoken slowly and drawn-out so they're clear for blending. Everything else is
@@ -46,26 +47,25 @@ export class AudioManager {
     this._cache = new Map();
     this._tts = ('speechSynthesis' in window) ? window.speechSynthesis : null;
     this._voice = null;
-    this._savedVoiceURI = null;
-    try { this._savedVoiceURI = localStorage.getItem(VOICE_KEY); } catch (_) {}
     if (this._tts) {
       this._pickVoice();
-      // Voices often load asynchronously (especially on mobile).
-      this._tts.onvoiceschanged = () => { this._pickVoice(); if (this.onVoicesChanged) this.onVoicesChanged(); };
+      this._tts.onvoiceschanged = () => this._pickVoice();
     }
+    // Grown-up's recordings, stored in IndexedDB and used in preference to TTS.
+    this._recCache = new Map(); // key -> object URL
+    this._dbPromise = null;
   }
 
-  // All available English voices, best-sounding first.
-  englishVoices() {
-    if (!this._tts) return [];
-    return this._tts.getVoices()
-      .filter(v => /^en/i.test(v.lang))
-      .map(v => ({ v, s: this._scoreVoice(v) }))
-      .sort((a, b) => b.s - a.s)
-      .map(x => x.v);
+  // Pick one pleasant English voice for the text-to-speech FALLBACK, used only
+  // until a sound has been recorded by a grown-up. No in-game picker — the goal
+  // is a single consistent voice (ideally a recorded human one).
+  _pickVoice() {
+    if (!this._tts) return;
+    const voices = this._tts.getVoices().filter(v => /^en/i.test(v.lang));
+    voices.sort((a, b) => this._scoreVoice(b) - this._scoreVoice(a));
+    this._voice = voices[0] || this._tts.getVoices()[0] || null;
   }
 
-  // Heuristic quality score: prefer natural/local AU & GB female voices.
   _scoreVoice(v) {
     let s = 0;
     const lang = (v.lang || '').replace('_', '-');
@@ -76,42 +76,67 @@ export class AudioManager {
     else s += 10;
     const name = (v.name || '').toLowerCase();
     if (/(enhanced|premium|natural|neural|siri)/.test(name)) s += 22;
-    if (/(female|samantha|karen|catherine|serena|stephanie|fiona|moira|tessa|martha|amelia|aria|jenny|sonia|libby|natasha|google uk english female|google australian)/.test(name)) s += 16;
+    if (/(female|samantha|karen|catherine|serena|fiona|moira|tessa|amelia|google uk english female|google australian)/.test(name)) s += 16;
     if (/compact/.test(name)) s -= 12;
-    if (v.localService) s += 8; // works offline, consistent across launches
+    if (v.localService) s += 8;
     return s;
   }
 
-  _pickVoice() {
-    if (!this._tts) return;
-    const voices = this._tts.getVoices();
-    let chosen = null;
-    if (this._savedVoiceURI) chosen = voices.find(v => v.voiceURI === this._savedVoiceURI) || null;
-    if (!chosen) chosen = this.englishVoices()[0] || voices[0] || null;
-    this._voice = chosen;
+  // --- Grown-up voice recordings (IndexedDB) ---
+  _openDB() {
+    if (this._dbPromise) return this._dbPromise;
+    this._dbPromise = new Promise((resolve, reject) => {
+      let req;
+      try { req = indexedDB.open(REC_DB, 1); } catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => req.result.createObjectStore(REC_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this._dbPromise;
   }
 
-  currentVoiceURI() { return this._voice ? this._voice.voiceURI : null; }
-
-  setVoiceByURI(uri) {
-    if (!this._tts) return;
-    const v = this._tts.getVoices().find(x => x.voiceURI === uri);
-    if (!v) return;
-    this._voice = v;
-    this._savedVoiceURI = uri;
-    try { localStorage.setItem(VOICE_KEY, uri); } catch (_) {}
+  _tx(mode, run) {
+    return this._openDB().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(REC_STORE, mode);
+      const r = run(tx.objectStore(REC_STORE));
+      tx.oncomplete = () => resolve(r && r.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    }));
   }
 
-  // Speak a short blending sample ("c - a - t ... cat!") with a given voice,
-  // so a parent can audition voices in the settings panel.
-  async sample(uri) {
-    const v = uri ? this._tts.getVoices().find(x => x.voiceURI === uri) : this._voice;
-    for (const l of ['c', 'a', 't']) {
-      await this._speakPhoneme(l, v);
-      await wait(180);
-    }
-    await wait(150);
-    await this._speak('cat', { rate: 0.85, pitch: 1.05, voice: v });
+  recKey(kind, name) { return kind + ':' + String(name).toLowerCase(); }
+
+  async saveRecording(kind, name, blob) {
+    const key = this.recKey(kind, name);
+    await this._tx('readwrite', s => s.put(blob, key));
+    const old = this._recCache.get(key);
+    if (old) URL.revokeObjectURL(old);
+    this._recCache.delete(key);
+  }
+
+  async deleteRecording(kind, name) {
+    const key = this.recKey(kind, name);
+    await this._tx('readwrite', s => s.delete(key));
+    const old = this._recCache.get(key);
+    if (old) URL.revokeObjectURL(old);
+    this._recCache.delete(key);
+  }
+
+  async recordingURL(kind, name) {
+    const key = this.recKey(kind, name);
+    if (this._recCache.has(key)) return this._recCache.get(key);
+    let blob = null;
+    try { blob = await this._tx('readonly', s => s.get(key)); } catch (_) { blob = null; }
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    this._recCache.set(key, url);
+    return url;
+  }
+
+  async recordedKeys() {
+    try { return new Set(await this._tx('readonly', s => s.getAllKeys())); }
+    catch (_) { return new Set(); }
   }
 
   // Must be called from within a user-gesture handler on mobile.
@@ -253,15 +278,26 @@ export class AudioManager {
     return this._speak(hint, { rate: stretchy ? 0.5 : 0.9, pitch: 1.1, voice });
   }
 
+  // Try a grown-up's recording first, then a bundled file. Returns true if it
+  // played one.
+  async _playRecordedOrFile(kind, name) {
+    const rec = await this.recordingURL(kind, name);
+    if (rec) {
+      try { await this._playFile(rec); return true; } catch (_) { /* fall through */ }
+    }
+    const url = await this._resolve(kind, name);
+    if (url) {
+      try { await this._playFile(url); return true; } catch (_) { /* fall through */ }
+    }
+    return false;
+  }
+
   // Play the pure sound of a single letter (for blending).
   async playPhoneme(letter) {
     if (this.muted) return;
     await this.ready;
     const l = letter.toLowerCase();
-    const url = await this._resolve('phoneme', l);
-    if (url) {
-      try { await this._playFile(url); return; } catch (_) { /* fall through */ }
-    }
+    if (await this._playRecordedOrFile('phoneme', l)) return;
     await this._speakPhoneme(l);
   }
 
@@ -269,10 +305,7 @@ export class AudioManager {
   async playWord(word) {
     if (this.muted) return;
     await this.ready;
-    const url = await this._resolve('word', word);
-    if (url) {
-      try { await this._playFile(url); return; } catch (_) { /* fall through */ }
-    }
+    if (await this._playRecordedOrFile('word', word)) return;
     await this._speak(word, { rate: 0.85, pitch: 1.05 });
   }
 
@@ -280,11 +313,8 @@ export class AudioManager {
   async praise() {
     if (this.muted) return;
     await this.ready;
+    if (await this._playRecordedOrFile('cheer', 'cheer')) return;
     const cheers = ['Yay!', 'You did it!', 'Great reading!', 'Woohoo!', 'Magic!'];
-    const url = await this._resolve('cheer', 'cheer');
-    if (url) {
-      try { await this._playFile(url); return; } catch (_) { /* fall through */ }
-    }
     await this._speak(cheers[Math.floor(Math.random() * cheers.length)], { rate: 0.95, pitch: 1.25 });
   }
 }
