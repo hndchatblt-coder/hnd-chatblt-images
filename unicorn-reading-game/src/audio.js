@@ -24,6 +24,7 @@ const WORD_DIR = './audio/words/';
 const EXT = '.mp3';
 const REC_DB = 'unicorn-reading';     // IndexedDB holding the grown-up's recordings
 const REC_STORE = 'recordings';
+const VOICE_KEY = 'unicorn-reading-voice'; // tweakable fallback-voice settings
 
 // Sounds that can be held/stretched (vowels + continuant consonants). These get
 // spoken slowly and drawn-out so they're clear for blending. Everything else is
@@ -47,6 +48,16 @@ export class AudioManager {
     this._cache = new Map();
     this._tts = ('speechSynthesis' in window) ? window.speechSynthesis : null;
     this._voice = null;
+    // Tweakable fallback-voice settings (used for sounds not yet recorded).
+    this._voiceURI = null;
+    this._userRate = 1;    // speed multiplier
+    this._userPitch = 1.1; // 0..2
+    try {
+      const s = JSON.parse(localStorage.getItem(VOICE_KEY) || '{}');
+      if (s.uri) this._voiceURI = s.uri;
+      if (s.rate) this._userRate = s.rate;
+      if (s.pitch) this._userPitch = s.pitch;
+    } catch (_) {}
     if (this._tts) {
       this._pickVoice();
       this._tts.onvoiceschanged = () => this._pickVoice();
@@ -56,14 +67,51 @@ export class AudioManager {
     this._dbPromise = null;
   }
 
-  // Pick one pleasant English voice for the text-to-speech FALLBACK, used only
-  // until a sound has been recorded by a grown-up. No in-game picker — the goal
-  // is a single consistent voice (ideally a recorded human one).
+  // English voices, best-sounding first (for the settings picker).
+  voiceList() {
+    if (!this._tts) return [];
+    return this._tts.getVoices()
+      .filter(v => /^en/i.test(v.lang))
+      .sort((a, b) => this._scoreVoice(b) - this._scoreVoice(a));
+  }
+
+  getVoiceSettings() {
+    return { uri: this._voice ? this._voice.voiceURI : null, rate: this._userRate, pitch: this._userPitch };
+  }
+
+  _saveVoiceSettings() {
+    try {
+      localStorage.setItem(VOICE_KEY, JSON.stringify({
+        uri: this._voice ? this._voice.voiceURI : null,
+        rate: this._userRate, pitch: this._userPitch,
+      }));
+    } catch (_) {}
+  }
+
+  setVoice(uri) {
+    const v = this._tts && this._tts.getVoices().find(x => x.voiceURI === uri);
+    if (!v) return;
+    this._voice = v; this._voiceURI = uri; this._saveVoiceSettings();
+  }
+  setRate(r) { this._userRate = r; this._saveVoiceSettings(); }
+  setPitch(p) { this._userPitch = p; this._saveVoiceSettings(); }
+
+  // Audition the current fallback voice/settings.
+  async sampleVoice() {
+    for (const l of ['a', 'c', 't']) { await this._speakPhoneme(l); await wait(160); }
+    await wait(150);
+    await this._speak('cat', { rate: 0.85 });
+  }
+
+  // Pick the saved voice if available, else the best English one.
   _pickVoice() {
     if (!this._tts) return;
-    const voices = this._tts.getVoices().filter(v => /^en/i.test(v.lang));
-    voices.sort((a, b) => this._scoreVoice(b) - this._scoreVoice(a));
-    this._voice = voices[0] || this._tts.getVoices()[0] || null;
+    const voices = this._tts.getVoices();
+    let chosen = this._voiceURI ? voices.find(v => v.voiceURI === this._voiceURI) : null;
+    if (!chosen) {
+      chosen = voices.filter(v => /^en/i.test(v.lang)).sort((a, b) => this._scoreVoice(b) - this._scoreVoice(a))[0];
+    }
+    this._voice = chosen || voices[0] || null;
   }
 
   _scoreVoice(v) {
@@ -261,15 +309,14 @@ export class AudioManager {
     });
   }
 
-  _speak(text, { rate = 0.85, pitch = 1.1, voice } = {}) {
+  _speak(text, { rate = 0.85, pitch } = {}) {
     return new Promise((resolve) => {
       if (!this._tts) { resolve(); return; }
       this._tts.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      const vv = voice || this._voice;
-      if (vv) { u.voice = vv; u.lang = vv.lang; }
-      u.rate = rate;
-      u.pitch = pitch;
+      if (this._voice) { u.voice = this._voice; u.lang = this._voice.lang; }
+      u.rate = Math.max(0.1, Math.min(2, rate * this._userRate));
+      u.pitch = Math.max(0, Math.min(2, pitch != null ? pitch : this._userPitch));
       u.onend = () => resolve();
       u.onerror = () => resolve();
       this._tts.speak(u);
@@ -277,24 +324,28 @@ export class AudioManager {
   }
 
   // Speak a single letter SOUND via TTS, tuned for phonics blending.
-  _speakPhoneme(letter, voice) {
+  _speakPhoneme(letter) {
     const l = letter.toLowerCase();
     const hint = PHONEME_HINTS[l] || l;
     const stretchy = CONTINUANTS.has(l);
     // Continuants: slow & held. Stops: brisk to minimise the trailing schwa.
-    return this._speak(hint, { rate: stretchy ? 0.5 : 0.9, pitch: 1.1, voice });
+    return this._speak(hint, { rate: stretchy ? 0.5 : 0.9 });
   }
 
-  // Try a grown-up's recording first, then a bundled file. Returns true if it
-  // played one.
+  // Try a grown-up's recording first, then a bundled file. Returns true if a
+  // recording/file is the source for this sound. IMPORTANT: if a recording
+  // exists we ALWAYS report true (and never speak with the robot), so a saved
+  // voice is never randomly replaced by text-to-speech — even if a single
+  // playback gets interrupted (e.g. rapid taps).
   async _playRecordedOrFile(kind, name) {
     const rec = await this.recordingURL(kind, name);
     if (rec) {
-      try { await this._playFile(rec); return true; } catch (_) { /* fall through */ }
+      try { await this._playFile(rec); } catch (_) { /* keep using her voice; just skip this blip */ }
+      return true;
     }
     const url = await this._resolve(kind, name);
     if (url) {
-      try { await this._playFile(url); return true; } catch (_) { /* fall through */ }
+      try { await this._playFile(url); return true; } catch (_) { /* fall through to TTS */ }
     }
     return false;
   }
@@ -313,7 +364,7 @@ export class AudioManager {
     if (this.muted) return;
     await this.ready;
     if (await this._playRecordedOrFile('word', word)) return;
-    await this._speak(word, { rate: 0.85, pitch: 1.05 });
+    await this._speak(word, { rate: 0.85 });
   }
 
   // Short spoken praise on success.

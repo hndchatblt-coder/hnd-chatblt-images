@@ -5,7 +5,7 @@ const KEY = 'unicorn-reading-progress-v1';
 
 const DEFAULTS = {
   stars: 0,          // total stars ever earned
-  unlocked: 0,       // number of friends collected (first N of FRIENDS)
+  unlocked: 1,       // creatures owned (first N of FRIENDS); the unicorn is owned from the start
   questIndex: 0,     // which quest variation is active
   questProgress: 0,  // tokens filled in the current quest
   buddy: 0,          // index into FRIENDS of the active on-screen character
@@ -14,7 +14,9 @@ const DEFAULTS = {
 export function loadProgress() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
-    return { ...DEFAULTS, ...saved };
+    const p = { ...DEFAULTS, ...saved };
+    p.unlocked = Math.max(1, p.unlocked | 0); // the unicorn is always owned
+    return p;
   } catch (_) {
     return { ...DEFAULTS };
   }
