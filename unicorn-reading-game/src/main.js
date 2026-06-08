@@ -279,8 +279,10 @@ class Game {
       settingsBtn: document.getElementById('settings-btn'),
       settingsScreen: document.getElementById('settings-screen'),
       settingsClose: document.getElementById('settings-close'),
-      voiceList: document.getElementById('voice-list'),
-      voiceTry: document.getElementById('voice-try'),
+      studioList: document.getElementById('studio-list'),
+      studioProgress: document.getElementById('studio-progress'),
+      tabSounds: document.getElementById('tab-sounds'),
+      tabWords: document.getElementById('tab-words'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderQuest();
@@ -356,46 +358,123 @@ class Game {
       if (e.target === this.el.collectionScreen) this.el.collectionScreen.classList.add('hidden');
     });
 
-    // Voice settings
-    this.el.settingsBtn.addEventListener('click', () => {
-      this.audio.unlock();
-      this._renderVoiceList();
-      this.el.settingsScreen.classList.remove('hidden');
-    });
-    this.el.settingsClose.addEventListener('click', () => this.el.settingsScreen.classList.add('hidden'));
+    // Recording studio (for a grown-up)
+    this._studioTab = 'sounds';
+    this.el.settingsBtn.addEventListener('click', () => this._openStudio());
+    this.el.settingsClose.addEventListener('click', () => this._closeStudio());
     this.el.settingsScreen.addEventListener('click', (e) => {
-      if (e.target === this.el.settingsScreen) this.el.settingsScreen.classList.add('hidden');
+      if (e.target === this.el.settingsScreen) this._closeStudio();
     });
-    this.el.voiceTry.addEventListener('click', () => this.audio.sample(this._pendingVoiceURI));
-    // Re-render the list if the device finishes loading voices while it's open.
-    this.audio.onVoicesChanged = () => {
-      if (!this.el.settingsScreen.classList.contains('hidden')) this._renderVoiceList();
-    };
+    this.el.tabSounds.addEventListener('click', () => this._setStudioTab('sounds'));
+    this.el.tabWords.addEventListener('click', () => this._setStudioTab('words'));
   }
 
-  _renderVoiceList() {
-    const voices = this.audio.englishVoices();
-    this._pendingVoiceURI = this.audio.currentVoiceURI();
-    this.el.voiceList.innerHTML = '';
-    if (!voices.length) {
-      this.el.voiceList.innerHTML = '<div class="settings-note">No voices found on this device yet — try again in a moment.</div>';
+  // Unique letters used across all words, alphabetically (the sounds to record).
+  _studioLetters() {
+    const set = new Set();
+    for (const w of WORDS) for (const ch of w.word) set.add(ch);
+    return [...set].sort();
+  }
+
+  async _openStudio() {
+    this.audio.unlock();
+    this._recordedKeys = await this.audio.recordedKeys();
+    this._setStudioTab(this._studioTab);
+    this.el.settingsScreen.classList.remove('hidden');
+  }
+
+  _closeStudio() {
+    this._stopRecording(true); // discard any in-progress recording
+    this.el.settingsScreen.classList.add('hidden');
+  }
+
+  _setStudioTab(tab) {
+    this._stopRecording(true);
+    this._studioTab = tab;
+    this.el.tabSounds.classList.toggle('active', tab === 'sounds');
+    this.el.tabWords.classList.toggle('active', tab === 'words');
+    this._renderStudio();
+  }
+
+  _renderStudio() {
+    const kind = this._studioTab === 'sounds' ? 'phoneme' : 'word';
+    const items = this._studioTab === 'sounds' ? this._studioLetters() : WORDS.map(w => w.word);
+    this.el.studioList.innerHTML = '';
+    items.forEach((name) => {
+      const recorded = this._recordedKeys.has(this.audio.recKey(kind, name));
+      const row = document.createElement('div');
+      row.className = 'rec-row' + (recorded ? ' done' : '');
+      row.dataset.kind = kind; row.dataset.name = name;
+      row.innerHTML = `
+        <span class="rec-label"></span>
+        <span class="rec-status">${recorded ? '✓' : ''}</span>
+        <button class="rec-mic" aria-label="Record">●</button>
+        <button class="rec-play" aria-label="Play">▶</button>`;
+      row.querySelector('.rec-label').textContent = name;
+      row.querySelector('.rec-mic').addEventListener('click', () => this._toggleRecord(row));
+      row.querySelector('.rec-play').addEventListener('click', () => {
+        if (kind === 'phoneme') this.audio.playPhoneme(name);
+        else this.audio.playWord(name);
+      });
+      this.el.studioList.appendChild(row);
+    });
+    this._updateStudioProgress();
+  }
+
+  _updateStudioProgress() {
+    const kind = this._studioTab === 'sounds' ? 'phoneme' : 'word';
+    const items = this._studioTab === 'sounds' ? this._studioLetters() : WORDS.map(w => w.word);
+    const done = items.filter(n => this._recordedKeys.has(this.audio.recKey(kind, n))).length;
+    this.el.studioProgress.textContent = `(${done}/${items.length} recorded)`;
+  }
+
+  async _toggleRecord(row) {
+    // Tapping the active row stops & saves; tapping another stops the old first.
+    if (this._recording) {
+      const wasSame = this._recordingRow === row;
+      this._stopRecording(false);
+      if (wasSame) return;
+    }
+    let stream;
+    try {
+      stream = this._micStream || (this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true }));
+    } catch (_) {
+      alert('To record, please allow microphone access for this page, then try again.');
       return;
     }
-    voices.forEach((v) => {
-      const row = document.createElement('div');
-      row.className = 'voice-row' + (v.voiceURI === this._pendingVoiceURI ? ' selected' : '');
-      row.innerHTML = `<span class="dot"></span><span class="vname"></span><span class="vlang"></span>`;
-      row.querySelector('.vname').textContent = v.name;
-      row.querySelector('.vlang').textContent = v.lang;
-      row.addEventListener('click', () => {
-        this._pendingVoiceURI = v.voiceURI;
-        this.audio.setVoiceByURI(v.voiceURI);
-        this.el.voiceList.querySelectorAll('.voice-row').forEach(r => r.classList.remove('selected'));
-        row.classList.add('selected');
-        this.audio.sample(v.voiceURI);
-      });
-      this.el.voiceList.appendChild(row);
-    });
+    let mr;
+    try { mr = new MediaRecorder(stream); } catch (_) {
+      alert("Sorry, this browser can't record audio. Try Safari or Chrome.");
+      return;
+    }
+    const chunks = [];
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      row.classList.remove('recording');
+      row.querySelector('.rec-mic').textContent = '●';
+      if (this._discardRecording || !chunks.length) return;
+      const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+      await this.audio.saveRecording(row.dataset.kind, row.dataset.name, blob);
+      this._recordedKeys.add(this.audio.recKey(row.dataset.kind, row.dataset.name));
+      row.classList.add('done');
+      row.querySelector('.rec-status').textContent = '✓';
+      this._updateStudioProgress();
+    };
+    this._mediaRecorder = mr;
+    this._recording = true;
+    this._recordingRow = row;
+    this._discardRecording = false;
+    row.classList.add('recording');
+    row.querySelector('.rec-mic').textContent = '■';
+    mr.start();
+  }
+
+  _stopRecording(discard) {
+    if (!this._recording) return;
+    this._discardRecording = !!discard;
+    this._recording = false;
+    try { this._mediaRecorder.stop(); } catch (_) {}
+    this._recordingRow = null;
   }
 
   _onResize() {
