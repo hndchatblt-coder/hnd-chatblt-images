@@ -84,7 +84,7 @@ html, body {
   color: #fff;
   font-weight: 900;
 }
-.next-btn.disabled { opacity: 0; pointer-events: none; }
+#hud .next-btn.disabled { opacity: 0; pointer-events: none; }
 
 #hint {
   position: absolute;
@@ -387,3 +387,24 @@ html, body {
 .rec-row.recording .rec-mic { background: #ff5d5d; color: #fff; }
 .rec-mic:active, .rec-play:active { transform: scale(0.9); }
 .settings-buttons { display: flex; gap: 10px; justify-content: center; }
+.close-btn.alt { background: #fff; color: var(--purple); box-shadow: inset 0 0 0 2px var(--purple); }
+
+/* ----- Robot voice settings ----- */
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 12px 0;
+  font-size: 17px;
+}
+.vrow select, .vrow input[type=range] { flex: 1; min-width: 0; }
+.vrow select {
+  padding: 10px;
+  border-radius: 12px;
+  border: 2px solid rgba(138, 107, 255, 0.4);
+  background: #fff;
+  font-size: 16px;
+}
+.vrow input[type=range] { accent-color: var(--pink); height: 28px; }

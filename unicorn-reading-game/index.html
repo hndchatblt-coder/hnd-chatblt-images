@@ -27,6 +27,7 @@
       <button id="replay-btn" class="icon-btn" aria-label="Hear again">🔁</button>
       <button id="mute-btn" class="icon-btn" aria-label="Sound on/off">🔊</button>
       <button id="settings-btn" class="icon-btn" aria-label="Record voice">🎙️</button>
+      <button id="voice-btn" class="icon-btn" aria-label="Robot voice settings">⚙️</button>
     </div>
 
     <!-- Quest banner: the current goal + a tray of tokens to fill -->
@@ -58,6 +59,21 @@
       <div id="studio-list"></div>
       <div class="settings-buttons">
         <button id="settings-close" class="close-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Robot voice settings (the fallback voice, used for sounds not recorded) -->
+  <div id="voice-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>Robot voice ⚙️</h2>
+      <p class="settings-note">This is the back-up voice for any sound you haven't recorded yet. Pick the nicest one on this phone and adjust it, then tap “Try”.</p>
+      <label class="vrow">Voice<select id="voice-select"></select></label>
+      <label class="vrow">Speed <input id="voice-rate" type="range" min="0.5" max="1.3" step="0.05"></label>
+      <label class="vrow">Pitch <input id="voice-pitch" type="range" min="0.7" max="1.6" step="0.05"></label>
+      <div class="settings-buttons">
+        <button id="voice-try" class="close-btn alt">▶ Try</button>
+        <button id="voice-close" class="close-btn">Done</button>
       </div>
     </div>
   </div>

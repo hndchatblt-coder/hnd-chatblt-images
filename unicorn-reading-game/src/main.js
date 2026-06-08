@@ -284,6 +284,13 @@ class Game {
       studioProgress: document.getElementById('studio-progress'),
       tabSounds: document.getElementById('tab-sounds'),
       tabWords: document.getElementById('tab-words'),
+      voiceBtn: document.getElementById('voice-btn'),
+      voiceScreen: document.getElementById('voice-screen'),
+      voiceSelect: document.getElementById('voice-select'),
+      voiceRate: document.getElementById('voice-rate'),
+      voicePitch: document.getElementById('voice-pitch'),
+      voiceTry: document.getElementById('voice-try'),
+      voiceClose: document.getElementById('voice-close'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderQuest();
@@ -381,6 +388,38 @@ class Game {
     });
     this.el.tabSounds.addEventListener('click', () => this._setStudioTab('sounds'));
     this.el.tabWords.addEventListener('click', () => this._setStudioTab('words'));
+
+    // Robot-voice settings
+    this.el.voiceBtn.addEventListener('click', () => { this.audio.unlock(); this._openVoice(); });
+    this.el.voiceClose.addEventListener('click', () => this.el.voiceScreen.classList.add('hidden'));
+    this.el.voiceScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.voiceScreen) this.el.voiceScreen.classList.add('hidden');
+    });
+    this.el.voiceSelect.addEventListener('change', () => { this.audio.setVoice(this.el.voiceSelect.value); this.audio.sampleVoice(); });
+    this.el.voiceRate.addEventListener('change', () => this.audio.setRate(parseFloat(this.el.voiceRate.value)));
+    this.el.voicePitch.addEventListener('change', () => this.audio.setPitch(parseFloat(this.el.voicePitch.value)));
+    this.el.voiceTry.addEventListener('click', () => this.audio.sampleVoice());
+  }
+
+  _openVoice() {
+    const s = this.audio.getVoiceSettings();
+    const voices = this.audio.voiceList();
+    this.el.voiceSelect.innerHTML = '';
+    if (!voices.length) {
+      const opt = document.createElement('option');
+      opt.textContent = 'Default device voice';
+      this.el.voiceSelect.appendChild(opt);
+    }
+    voices.forEach((v) => {
+      const opt = document.createElement('option');
+      opt.value = v.voiceURI;
+      opt.textContent = `${v.name} (${v.lang})`;
+      if (v.voiceURI === s.uri) opt.selected = true;
+      this.el.voiceSelect.appendChild(opt);
+    });
+    this.el.voiceRate.value = s.rate;
+    this.el.voicePitch.value = s.pitch;
+    this.el.voiceScreen.classList.remove('hidden');
   }
 
   // Unique letters used across all words, alphabetically (the sounds to record).
@@ -509,6 +548,11 @@ class Game {
   // Word lifecycle
   // --------------------------------------------------------------------------
   nextWord() {
+    // Cancel any pending celebration visuals from the word we're leaving.
+    clearTimeout(this._winTimer);
+    clearTimeout(this._winTimer2);
+    clearTimeout(this._answersHideTimer);
+
     // If the last word finished a quest, move on to the next quest variation.
     if (this.questJustCompleted) {
       this.questJustCompleted = false;
@@ -553,6 +597,7 @@ class Game {
     const correct = this.current.emoji;
     const others = shuffle(WORDS.map(w => w.emoji).filter(e => e !== correct));
     const choices = shuffle([correct, ...others.slice(0, 9)]);
+    clearTimeout(this._answersHideTimer); // don't let a previous win hide these
     this.el.answers.classList.remove('hidden');
     this.el.answers.innerHTML = '';
     choices.forEach((emoji) => {
@@ -638,9 +683,10 @@ class Game {
   // Win (correct picture chosen) + celebrate
   // --------------------------------------------------------------------------
   _win() {
+    if (this.state !== 'playing') return;
     this.state = 'celebrating';
-    this.el.hint.textContent = '';
-    setTimeout(() => this.el.answers.classList.add('hidden'), 300);
+    clearTimeout(this._answersHideTimer);
+    this._answersHideTimer = setTimeout(() => this.el.answers.classList.add('hidden'), 300);
 
     // Slide cards together toward the centre so they read as one word.
     const n = this.tiles.length;
@@ -650,31 +696,37 @@ class Game {
       to(t.mesh.position, { x: startX + i * tight, y: TILE_Y }, 0.45, { ease: easeInOutQuad });
     });
 
-    setTimeout(() => {
+    // --- Grant rewards IMMEDIATELY so advancing fast never loses them ---
+    this.stars++;
+    this.progress.stars = this.stars;
+    this.el.stars.textContent = String(this.stars);
+    this._pop(this.el.stars.parentElement);
+
+    this.progress.questProgress++;
+    this._fillQuestSlot(this.progress.questProgress - 1);
+    const questDone = this.progress.questProgress >= GOAL_SIZE;
+
+    let unlockedFriend = null;
+    if (questDone) {
+      if (this.progress.unlocked < FRIENDS.length) {
+        unlockedFriend = FRIENDS[this.progress.unlocked];
+        this.progress.unlocked++;
+        this._renderCollection();
+      }
+      this.questJustCompleted = true;
+    }
+    saveProgress(this.progress);
+    this.el.next.classList.remove('disabled');
+    this.el.hint.textContent = questDone ? 'Tap for a new adventure →' : 'Tap to keep going →';
+
+    // --- Deferred VISUALS (cancelled if she advances quickly) ---
+    this._winTimer = setTimeout(() => {
       this.audio.playWord(this.current.word);
       this._unicornCheer();
       this._showReward();
       this._burst();
       this.audio.praise();
-
-      // Reward: a star + progress on the current quest.
-      this.stars++;
-      this.progress.stars = this.stars;
-      this.el.stars.textContent = String(this.stars);
-      this._pop(this.el.stars.parentElement);
-
-      this.progress.questProgress++;
-      this._fillQuestSlot(this.progress.questProgress - 1);
-      const questDone = this.progress.questProgress >= GOAL_SIZE;
-      saveProgress(this.progress);
-
-      if (questDone) {
-        setTimeout(() => this._completeQuest(), 700);
-        this.el.hint.textContent = '';
-      } else {
-        this.el.hint.textContent = 'Tap to keep going →';
-      }
-      this.el.next.classList.remove('disabled');
+      if (questDone) this._winTimer2 = setTimeout(() => this._celebrateQuest(unlockedFriend), 700);
     }, 520);
   }
 
@@ -706,28 +758,16 @@ class Game {
     }, 620);
   }
 
-  // A whole quest is complete: big celebration + unlock a new friend.
-  _completeQuest() {
+  // Quest-complete celebration visuals (the friend was already unlocked in _win).
+  _celebrateQuest(friend) {
     const q = this.quest;
     this.audio.fanfare();
     this._unicornCheer();
     this._burst([q.token, '✨', '🌈', '⭐', '🎉']);
     this._burst([q.token, '✨', '💖']);
-
-    // Unlock the next magical friend (if any remain).
-    let friend = null;
-    if (this.progress.unlocked < FRIENDS.length) {
-      friend = FRIENDS[this.progress.unlocked];
-      this.progress.unlocked++;
-      this._renderCollection();
-      this._pop(this.el.collectionBtn);
-    }
-    saveProgress(this.progress);
-
+    if (friend) this._pop(this.el.collectionBtn);
     setTimeout(() => this.audio.praise(), 900);
     this._showFriendToast(friend, q.cheer);
-    this.questJustCompleted = true;
-    this.el.hint.textContent = 'Tap for a new adventure →';
   }
 
   _showFriendToast(friend, cheer) {
