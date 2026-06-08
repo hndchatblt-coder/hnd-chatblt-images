@@ -183,6 +183,13 @@ export class AudioManager {
     this._beep(1320, 0.07, 0.18, { type: 'triangle', gain: 0.13 });
   }
 
+  // Gentle "not quite" sound for a wrong picture (never harsh).
+  nope() {
+    if (this.muted || !this._ctx) return;
+    this._beep(330, 0, 0.13, { type: 'sine', gain: 0.1 });
+    this._beep(247, 0.1, 0.18, { type: 'sine', gain: 0.1 });
+  }
+
   // Happy ascending fanfare when a whole quest is completed.
   fanfare() {
     if (this.muted || !this._ctx) return;
