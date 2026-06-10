@@ -472,6 +472,7 @@ html, body {
   font-size: 17px;
 }
 .vrow select, .vrow input[type=range] { flex: 1; min-width: 0; }
+.vrow input[type=checkbox] { width: 28px; height: 28px; accent-color: var(--pink); cursor: pointer; }
 .vrow select {
   padding: 10px;
   border-radius: 12px;
