@@ -23,6 +23,20 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ----- Rotate-to-portrait notice (phones in landscape) ----- */
+#rotate-notice { display: none; }
+@media (orientation: landscape) and (max-height: 560px) {
+  #rotate-notice {
+    display: flex;
+    position: fixed; inset: 0; z-index: 100;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #ffe1f6, #cfeeff);
+    text-align: center;
+  }
+  .rotate-card { font-size: 24px; font-weight: 800; color: var(--purple); padding: 24px; }
+  .rotate-emoji { font-size: 64px; margin-bottom: 8px; animation: bob 2.2s ease-in-out infinite; }
+}
+
 /* ----- HUD ----- */
 #hud { position: fixed; inset: 0; pointer-events: none; }
 #hud .badge,
@@ -72,6 +86,15 @@ html, body {
   justify-content: center;
 }
 .icon-btn:active, .next-btn:active { transform: scale(0.92); }
+
+/* Narrow phones: shrink the HUD so all six controls fit on one row */
+@media (max-width: 400px) {
+  .right-buttons { gap: 6px; right: 8px; }
+  .icon-btn { width: 44px; height: 44px; font-size: 21px; }
+  .badge { left: 8px; font-size: 20px; padding: 6px 12px 6px 9px; }
+  .badge .star { font-size: 20px; }
+  .count { font-size: 11px; min-width: 17px; height: 17px; }
+}
 
 .next-btn {
   position: absolute;
@@ -349,6 +372,42 @@ html, body {
 /* ----- Recording studio ----- */
 .settings-note { color: var(--ink); font-size: 15px; margin: 0 0 14px; opacity: 0.85; line-height: 1.4; }
 #studio-progress { font-weight: 800; color: var(--purple); }
+.studio-tools { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
+.mini-btn {
+  border: none;
+  background: rgba(138, 107, 255, 0.14);
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.mini-btn:active { transform: scale(0.94); }
+
+/* Guided recording */
+#guide-big {
+  font-size: 92px;
+  font-weight: 900;
+  color: var(--purple);
+  line-height: 1.1;
+  margin: 6px 0;
+}
+.guide-mic {
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  border: none;
+  background: #ff5d5d;
+  color: #fff;
+  font-size: 40px;
+  cursor: pointer;
+  margin: 6px auto 16px;
+  display: block;
+  box-shadow: 0 8px 20px rgba(255, 93, 93, 0.4);
+}
+.guide-mic.recording { animation: recpulse 1s ease-in-out infinite; }
+.guide-mic.done { background: #7ee081; }
+
 .studio-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .tab {
   flex: 1;

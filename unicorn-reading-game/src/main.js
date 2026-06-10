@@ -292,6 +292,19 @@ class Game {
       voicePitch: document.getElementById('voice-pitch'),
       voiceTry: document.getElementById('voice-try'),
       voiceClose: document.getElementById('voice-close'),
+      guideBtn: document.getElementById('guide-btn'),
+      backupBtn: document.getElementById('backup-btn'),
+      restoreBtn: document.getElementById('restore-btn'),
+      restoreFile: document.getElementById('restore-file'),
+      guideScreen: document.getElementById('guide-screen'),
+      guideProgress: document.getElementById('guide-progress'),
+      guideBig: document.getElementById('guide-big'),
+      guidePrompt: document.getElementById('guide-prompt'),
+      guideMic: document.getElementById('guide-mic'),
+      guidePrev: document.getElementById('guide-prev'),
+      guidePlay: document.getElementById('guide-play'),
+      guideNext: document.getElementById('guide-next'),
+      guideDone: document.getElementById('guide-done'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderQuest();
@@ -405,6 +418,19 @@ class Game {
     });
     this.el.tabSounds.addEventListener('click', () => this._setStudioTab('sounds'));
     this.el.tabWords.addEventListener('click', () => this._setStudioTab('words'));
+
+    // Backup / restore recordings + progress
+    this.el.backupBtn.addEventListener('click', () => this._exportBackup());
+    this.el.restoreBtn.addEventListener('click', () => this.el.restoreFile.click());
+    this.el.restoreFile.addEventListener('change', (e) => this._importBackup(e.target.files[0]));
+
+    // Guided recording walkthrough
+    this.el.guideBtn.addEventListener('click', () => this._openGuide());
+    this.el.guideDone.addEventListener('click', () => this._closeGuide());
+    this.el.guideMic.addEventListener('click', () => this._guideToggleRecord());
+    this.el.guidePlay.addEventListener('click', () => this._guidePlayCurrent());
+    this.el.guidePrev.addEventListener('click', () => this._guideStep(-1));
+    this.el.guideNext.addEventListener('click', () => this._guideStep(1));
 
     // Robot-voice settings
     this.el.voiceBtn.addEventListener('click', () => { this.audio.unlock(); this._openVoice(); });
@@ -547,6 +573,137 @@ class Game {
     this._recordingRow = null;
   }
 
+  // --------------------------------------------------------------------------
+  // Guided recording: walk every sound + word one at a time, big and friendly.
+  // --------------------------------------------------------------------------
+  async _openGuide() {
+    this.audio.unlock();
+    this._recordedKeys = await this.audio.recordedKeys();
+    const letters = this._studioLetters().map(n => ({ kind: 'phoneme', name: n }));
+    const words = WORDS.map(w => ({ kind: 'word', name: w.word }));
+    this._guideItems = [...letters, ...words];
+    // Start on the first thing not yet recorded.
+    const firstTodo = this._guideItems.findIndex(it => !this._recordedKeys.has(this.audio.recKey(it.kind, it.name)));
+    this._guideIdx = firstTodo < 0 ? 0 : firstTodo;
+    this.el.settingsScreen.classList.add('hidden');
+    this.el.guideScreen.classList.remove('hidden');
+    this._renderGuide();
+  }
+
+  _closeGuide() {
+    this._stopRecording(true);
+    this.el.guideScreen.classList.add('hidden');
+    this._renderStudio(); // reflect any new ticks in the grid
+    this.el.settingsScreen.classList.remove('hidden');
+  }
+
+  _guideStep(delta) {
+    this._stopRecording(true);
+    this._guideIdx = (this._guideIdx + delta + this._guideItems.length) % this._guideItems.length;
+    this._renderGuide();
+  }
+
+  _renderGuide() {
+    const it = this._guideItems[this._guideIdx];
+    const recorded = this._recordedKeys.has(this.audio.recKey(it.kind, it.name));
+    this.el.guideProgress.textContent = `${this._guideIdx + 1} of ${this._guideItems.length} · ${recorded ? '✓ recorded' : 'not yet'}`;
+    this.el.guideBig.textContent = it.name;
+    this.el.guidePrompt.textContent = it.kind === 'phoneme'
+      ? 'Say the SOUND it makes (e.g. “mmm”, not “em”)'
+      : 'Say the whole word';
+    this.el.guideMic.textContent = '●';
+    this.el.guideMic.classList.remove('recording');
+    this.el.guideMic.classList.toggle('done', recorded);
+  }
+
+  _guidePlayCurrent() {
+    const it = this._guideItems[this._guideIdx];
+    if (it.kind === 'phoneme') this.audio.playPhoneme(it.name);
+    else this.audio.playWord(it.name);
+  }
+
+  async _guideToggleRecord() {
+    if (this._recording) { this._stopRecording(false); return; }
+    const it = this._guideItems[this._guideIdx];
+    let stream;
+    try {
+      stream = this._micStream || (this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true }));
+    } catch (_) {
+      alert('To record, please allow microphone access for this page, then try again.');
+      return;
+    }
+    let mr;
+    try { mr = new MediaRecorder(stream); } catch (_) {
+      alert("Sorry, this browser can't record audio. Try Safari or Chrome.");
+      return;
+    }
+    const chunks = [];
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      this.el.guideMic.classList.remove('recording');
+      this.el.guideMic.textContent = '●';
+      if (this._discardRecording || !chunks.length) return;
+      const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+      await this.audio.saveRecording(it.kind, it.name, blob);
+      this._recordedKeys.add(this.audio.recKey(it.kind, it.name));
+      // Auto-advance to the next item after a short beat.
+      setTimeout(() => {
+        if (this.el.guideScreen.classList.contains('hidden')) return;
+        if (this._guideIdx < this._guideItems.length - 1) { this._guideIdx++; this._renderGuide(); }
+        else this._renderGuide();
+      }, 350);
+    };
+    this._mediaRecorder = mr;
+    this._recording = true;
+    this._discardRecording = false;
+    this.el.guideMic.classList.add('recording');
+    this.el.guideMic.textContent = '■';
+    mr.start();
+  }
+
+  // --------------------------------------------------------------------------
+  // Backup / restore (recordings + progress) to a file on the device.
+  // --------------------------------------------------------------------------
+  async _exportBackup() {
+    try {
+      const recs = await this.audio.allRecordings();
+      const recordings = {};
+      for (const r of recs) recordings[r.key] = await blobToDataURL(r.blob);
+      const data = {
+        app: 'unicorn-reading', version: 1,
+        progress: localStorage.getItem('unicorn-reading-progress-v1'),
+        voice: localStorage.getItem('unicorn-reading-voice'),
+        recordings,
+      };
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'unicorn-reading-backup.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (_) {
+      alert('Sorry, the backup could not be created.');
+    }
+  }
+
+  async _importBackup(file) {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data.app !== 'unicorn-reading') throw new Error('not a backup');
+      if (data.progress) localStorage.setItem('unicorn-reading-progress-v1', data.progress);
+      if (data.voice) localStorage.setItem('unicorn-reading-voice', data.voice);
+      for (const [key, dataURL] of Object.entries(data.recordings || {})) {
+        await this.audio.putRecording(key, dataURLToBlob(dataURL));
+      }
+      this.el.restoreFile.value = '';
+      alert('Restored! Your recordings and progress are back.');
+      location.reload();
+    } catch (_) {
+      alert("That file couldn't be read as a Unicorn Reading backup.");
+    }
+  }
+
   _onResize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h);
@@ -609,13 +766,18 @@ class Game {
     this.state = 'playing';
   }
 
-  // Ten picture choices: the correct one + nine others, shuffled.
+  // Picture choices: the correct one + distractors, shuffled. The number of
+  // choices grows with experience — gentle at first (6), up to 10 — and the
+  // grid stays two rows so the layout never shifts under the word.
   _renderAnswers() {
+    const n = Math.max(6, Math.min(10, 6 + Math.floor(this.stars / 4)));
+    const cols = Math.ceil(n / 2);
     const correct = this.current.emoji;
     const others = shuffle(WORDS.map(w => w.emoji).filter(e => e !== correct));
-    const choices = shuffle([correct, ...others.slice(0, 9)]);
+    const choices = shuffle([correct, ...others.slice(0, n - 1)]);
     clearTimeout(this._answersHideTimer); // don't let a previous win hide these
     this.el.answers.classList.remove('hidden');
+    this.el.answers.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     this.el.answers.innerHTML = '';
     choices.forEach((emoji) => {
       const btn = document.createElement('button');
@@ -632,9 +794,15 @@ class Game {
       btn.classList.add('correct');
       this._win();
     } else {
+      // A wrong guess isn't punished — it nudges her back to the sounds so she
+      // decodes the word rather than guessing pictures at random.
       btn.classList.add('wrong');
       this.audio.nope();
       setTimeout(() => btn.classList.remove('wrong'), 500);
+      this.el.hint.textContent = 'Listen again… 👂';
+      clearTimeout(this._rehintTimer);
+      this._rehintTimer = setTimeout(() => { if (this.state === 'playing') this.el.hint.textContent = 'Sound it out, then tap the picture 👇'; }, 2600);
+      this._replaySounds();
     }
   }
 
@@ -678,11 +846,16 @@ class Game {
   }
 
   // Play each letter sound in order (the 🔁 button helps her blend).
-  _replaySounds() {
-    let delay = 0;
+  // Sequential await so a long sound is never cancelled by the next one;
+  // a token bails out if a new replay (or a new word) starts mid-sequence.
+  async _replaySounds() {
+    const token = (this._replayToken = (this._replayToken || 0) + 1);
+    const word = this.current;
     for (const t of this.tiles) {
-      setTimeout(() => this.audio.playPhoneme(t.letter), delay);
-      delay += 650;
+      if (this._replayToken !== token || this.current !== word) return;
+      t.mesh && this._bounce(t.mesh, 0.12);
+      await this.audio.playPhoneme(t.letter);
+      await new Promise(r => setTimeout(r, 220));
     }
   }
 
@@ -737,11 +910,15 @@ class Game {
     this.el.hint.textContent = questDone ? 'Tap for a new adventure →' : 'Tap to keep going →';
 
     // --- Deferred VISUALS (cancelled if she advances quickly) ---
-    this._winTimer = setTimeout(() => {
-      this.audio.playWord(this.current.word);
+    this._winTimer = setTimeout(async () => {
       this._unicornCheer();
       this._showReward();
       this._burst();
+      const word = this.current;
+      // Speak the word FULLY before cheering — each TTS call cancels the
+      // previous one, so firing these together cut the word off mid-say.
+      await this.audio.playWord(word.word);
+      if (this.current !== word) return; // she already moved on
       this.audio.praise();
       if (questDone) this._winTimer2 = setTimeout(() => this._celebrateQuest(unlockedFriend), 700);
     }, 520);
@@ -885,6 +1062,24 @@ class Game {
 }
 
 const TILE_Y = -1.4;
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function dataURLToBlob(dataURL) {
+  const [head, b64] = dataURL.split(',');
+  const mime = (head.match(/:(.*?);/) || [, 'audio/webm'])[1];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
 
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
