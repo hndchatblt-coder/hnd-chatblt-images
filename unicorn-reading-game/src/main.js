@@ -60,6 +60,7 @@ function updateTweens(dt) {
 // Texture helpers (everything is drawn to a canvas — no image assets needed).
 // ----------------------------------------------------------------------------
 const TILE_COLORS = ['#ff8fd4', '#9d8cff', '#5fc8ff', '#ffd166', '#7ee081', '#ff9e6d'];
+const CAPS_KEY = 'unicorn-reading-caps';
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -178,6 +179,7 @@ class Game {
     this.audio = new AudioManager();
     this.state = 'start';        // 'start' | 'playing' | 'celebrating'
     this.progress = loadProgress();
+    this.capsMode = localStorage.getItem(CAPS_KEY) === 'true';
     this.stars = this.progress.stars;
     this.order = shuffle([...WORDS.keys()]);
     this.orderPos = -1;
@@ -305,6 +307,7 @@ class Game {
       guidePlay: document.getElementById('guide-play'),
       guideNext: document.getElementById('guide-next'),
       guideDone: document.getElementById('guide-done'),
+      capsToggle: document.getElementById('caps-toggle'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderQuest();
@@ -442,6 +445,11 @@ class Game {
     this.el.voiceRate.addEventListener('change', () => this.audio.setRate(parseFloat(this.el.voiceRate.value)));
     this.el.voicePitch.addEventListener('change', () => this.audio.setPitch(parseFloat(this.el.voicePitch.value)));
     this.el.voiceTry.addEventListener('click', () => this.audio.sampleVoice());
+    this.el.capsToggle.addEventListener('change', () => {
+      this.capsMode = this.el.capsToggle.checked;
+      localStorage.setItem(CAPS_KEY, String(this.capsMode));
+      this._refreshTileTextures();
+    });
   }
 
   _openVoice() {
@@ -462,7 +470,17 @@ class Game {
     });
     this.el.voiceRate.value = s.rate;
     this.el.voicePitch.value = s.pitch;
+    this.el.capsToggle.checked = this.capsMode;
     this.el.voiceScreen.classList.remove('hidden');
+  }
+
+  _refreshTileTextures() {
+    this.tiles.forEach((t) => {
+      const displayLetter = this.capsMode ? t.letter.toUpperCase() : t.letter;
+      const color = TILE_COLORS[t.mesh.userData.index % TILE_COLORS.length];
+      t.mesh.material.map.dispose();
+      t.mesh.material.map = makeTileTexture(displayLetter, color);
+    });
   }
 
   // Unique letters used across all words, alphabetically (the sounds to record).
@@ -755,7 +773,8 @@ class Game {
     const letters = this.current.word.split('');
     letters.forEach((ch, i) => {
       const color = TILE_COLORS[i % TILE_COLORS.length];
-      const mat = new THREE.MeshBasicMaterial({ map: makeTileTexture(ch, color), transparent: true });
+      const displayLetter = this.capsMode ? ch.toUpperCase() : ch;
+      const mat = new THREE.MeshBasicMaterial({ map: makeTileTexture(displayLetter, color), transparent: true });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
       mesh.userData.index = i;
       this.tileGroup.add(mesh);
