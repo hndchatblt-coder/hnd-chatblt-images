@@ -8,26 +8,30 @@
 // digraphs — each letter makes its own sound. They're grouped by vowel so you
 // can introduce one vowel family at a time. ~25 words keeps plenty of variety
 // for a young reader without repeating too soon.
+//
+// Because the PICTURES are the win mechanic, every emoji must read as exactly
+// its word to a 4-year-old (no "fin" shown as a whole fish, no "jet" that
+// she'd call a plane) and no two pictures may be easily confused (no van+bus).
 
 export const WORDS = [
   // short 'a'
   { word: 'cat', emoji: '🐱' },
   { word: 'hat', emoji: '🎩' },
   { word: 'bag', emoji: '🎒' },
-  { word: 'van', emoji: '🚐' },
-  { word: 'map', emoji: '🗺️' },
+  { word: 'ant', emoji: '🐜' },
+  { word: 'rat', emoji: '🐀' },
 
   // short 'e'
   { word: 'hen', emoji: '🐔' },
   { word: 'bed', emoji: '🛏️' },
   { word: 'web', emoji: '🕸️' },
-  { word: 'jet', emoji: '✈️' },
-  { word: 'egg', emoji: '🥚' },
+  { word: 'pen', emoji: '🖊️' },
+  { word: 'leg', emoji: '🦵' },
 
   // short 'i'
   { word: 'pig', emoji: '🐷' },
   { word: 'pin', emoji: '📌' },
-  { word: 'fin', emoji: '🐟' },
+  { word: 'lip', emoji: '👄' },
   { word: 'six', emoji: '6️⃣' },
   { word: 'bin', emoji: '🗑️' },
 

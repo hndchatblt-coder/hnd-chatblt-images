@@ -187,6 +187,29 @@ export class AudioManager {
     catch (_) { return new Set(); }
   }
 
+  // Every recording as { key, blob } — for exporting a backup.
+  async allRecordings() {
+    try {
+      const db = await this._openDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(REC_STORE, 'readonly');
+        const store = tx.objectStore(REC_STORE);
+        const keysReq = store.getAllKeys();
+        const valsReq = store.getAll();
+        tx.oncomplete = () => resolve((keysReq.result || []).map((k, i) => ({ key: k, blob: valsReq.result[i] })));
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (_) { return []; }
+  }
+
+  // Write a recording under an exact key — for importing a backup.
+  async putRecording(key, blob) {
+    await this._tx('readwrite', s => s.put(blob, key));
+    const old = this._recCache.get(key);
+    if (old) URL.revokeObjectURL(old);
+    this._recCache.delete(key);
+  }
+
   // Must be called from within a user-gesture handler on mobile.
   unlock() {
     if (this.unlocked) return;

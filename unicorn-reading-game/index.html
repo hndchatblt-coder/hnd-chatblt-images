@@ -19,6 +19,9 @@
 <body>
   <div id="scene"></div>
 
+  <!-- Shown only on a phone held sideways -->
+  <div id="rotate-notice"><div class="rotate-card"><div class="rotate-emoji">🔄🦄</div>Please turn your phone upright</div></div>
+
   <!-- HUD overlay -->
   <div id="hud" class="hidden">
     <div id="stars" class="badge"><span class="star">⭐</span><span id="star-count">0</span></div>
@@ -52,6 +55,12 @@
     <div class="collection-card studio">
       <h2>Record the sounds 🎙️</h2>
       <p class="settings-note">For a grown-up. Tap a tile and say the <b>sound</b> (“mmm”, not “em”); tap again to stop. Tap ▶ to hear it. Saved on this device. <span id="studio-progress"></span></p>
+      <div class="studio-tools">
+        <button id="guide-btn" class="mini-btn">✨ Guided</button>
+        <button id="backup-btn" class="mini-btn">⬇️ Backup</button>
+        <button id="restore-btn" class="mini-btn">⬆️ Restore</button>
+        <input id="restore-file" type="file" accept="application/json" hidden />
+      </div>
       <div class="studio-tabs">
         <button id="tab-sounds" class="tab active">Letter sounds</button>
         <button id="tab-words" class="tab">Words</button>
@@ -60,6 +69,23 @@
       <div class="settings-buttons">
         <button id="settings-close" class="close-btn">Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Guided recording: one sound at a time, big -->
+  <div id="guide-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>Guided recording ✨</h2>
+      <p class="settings-note" id="guide-progress"></p>
+      <div id="guide-big"></div>
+      <p class="settings-note" id="guide-prompt"></p>
+      <button id="guide-mic" class="guide-mic" aria-label="Record">●</button>
+      <div class="settings-buttons">
+        <button id="guide-prev" class="close-btn alt">‹ Back</button>
+        <button id="guide-play" class="close-btn alt">▶</button>
+        <button id="guide-next" class="close-btn alt">Skip ›</button>
+      </div>
+      <button id="guide-done" class="close-btn">Done</button>
     </div>
   </div>
 
