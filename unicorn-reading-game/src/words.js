@@ -104,6 +104,39 @@ export const WORDS = (() => {
   return all;
 })();
 
+// The alphabet, for the "Learn the Letters" foundation mode: meet each sound
+// and both letter shapes (A a). keyword+emoji give a friendly picture cue; the
+// pure SOUND is taught by the audio (recorded voice, or TTS fallback). Emojis
+// are chosen to be nameable by a 4-year-old, starting with the letter's sound.
+export const ALPHABET = [
+  { letter: 'a', keyword: 'apple',    emoji: '🍎' },
+  { letter: 'b', keyword: 'ball',     emoji: '⚽' },
+  { letter: 'c', keyword: 'cat',      emoji: '🐱' },
+  { letter: 'd', keyword: 'dog',      emoji: '🐶' },
+  { letter: 'e', keyword: 'egg',      emoji: '🥚' },
+  { letter: 'f', keyword: 'fish',     emoji: '🐟' },
+  { letter: 'g', keyword: 'goat',     emoji: '🐐' },
+  { letter: 'h', keyword: 'hat',      emoji: '🎩' },
+  { letter: 'i', keyword: 'insect',   emoji: '🐞' },
+  { letter: 'j', keyword: 'juice',    emoji: '🧃' },
+  { letter: 'k', keyword: 'key',      emoji: '🔑' },
+  { letter: 'l', keyword: 'lion',     emoji: '🦁' },
+  { letter: 'm', keyword: 'moon',     emoji: '🌙' },
+  { letter: 'n', keyword: 'net',      emoji: '🥅' },
+  { letter: 'o', keyword: 'orange',   emoji: '🍊' },
+  { letter: 'p', keyword: 'pig',      emoji: '🐷' },
+  { letter: 'q', keyword: 'queen',    emoji: '👑' },
+  { letter: 'r', keyword: 'rainbow',  emoji: '🌈' },
+  { letter: 's', keyword: 'sun',      emoji: '☀️' },
+  { letter: 't', keyword: 'tiger',    emoji: '🐯' },
+  { letter: 'u', keyword: 'umbrella', emoji: '☂️' },
+  { letter: 'v', keyword: 'van',      emoji: '🚐' },
+  { letter: 'w', keyword: 'web',      emoji: '🕸️' },
+  { letter: 'x', keyword: 'box',      emoji: '📦' },
+  { letter: 'y', keyword: 'yo-yo',    emoji: '🪀' },
+  { letter: 'z', keyword: 'zebra',    emoji: '🦓' },
+];
+
 // Friendly, kid-pronounceable name for each letter sound, used ONLY as the
 // text-to-speech fallback when a recorded phoneme file is missing. These nudge
 // the browser voice toward the pure SOUND ("mmm") rather than the letter NAME

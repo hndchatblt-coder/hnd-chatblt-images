@@ -9,7 +9,7 @@
 // Built with three.js (vendored locally so the installed PWA works offline).
 
 import * as THREE from 'three';
-import { WORDS, STAGES } from './words.js';
+import { WORDS, STAGES, ALPHABET } from './words.js';
 import { AudioManager } from './audio.js';
 import { FRIENDS, GOAL_SIZE } from './quests.js';
 import { loadProgress, saveProgress, resetProgress } from './progress.js';
@@ -61,6 +61,7 @@ function updateTweens(dt) {
 // ----------------------------------------------------------------------------
 const TILE_COLORS = ['#ff8fd4', '#9d8cff', '#5fc8ff', '#ffd166', '#7ee081', '#ff9e6d'];
 const CAPS_KEY = 'unicorn-reading-caps';
+const LETTERS_KEY = 'unicorn-reading-letters'; // letters she's heard in Learn mode
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -191,6 +192,8 @@ class Game {
     this.state = 'start';        // 'start' | 'playing' | 'celebrating'
     this.progress = loadProgress();
     this.capsMode = localStorage.getItem(CAPS_KEY) === 'true';
+    try { this.lettersHeard = new Set(JSON.parse(localStorage.getItem(LETTERS_KEY) || '[]')); }
+    catch (_) { this.lettersHeard = new Set(); }
     this.stars = this.progress.stars;
     // Word order is per-stage: a shuffled run through the current stage's words.
     this.order = [];
@@ -325,6 +328,19 @@ class Game {
       guideNext: document.getElementById('guide-next'),
       guideDone: document.getElementById('guide-done'),
       capsToggle: document.getElementById('caps-toggle'),
+      learnLettersBtn: document.getElementById('learn-letters-btn'),
+      mapLettersBtn: document.getElementById('map-letters-btn'),
+      lettersScreen: document.getElementById('letters-screen'),
+      ltTabExplore: document.getElementById('lt-tab-explore'),
+      ltTabMatch: document.getElementById('lt-tab-match'),
+      ltNote: document.getElementById('lt-note'),
+      ltExplore: document.getElementById('lt-explore'),
+      ltGrid: document.getElementById('lt-grid'),
+      ltMatch: document.getElementById('lt-match'),
+      ltPrompt: document.getElementById('lt-prompt'),
+      ltChoices: document.getElementById('lt-choices'),
+      ltFeedback: document.getElementById('lt-feedback'),
+      ltClose: document.getElementById('lt-close'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderStage();
@@ -391,6 +407,133 @@ class Game {
     this.orderPos = -1;
     this._orderStage = -1; // force a reshuffle for the new stage
     this.nextWord();
+  }
+
+  // --------------------------------------------------------------------------
+  // Learn the Letters (alphabet foundation): meet each sound + match cases.
+  // A self-contained mode; it never touches the blending game's state.
+  // --------------------------------------------------------------------------
+  _openLetters() {
+    this.audio.unlock();
+    this._closeMap();
+    this._setLettersTab('explore');
+    this.el.lettersScreen.classList.remove('hidden');
+  }
+
+  _closeLetters() { this.el.lettersScreen.classList.add('hidden'); }
+
+  _saveLettersHeard() {
+    try { localStorage.setItem(LETTERS_KEY, JSON.stringify([...this.lettersHeard])); } catch (_) {}
+  }
+
+  _setLettersTab(tab) {
+    this._lettersTab = tab;
+    const explore = tab === 'explore';
+    this.el.ltTabExplore.classList.toggle('active', explore);
+    this.el.ltTabMatch.classList.toggle('active', !explore);
+    this.el.ltExplore.classList.toggle('hidden', !explore);
+    this.el.ltMatch.classList.toggle('hidden', explore);
+    if (explore) {
+      this._renderLettersExplore();
+    } else {
+      this.el.ltNote.innerHTML = 'Listen and look — tap the letter that matches!';
+      this._lettersNextMatch();
+    }
+  }
+
+  // Explore: a grid of every letter (both shapes + a picture). Tap to hear the
+  // pure sound; a counter fills as she meets each one.
+  _renderLettersExplore() {
+    this.el.ltGrid.innerHTML = '';
+    ALPHABET.forEach((it) => {
+      const cell = document.createElement('button');
+      cell.className = 'lt-cell' + (this.lettersHeard.has(it.letter) ? ' heard' : '');
+      cell.innerHTML = `<span class="lt-pair">${it.letter.toUpperCase()}${it.letter}</span><span class="lt-emoji">${it.emoji}</span>`;
+      cell.addEventListener('click', () => this._lettersTapExplore(cell, it));
+      this.el.ltGrid.appendChild(cell);
+    });
+    this._updateLettersNote();
+  }
+
+  _updateLettersNote() {
+    const n = this.lettersHeard.size;
+    this.el.ltNote.innerHTML = `Tap a letter to hear its sound. You've met <b>${n}</b> of ${ALPHABET.length} sounds!`;
+  }
+
+  _lettersTapExplore(cell, it) {
+    this.audio.playPhoneme(it.letter);
+    this._pop(cell);
+    if (!this.lettersHeard.has(it.letter)) {
+      this.lettersHeard.add(it.letter);
+      this._saveLettersHeard();
+    }
+    cell.classList.add('heard');
+    this._updateLettersNote();
+  }
+
+  // Match game: alternate "find the little/BIG letter" (case) with "which letter
+  // says this?" (sound). Correct → chime + praise; wrong → gentle retry.
+  _lettersNextMatch() {
+    const kind = Math.random() < 0.6 ? 'case' : 'sound';
+    let target;
+    do { target = ALPHABET[(Math.random() * ALPHABET.length) | 0]; }
+    while (ALPHABET.length > 1 && target === this._ltLastTarget);
+    this._ltLastTarget = target;
+    this._ltTarget = target;
+    this._ltKind = kind;
+    this._ltLocked = false;
+    this.el.ltFeedback.textContent = '';
+
+    // Distractors: three other random letters.
+    const others = shuffle(ALPHABET.filter(a => a !== target)).slice(0, 3);
+    const choices = shuffle([target, ...others]);
+
+    // For "case" we show the BIG letter and ask for the small one (or vice
+    // versa); choices render in the opposite case. For "sound" choices are lowercase.
+    const askBig = Math.random() < 0.5;
+    if (kind === 'case') {
+      this.el.ltPrompt.innerHTML =
+        `<div class="lt-big">${askBig ? target.letter.toUpperCase() : target.letter}</div>` +
+        `<div>Find the ${askBig ? 'little' : 'BIG'} letter!</div>`;
+    } else {
+      this.el.ltPrompt.innerHTML =
+        `<button class="lt-say" aria-label="Hear the sound">🔊</button>` +
+        `<div>Which letter says this sound?</div>`;
+      this.el.ltPrompt.querySelector('.lt-say').addEventListener('click', () => this.audio.playPhoneme(target.letter));
+    }
+
+    this.el.ltChoices.innerHTML = '';
+    choices.forEach((it) => {
+      const btn = document.createElement('button');
+      btn.className = 'lt-choice';
+      // case: show opposite case to the prompt; sound: show lowercase.
+      btn.textContent = kind === 'case'
+        ? (askBig ? it.letter : it.letter.toUpperCase())
+        : it.letter;
+      btn.addEventListener('click', () => this._lettersChoose(btn, it, target, kind));
+      this.el.ltChoices.appendChild(btn);
+    });
+
+    if (kind === 'sound') setTimeout(() => this.audio.playPhoneme(target.letter), 250);
+  }
+
+  _lettersChoose(btn, it, target, kind) {
+    if (this._ltLocked) return;
+    if (it === target) {
+      this._ltLocked = true;
+      btn.classList.add('correct');
+      this.audio.chime();
+      if (!this.lettersHeard.has(target.letter)) { this.lettersHeard.add(target.letter); this._saveLettersHeard(); }
+      this.el.ltFeedback.textContent = 'Yes! 🎉';
+      setTimeout(() => this.audio.praise(), 200);
+      setTimeout(() => { if (!this.el.lettersScreen.classList.contains('hidden')) this._lettersNextMatch(); }, 1100);
+    } else {
+      btn.classList.add('wrong');
+      this.audio.nope();
+      setTimeout(() => btn.classList.remove('wrong'), 500);
+      this.el.ltFeedback.textContent = 'Try again 👂';
+      this.audio.playPhoneme(target.letter); // re-teach the target sound
+    }
   }
 
   _renderCollection() {
@@ -468,6 +611,20 @@ class Game {
     this.el.mapScreen.addEventListener('click', (e) => {
       if (e.target === this.el.mapScreen) this._closeMap();
     });
+
+    // Learn the Letters (alphabet foundation): from the start screen and the map.
+    this.el.learnLettersBtn.addEventListener('click', (e) => {
+      e.stopPropagation();            // don't let the tap also start the game
+      this.audio.unlock();
+      this._openLetters();
+    });
+    this.el.mapLettersBtn.addEventListener('click', () => this._openLetters());
+    this.el.ltClose.addEventListener('click', () => this._closeLetters());
+    this.el.lettersScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.lettersScreen) this._closeLetters();
+    });
+    this.el.ltTabExplore.addEventListener('click', () => this._setLettersTab('explore'));
+    this.el.ltTabMatch.addEventListener('click', () => this._setLettersTab('match'));
 
     this.el.collectionBtn.addEventListener('click', () => {
       this._renderCollection();

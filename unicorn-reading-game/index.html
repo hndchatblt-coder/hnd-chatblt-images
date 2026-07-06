@@ -111,6 +111,7 @@
       <h2>Your reading journey 🗺️</h2>
       <p class="settings-note">Tap a family you've reached to play it. New families open up as you finish each one!</p>
       <div id="map-grid"></div>
+      <button id="map-letters-btn" class="mini-btn">🔤 Practise the letters</button>
       <button id="map-close" class="close-btn">Keep playing</button>
     </div>
   </div>
@@ -133,6 +134,28 @@
       <h1>Unicorn Reading</h1>
       <p>Tap each letter, hear its sound, then blend them into a word — earn stars and collect magical friends!</p>
       <div class="tap-to-play">▶ Tap to play</div>
+      <button id="learn-letters-btn" class="start-secondary">🔤 Learn the letters first</button>
+    </div>
+  </div>
+
+  <!-- Learn the Letters: meet each sound + practise upper/lowercase -->
+  <div id="letters-screen" class="overlay hidden">
+    <div class="collection-card letters-card">
+      <h2>Learn the Letters 🔤</h2>
+      <div class="studio-tabs">
+        <button id="lt-tab-explore" class="tab active">Explore sounds</button>
+        <button id="lt-tab-match" class="tab">Match game</button>
+      </div>
+      <p class="settings-note" id="lt-note"></p>
+      <div id="lt-explore">
+        <div id="lt-grid"></div>
+      </div>
+      <div id="lt-match" class="hidden">
+        <div id="lt-prompt"></div>
+        <div id="lt-choices"></div>
+        <div id="lt-feedback"></div>
+      </div>
+      <button id="lt-close" class="close-btn">Done</button>
     </div>
   </div>
 
