@@ -9,9 +9,9 @@
 // Built with three.js (vendored locally so the installed PWA works offline).
 
 import * as THREE from 'three';
-import { WORDS } from './words.js';
+import { WORDS, STAGES } from './words.js';
 import { AudioManager } from './audio.js';
-import { QUESTS, FRIENDS, GOAL_SIZE } from './quests.js';
+import { FRIENDS, GOAL_SIZE } from './quests.js';
 import { loadProgress, saveProgress, resetProgress } from './progress.js';
 
 // ----------------------------------------------------------------------------
@@ -192,12 +192,14 @@ class Game {
     this.progress = loadProgress();
     this.capsMode = localStorage.getItem(CAPS_KEY) === 'true';
     this.stars = this.progress.stars;
-    this.order = shuffle([...WORDS.keys()]);
+    // Word order is per-stage: a shuffled run through the current stage's words.
+    this.order = [];
     this.orderPos = -1;
+    this._orderStage = -1;
     this.tiles = [];
     this.expected = 0;           // next tile index the child should tap
     this.particles = [];
-    this.questJustCompleted = false;
+    this.stageJustCompleted = false;
     this.clock = new THREE.Clock();
 
     this._initRenderer();
@@ -284,6 +286,10 @@ class Game {
       answers: document.getElementById('answers'),
       questTitle: document.getElementById('quest-title'),
       questSlots: document.getElementById('quest-slots'),
+      quest: document.getElementById('quest'),
+      mapScreen: document.getElementById('map-screen'),
+      mapGrid: document.getElementById('map-grid'),
+      mapClose: document.getElementById('map-close'),
       collectionBtn: document.getElementById('collection-btn'),
       collectionCount: document.getElementById('collection-count'),
       collectionScreen: document.getElementById('collection-screen'),
@@ -321,27 +327,70 @@ class Game {
       capsToggle: document.getElementById('caps-toggle'),
     };
     this.el.stars.textContent = String(this.stars);
-    this._renderQuest();
+    this._renderStage();
     this._renderCollection();
   }
 
-  get quest() { return QUESTS[this.progress.questIndex % QUESTS.length]; }
+  // The stage (vowel family) she is currently playing.
+  get stage() { return STAGES[Math.min(this.progress.stage, STAGES.length - 1)]; }
 
-  // Build the quest banner: title + a row of slots, filled to questProgress.
-  _renderQuest() {
-    const q = this.quest;
-    this.el.questTitle.textContent = `${q.token} ${q.title}`;
+  // Build the goal banner: the stage name (tap to open the map) + a row of
+  // tokens to fill, one per word read toward completing the stage.
+  _renderStage() {
+    const s = this.stage;
+    this.el.questTitle.textContent = `${s.token} ${s.label} ▾`;
     this.el.questSlots.innerHTML = '';
     this.slotEls = [];
     for (let i = 0; i < GOAL_SIZE; i++) {
       const slot = document.createElement('div');
       slot.className = 'slot';
-      const filled = i < this.progress.questProgress;
-      slot.textContent = filled ? q.token : '';
+      const filled = i < this.progress.stageProgress;
+      slot.textContent = filled ? s.token : '';
       if (filled) slot.classList.add('filled');
       this.el.questSlots.appendChild(slot);
       this.slotEls.push(slot);
     }
+  }
+
+  // The reading-journey map: every stage shown as done ✓ / playing ▶ / to-come.
+  // A stage is reachable once the one before it is cleared.
+  _renderMap() {
+    this.el.mapGrid.innerHTML = '';
+    STAGES.forEach((s, i) => {
+      const reached = i <= this.progress.cleared;   // playable now
+      const done = i < this.progress.cleared;        // fully completed
+      const current = i === this.progress.stage;
+      const cell = document.createElement('div');
+      cell.className = 'map-cell' + (reached ? '' : ' locked') + (current ? ' current' : '') + (done ? ' done' : '');
+      cell.innerHTML = `
+        <div class="map-token">${reached ? s.token : '🔒'}</div>
+        <div class="map-label">${s.label}</div>
+        <div class="map-focus">${s.focus}</div>
+        <div class="map-badge">${done ? '✓' : current ? '▶' : ''}</div>`;
+      if (reached) cell.addEventListener('click', () => this._selectStage(i));
+      this.el.mapGrid.appendChild(cell);
+    });
+  }
+
+  _openMap() {
+    this._renderMap();
+    this.el.mapScreen.classList.remove('hidden');
+  }
+
+  _closeMap() { this.el.mapScreen.classList.add('hidden'); }
+
+  // Jump to a reached stage from the map and start a fresh word from it.
+  _selectStage(i) {
+    if (i > this.progress.cleared) return;
+    this.progress.stage = i;
+    this.progress.stageProgress = 0;
+    this.stageJustCompleted = false;
+    saveProgress(this.progress);
+    this._renderStage();
+    this._closeMap();
+    this.orderPos = -1;
+    this._orderStage = -1; // force a reshuffle for the new stage
+    this.nextWord();
   }
 
   _renderCollection() {
@@ -357,16 +406,18 @@ class Game {
     });
   }
 
-  // Wipe stars/friends/quest/buddy and begin again. Recordings are kept.
+  // Wipe stars/friends/stage/buddy and begin again. Recordings are kept.
   _resetProgress() {
-    if (!window.confirm('Start over? This clears stars, friends and quests so you begin fresh. (Your recorded sounds are kept.)')) return;
+    if (!window.confirm('Start over? This clears stars, friends and progress so you begin fresh. (Your recorded sounds are kept.)')) return;
     this.progress = resetProgress();
     this.stars = this.progress.stars;
     this.el.stars.textContent = '0';
     this.unicorn.material.map.dispose();
     this.unicorn.material.map = makeEmojiTexture(FRIENDS[this.progress.buddy] || '🦄', 256);
-    this.questJustCompleted = false;
-    this._renderQuest();
+    this.stageJustCompleted = false;
+    this.orderPos = -1;
+    this._orderStage = -1;
+    this._renderStage();
     this._renderCollection();
     this.el.collectionScreen.classList.add('hidden');
     this.nextWord();
@@ -409,6 +460,13 @@ class Game {
     });
     this.el.next.addEventListener('click', () => {
       if (this.state === 'celebrating') this.nextWord();
+    });
+
+    // Tap the goal banner to open the journey map.
+    this.el.quest.addEventListener('click', () => this._openMap());
+    this.el.mapClose.addEventListener('click', () => this._closeMap());
+    this.el.mapScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.mapScreen) this._closeMap();
     });
 
     this.el.collectionBtn.addEventListener('click', () => {
@@ -756,13 +814,14 @@ class Game {
     clearTimeout(this._winTimer2);
     clearTimeout(this._answersHideTimer);
 
-    // If the last word finished a quest, move on to the next quest variation.
-    if (this.questJustCompleted) {
-      this.questJustCompleted = false;
-      this.progress.questIndex = (this.progress.questIndex + 1) % QUESTS.length;
-      this.progress.questProgress = 0;
+    // If the last word completed the stage, advance to the next stage on the map.
+    if (this.stageJustCompleted) {
+      this.stageJustCompleted = false;
+      if (this.progress.stage < STAGES.length - 1) this.progress.stage++;
+      this.progress.stageProgress = 0;
+      this._orderStage = -1; // new stage -> new word pool
       saveProgress(this.progress);
-      this._renderQuest();
+      this._renderStage();
     }
 
     // clear old tiles
@@ -777,9 +836,17 @@ class Game {
     this.el.next.classList.add('disabled');
     this.el.hint.textContent = 'Sound it out, then tap the picture 👇';
 
+    // Draw the next word from the CURRENT stage's words (a shuffled run so she
+    // sees every word in the family before any repeats).
+    const stageWords = this.stage.words;
+    if (this._orderStage !== this.progress.stage) {
+      this.order = shuffle([...stageWords.keys()]);
+      this.orderPos = -1;
+      this._orderStage = this.progress.stage;
+    }
     this.orderPos = (this.orderPos + 1) % this.order.length;
     if (this.orderPos === 0) this.order = shuffle(this.order); // reshuffle each loop
-    this.current = WORDS[this.order[this.orderPos]];
+    this.current = stageWords[this.order[this.orderPos]];
 
     const letters = this.current.word.split('');
     letters.forEach((ch, i) => {
@@ -803,8 +870,12 @@ class Game {
     const n = Math.max(6, Math.min(10, 6 + Math.floor(this.stars / 4)));
     const cols = Math.ceil(n / 2);
     const correct = this.current.emoji;
-    const others = shuffle(WORDS.map(w => w.emoji).filter(e => e !== correct));
-    const choices = shuffle([correct, ...others.slice(0, n - 1)]);
+    // Prefer distractors from the SAME stage (same-vowel discrimination is the
+    // real skill), then top up from the rest of the words as choices grow.
+    const inStage = this.stage.words.map(w => w.emoji).filter(e => e !== correct);
+    const rest = WORDS.map(w => w.emoji).filter(e => e !== correct && !inStage.includes(e));
+    const pool = [...shuffle(inStage), ...shuffle(rest)];
+    const choices = shuffle([correct, ...pool.slice(0, n - 1)]);
     clearTimeout(this._answersHideTimer); // don't let a previous win hide these
     this.el.answers.classList.remove('hidden');
     this.el.answers.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
@@ -922,22 +993,24 @@ class Game {
     this.el.stars.textContent = String(this.stars);
     this._pop(this.el.stars.parentElement);
 
-    this.progress.questProgress++;
-    this._fillQuestSlot(this.progress.questProgress - 1);
-    const questDone = this.progress.questProgress >= GOAL_SIZE;
+    this.progress.stageProgress++;
+    this._fillQuestSlot(this.progress.stageProgress - 1);
+    const stageDone = this.progress.stageProgress >= GOAL_SIZE;
 
     let unlockedFriend = null;
-    if (questDone) {
+    if (stageDone) {
+      // Mark this stage cleared so the next one opens on the map.
+      this.progress.cleared = Math.max(this.progress.cleared, this.progress.stage + 1);
       if (this.progress.unlocked < FRIENDS.length) {
         unlockedFriend = FRIENDS[this.progress.unlocked];
         this.progress.unlocked++;
         this._renderCollection();
       }
-      this.questJustCompleted = true;
+      this.stageJustCompleted = true;
     }
     saveProgress(this.progress);
     this.el.next.classList.remove('disabled');
-    this.el.hint.textContent = questDone ? 'Tap for a new adventure →' : 'Tap to keep going →';
+    this.el.hint.textContent = stageDone ? 'Tap for a new adventure →' : 'Tap to keep going →';
 
     // --- Deferred VISUALS (cancelled if she advances quickly) ---
     this._winTimer = setTimeout(async () => {
@@ -950,19 +1023,19 @@ class Game {
       await this.audio.playWord(word.word);
       if (this.current !== word) return; // she already moved on
       this.audio.praise();
-      if (questDone) this._winTimer2 = setTimeout(() => this._celebrateQuest(unlockedFriend), 700);
+      if (stageDone) this._winTimer2 = setTimeout(() => this._celebrateStage(unlockedFriend), 700);
     }, 520);
   }
 
-  // Animate a flying token from the centre of the screen into a quest slot.
+  // Animate a flying token from the centre of the screen into a goal slot.
   _fillQuestSlot(i) {
     const slot = this.slotEls[i];
     if (!slot) return;
-    const q = this.quest;
+    const s = this.stage;
     const rect = slot.getBoundingClientRect();
     const fly = document.createElement('div');
     fly.className = 'fly-token';
-    fly.textContent = q.token;
+    fly.textContent = s.token;
     fly.style.left = (window.innerWidth / 2) + 'px';
     fly.style.top = (window.innerHeight * 0.45) + 'px';
     document.body.appendChild(fly);
@@ -975,23 +1048,23 @@ class Game {
     });
     setTimeout(() => {
       fly.remove();
-      slot.textContent = q.token;
+      slot.textContent = s.token;
       slot.classList.add('filled');
       this._pop(slot);
       this.audio.chime();
     }, 620);
   }
 
-  // Quest-complete celebration visuals (the friend was already unlocked in _win).
-  _celebrateQuest(friend) {
-    const q = this.quest;
+  // Stage-complete celebration visuals (the friend was already unlocked in _win).
+  _celebrateStage(friend) {
+    const s = this.stage;
     this.audio.fanfare();
     this._unicornCheer();
-    this._burst([q.token, '✨', '🌈', '⭐', '🎉']);
-    this._burst([q.token, '✨', '💖']);
+    this._burst([s.token, '✨', '🌈', '⭐', '🎉']);
+    this._burst([s.token, '✨', '💖']);
     if (friend) this._pop(this.el.collectionBtn);
     setTimeout(() => this.audio.praise(), 900);
-    this._showFriendToast(friend, q.cheer);
+    this._showFriendToast(friend, s.cheer);
   }
 
   _showFriendToast(friend, cheer) {

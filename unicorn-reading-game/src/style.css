@@ -198,7 +198,8 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 #quest-title {
   background: rgba(255, 255, 255, 0.82);
@@ -208,6 +209,37 @@ html, body {
   padding: 6px 18px;
   border-radius: 999px;
   box-shadow: 0 4px 12px rgba(120, 70, 140, 0.2);
+}
+#quest:active #quest-title { transform: scale(0.96); }
+
+/* ----- Reading journey map ----- */
+#map-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.map-cell {
+  position: relative;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 20px;
+  padding: 14px 10px 12px;
+  text-align: center;
+  box-shadow: inset 0 0 0 2px rgba(138, 107, 255, 0.18);
+}
+.map-cell:not(.locked) { cursor: pointer; }
+.map-cell.locked { opacity: 0.5; filter: grayscale(0.6); }
+.map-cell.current { box-shadow: inset 0 0 0 3px var(--pink); background: #fff; }
+.map-cell.done { box-shadow: inset 0 0 0 3px #7ee081; }
+.map-token { font-size: 40px; line-height: 1; }
+.map-label { font-weight: 800; color: var(--ink); font-size: 16px; margin-top: 4px; }
+.map-focus { font-size: 12px; color: var(--purple); opacity: 0.8; font-weight: 700; }
+.map-badge {
+  position: absolute;
+  top: 6px; right: 10px;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--pink);
 }
 #quest-slots { display: flex; gap: 8px; }
 .slot {

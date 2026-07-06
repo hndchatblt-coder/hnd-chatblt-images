@@ -33,8 +33,8 @@
       <button id="voice-btn" class="icon-btn" aria-label="Robot voice settings">⚙️</button>
     </div>
 
-    <!-- Quest banner: the current goal + a tray of tokens to fill -->
-    <div id="quest">
+    <!-- Goal banner: the current stage + a tray of tokens to fill. Tap to open the map. -->
+    <div id="quest" role="button" aria-label="Open the reading map">
       <div id="quest-title"></div>
       <div id="quest-slots"></div>
     </div>
@@ -102,6 +102,16 @@
         <button id="voice-try" class="close-btn alt">▶ Try</button>
         <button id="voice-close" class="close-btn">Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Reading journey map: the sequence of stages (vowel families) -->
+  <div id="map-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>Your reading journey 🗺️</h2>
+      <p class="settings-note">Tap a family you've reached to play it. New families open up as you finish each one!</p>
+      <div id="map-grid"></div>
+      <button id="map-close" class="close-btn">Keep playing</button>
     </div>
   </div>
 
