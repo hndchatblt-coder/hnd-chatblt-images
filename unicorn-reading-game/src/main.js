@@ -90,15 +90,26 @@ function makeTileTexture(letter, color) {
   ctx.fillStyle = 'rgba(255,255,255,0.28)';
   roundRect(ctx, m + 16, m + 16, S - 2 * m - 32, (S - 2 * m) * 0.42, 44);
   ctx.fill();
-  // letter
-  ctx.fillStyle = '#ffffff';
-  ctx.strokeStyle = 'rgba(90,40,100,0.35)';
-  ctx.lineWidth = 10;
-  ctx.font = '900 210px "Baloo 2", "Comic Sans MS", system-ui, sans-serif';
+  // letter — a bold dark keyline is stroked FIRST, then the white glyph is
+  // filled on top, so the letter keeps crisp, high-contrast edges on every card
+  // colour (including the pale yellow and green). A soft shadow under the
+  // outline lifts the letter off the card.
+  const lx = S / 2, ly = S / 2 + 14;
+  ctx.font = '900 214px "Baloo 2", "Comic Sans MS", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(letter, S / 2, S / 2 + 14);
-  ctx.strokeText(letter, S / 2, S / 2 + 14);
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(50,15,60,0.4)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 5;
+  ctx.strokeStyle = '#4a1d55';
+  ctx.lineWidth = 24;
+  ctx.strokeText(letter, lx, ly);
+  ctx.restore();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(letter, lx, ly);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
   return tex;
