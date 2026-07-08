@@ -10,6 +10,7 @@ const DEFAULTS = {
   cleared: 0,        // how many stages she has fully completed (drives the map)
   stageProgress: 0,  // words read toward completing the current stage
   buddy: 0,          // index into FRIENDS of the active on-screen character
+  lettersWins: 0,    // correct answers in Learn-the-Letters, toward the next friend
 };
 
 export function loadProgress() {
@@ -32,7 +33,7 @@ export function saveProgress(p) {
     localStorage.setItem(KEY, JSON.stringify({
       stars: p.stars, unlocked: p.unlocked,
       stage: p.stage, cleared: p.cleared, stageProgress: p.stageProgress,
-      buddy: p.buddy,
+      buddy: p.buddy, lettersWins: p.lettersWins,
     }));
   } catch (_) { /* ignore (e.g. private mode) */ }
 }
