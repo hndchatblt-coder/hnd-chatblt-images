@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>Living Shop Prototype</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#e9d9ff;font-family:"Baloo 2",system-ui,sans-serif}
+  #scene{position:fixed;inset:0}
+  #coinhud{position:fixed;top:16px;left:16px;display:flex;align-items:center;gap:7px;
+    background:#fff;border-radius:999px;padding:7px 15px 7px 10px;font-weight:900;font-size:24px;color:#7a3b16;
+    box-shadow:0 5px 14px rgba(120,70,140,.28);z-index:5}
+  #coinhud .c{font-size:24px}
+  #coinhud.bump{animation:bump .4s ease}
+  @keyframes bump{40%{transform:scale(1.22)}100%{transform:scale(1)}}
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+<div id="scene"></div>
+<div id="coinhud"><span class="c">🪙</span><span id="coincount">240</span></div>
+
+<script type="module">
+import * as THREE from 'three';
+
+const tweens=[];
+const eOutCubic=p=>1-Math.pow(1-p,3);
+const eInOut=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const eOutBack=p=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(p-1,3)+c1*Math.pow(p-1,2);};
+function to(obj,props,dur,opt={}){tweens.push({obj,props,start:{},dur:Math.max(.001,dur),ease:opt.ease||eOutCubic,delay:opt.delay||0,el:0,cap:false,onDone:opt.onDone});}
+function upTweens(dt){for(let i=tweens.length-1;i>=0;i--){const t=tweens[i];if(t.delay>0){t.delay-=dt;if(t.delay>0)continue;}if(!t.cap){for(const k in t.props)t.start[k]=t.obj[k];t.cap=true;}t.el+=dt;const p=Math.min(1,t.el/t.dur),e=t.ease(p);for(const k in t.props)t.obj[k]=t.start[k]+(t.props[k]-t.start[k])*e;if(p>=1){tweens.splice(i,1);t.onDone&&t.onDone();}}}
+
+function emojiTex(ch,size=256){const c=document.createElement('canvas');c.width=c.height=size;const x=c.getContext('2d');x.font=`${Math.floor(size*.8)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;x.textAlign='center';x.textBaseline='middle';x.fillText(ch,size/2,size/2+size*.04);const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t;}
+function sprite(tex,w,h){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true}));s.scale.set(w,h||w,1);return s;}
+function roundRect(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();}
+
+function skyTex(){const c=document.createElement('canvas');c.width=8;c.height=256;const x=c.getContext('2d');const g=x.createLinearGradient(0,0,0,256);g.addColorStop(0,'#ffe1f6');g.addColorStop(.5,'#efe0ff');g.addColorStop(1,'#d6f0ff');x.fillStyle=g;x.fillRect(0,0,8,256);return new THREE.CanvasTexture(c);}
+function glowTex(col){const S=256,c=document.createElement('canvas');c.width=c.height=S;const x=c.getContext('2d');const g=x.createRadialGradient(S/2,S/2,S*.12,S/2,S/2,S*.5);g.addColorStop(0,col+'ee');g.addColorStop(.55,col+'66');g.addColorStop(1,col+'00');x.fillStyle=g;x.fillRect(0,0,S,S);return new THREE.CanvasTexture(c);}
+function cloudTex(){const S=256,c=document.createElement('canvas');c.width=S;c.height=S*.6;const x=c.getContext('2d');x.fillStyle='rgba(255,255,255,.95)';for(const[a,b,r]of[[80,100,50],[130,80,60],[180,105,45],[110,120,55]]){x.beginPath();x.arc(a,b,r,0,7);x.fill();}return new THREE.CanvasTexture(c);}
+function rainbowTex(){const S=512,c=document.createElement('canvas');c.width=S;c.height=S/2;const x=c.getContext('2d');const bands=['#ff8fb0','#ffc46b','#ffe98a','#9be7a0','#8fd0ff','#c9b0ff'];x.lineWidth=22;bands.forEach((col,i)=>{x.strokeStyle=col;x.beginPath();x.arc(S/2,S/2,S*.42-i*24,Math.PI,2*Math.PI);x.stroke();});return new THREE.CanvasTexture(c);}
+
+// stall: striped awning (top) + counter (bottom), drawn on one tall canvas
+function stallTex(){const W=560,H=680,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  // counter block
+  x.fillStyle='#ff8fd4';roundRect(x,40,H*.52,W-80,H*.46,44);x.fill();
+  x.fillStyle='#ffa9e0';roundRect(x,40,H*.52,W-80,60,44);x.fill();
+  // posts
+  x.fillStyle='#e77ec2';x.fillRect(58,180,26,H*.52-160);x.fillRect(W-84,180,26,H*.52-160);
+  // awning stripes
+  const n=7,sw=(W-80)/n,cols=['#ff8fb0','#ffffff','#9ed8ff','#ffe6a0','#c9b0ff','#ffffff','#ff8fb0'];
+  for(let i=0;i<n;i++){x.fillStyle=cols[i];x.fillRect(40+i*sw,70,sw,110);}
+  for(let i=0;i<n;i++){x.fillStyle=cols[i];x.beginPath();x.arc(40+i*sw+sw/2,180,sw/2,0,Math.PI);x.fill();}
+  return new THREE.CanvasTexture(c);}
+
+function meterTex(frac){const W=512,H=90,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  roundRect(x,6,26,W-12,40,20);x.fillStyle='#f4e3f2';x.fill();
+  const fw=(W-12)*Math.max(.05,frac);const g=x.createLinearGradient(6,0,6+fw,0);g.addColorStop(0,'#ff8fd4');g.addColorStop(.5,'#b197fc');g.addColorStop(1,'#74c0fc');
+  roundRect(x,6,26,fw,40,20);x.fillStyle=g;x.fill();
+  x.font='44px "Segoe UI Emoji",sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('⭐',W-22,46);
+  const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t;}
+
+function badgeTex(n,ok){const W=270,H=150,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  roundRect(x,6,26,W-12,H-52,50);x.fillStyle=ok?'#fff3d9':'#e8dced';x.fill();
+  x.font='70px "Segoe UI Emoji",sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('🪙',56,H/2);
+  x.fillStyle=ok?'#7a3b16':'#9a86ab';x.font='900 76px "Baloo 2",system-ui,sans-serif';x.textAlign='left';x.fillText(String(n),100,H/2+3);
+  const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t;}
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+document.getElementById('scene').appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=skyTex();
+const BASE=2.9;
+const cam=new THREE.OrthographicCamera(-BASE,BASE,BASE,-BASE,.1,100);
+cam.position.set(-1.4,.2,10);
+function resize(){const w=innerWidth,h=innerHeight,a=w/h;renderer.setSize(w,h);let hw,hh;if(a>=1){hh=BASE;hw=BASE*a;}else{hw=BASE;hh=BASE/a;}cam.left=-hw;cam.right=hw;cam.top=hh;cam.bottom=-hh;cam.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+
+const SHOP_X=5.0;
+// world backdrop
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(70,12),new THREE.MeshBasicMaterial({color:0x9be7a0}));ground.position.set(0,-7,-2);scene.add(ground);
+const rb=sprite(rainbowTex(),8,4);rb.material.opacity=.75;rb.position.set(1.4,3.2,-4);scene.add(rb);
+const ct=cloudTex(),clouds=[];
+for(let i=0;i<7;i++){const cl=sprite(ct,1.8+Math.random(),1.1);cl.material.opacity=.9;cl.position.set(-6+Math.random()*16,1.4+Math.random()*2.6,-3);cl.userData.sp=.12+Math.random()*.2;scene.add(cl);clouds.push(cl);}
+// little meadow flowers along the path (makes the "travel" feel like a journey)
+for(const fx of [-3.5,0.2,2.6]){const f=sprite(emojiTex('🌷'),.7,.7);f.position.set(fx,-2.4,-.5);scene.add(f);}
+
+// ---- the buddy (her unicorn) — travels to the shop, then gets dressed ----
+const buddy=sprite(emojiTex('🦄'),2.3,2.3);buddy.position.set(-1.4,-1.9,.3);scene.add(buddy);
+const worn=sprite(emojiTex('🌸'),.95,.95);worn.position.set(-1.4,-1.0,.4);worn.material.opacity=0;scene.add(worn);
+
+// ---- Rosie's stall ----
+const stall=sprite(stallTex(),5.0,6.1);stall.position.set(SHOP_X,.3,-1);scene.add(stall);
+const rosie=sprite(emojiTex('🦄'),1.95,1.95);rosie.position.set(SHOP_X+.35,1.15,0);scene.add(rosie);
+const rosieBow=sprite(emojiTex('🎀'),.7,.7);rosieBow.position.set(SHOP_X-.35,1.35,.1);scene.add(rosieBow); // marks Rosie as the keeper
+const heart=sprite(emojiTex('💖'),.7,.7);heart.position.set(SHOP_X+.35,1.8,.3);heart.material.opacity=0;scene.add(heart);
+
+// items on the counter
+function makeItem(emoji,price,x,afford){const g=new THREE.Group();g.position.set(x,.1,.2);
+  const ring=sprite(glowTex(afford?'#7ee081':'#b6a6c6'),1.7,1.7);ring.position.z=-.1;ring.material.opacity=afford?.9:.3;g.add(ring);
+  const ic=sprite(emojiTex(emoji),1.05,1.05);g.add(ic);if(!afford)ic.material.color.setRGB(.72,.7,.76);
+  const badge=sprite(badgeTex(price,afford),.98,.55);badge.position.set(0,-.82,.1);g.add(badge);
+  if(!afford){const lk=sprite(emojiTex('🔒'),.62,.62);lk.position.set(.42,.42,.2);g.add(lk);g.userData.lock=lk;}
+  scene.add(g);return {g,ring,ic,badge,afford,x};}
+const item1=makeItem('🌸',15,SHOP_X-1.45,true);
+const item2=makeItem('🎀',20,SHOP_X+.15,true);
+const item3=makeItem('👑',120,SHOP_X+1.75,false);
+
+// the wish (bottom of the stall) with a filling meter
+const wish=sprite(emojiTex('🏰'),1.25,1.25);wish.position.set(SHOP_X,-1.35,.1);scene.add(wish);
+let wishFrac=240/500;
+const meter=new THREE.Mesh(new THREE.PlaneGeometry(2.5,.44),new THREE.MeshBasicMaterial({map:meterTex(wishFrac),transparent:true}));
+meter.position.set(SHOP_X,-2.15,.1);scene.add(meter);
+function setWish(f){wishFrac=f;meter.material.map.dispose();meter.material.map=meterTex(f);}
+
+const hand=sprite(emojiTex('👆'),1.05,1.05);hand.position.set(item1.x,-.7,.5);hand.material.opacity=0;scene.add(hand);
+
+const parts=[],pTex={};
+function burst(x,y,em){for(let i=0;i<18;i++){const e=em[(Math.random()*em.length)|0];const t=pTex[e]||(pTex[e]=emojiTex(e,128));const s=sprite(t,.5+Math.random()*.5);s.position.set(x,y,2);const a=Math.random()*Math.PI*2,sp=2+Math.random()*3;s.userData={vx:Math.cos(a)*sp,vy:Math.sin(a)*sp+2.5,life:1+Math.random()*.5,age:0};scene.add(s);parts.push(s);}}
+function spendCoins(x,y){for(let i=0;i<8;i++){const s=sprite(emojiTex('🪙',96),.5);s.position.set(x,y,2);const a=-Math.PI/2+(Math.random()-.5)*1.3,sp=2+Math.random()*2;s.userData={vx:Math.cos(a)*sp,vy:Math.sin(a)*sp+1.6,life:.9,age:0};scene.add(s);parts.push(s);}}
+
+const coinEl=document.getElementById('coincount'),hudEl=document.getElementById('coinhud');
+function setCoins(n){coinEl.textContent=String(n);hudEl.classList.remove('bump');void hudEl.offsetWidth;hudEl.classList.add('bump');}
+
+const clock=new THREE.Clock();
+function loop(){requestAnimationFrame(loop);const dt=Math.min(.05,clock.getDelta()),t=clock.elapsedTime;upTweens(dt);cam.updateProjectionMatrix();
+  buddy.material.rotation=Math.sin(t*1.3)*.05;worn.position.x=buddy.position.x;worn.position.y=buddy.position.y+.9;
+  rosie.position.y=1.15+Math.sin(t*2.1)*.06;rosieBow.position.y=1.35+Math.sin(t*2.1)*.06;
+  [item1,item2,item3].forEach((it,i)=>{it.g.position.y=.1+Math.sin(t*1.8+i)*.06;it.ring.material.rotation=t*.6;});
+  item1.ring.material.opacity=.55+Math.sin(t*4)*.35;
+  hand.position.y=(hand.userData.baseY??-.7)+Math.abs(Math.sin(t*4))*.22;
+  for(const cl of clouds){cl.position.x+=cl.userData.sp*dt;if(cl.position.x>11)cl.position.x=-11;}
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.userData.age+=dt;p.userData.vy-=5*dt;p.position.x+=p.userData.vx*dt;p.position.y+=p.userData.vy*dt;p.material.rotation+=dt*3;p.material.opacity=Math.max(0,1-p.userData.age/p.userData.life);if(p.userData.age>=p.userData.life){scene.remove(p);parts.splice(i,1);}}
+  renderer.render(scene,cam);}
+loop();
+
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function demo(){
+  await wait(800);
+  // 1) travel: camera pans AND the buddy walks to the stall
+  to(cam.position,{x:SHOP_X},1.9,{ease:eInOut});
+  to(buddy.position,{x:SHOP_X-2.4},1.9,{ease:eInOut});
+  await wait(2100);
+  // 2) Rosie greets (wave + hop + heart)
+  to(rosie.position,{y:1.75},.24,{ease:eOutCubic,onDone:()=>to(rosie.position,{y:1.15},.45,{ease:eOutBack})});
+  to(rosie.material,{rotation:.4},.18,{onDone:()=>to(rosie.material,{rotation:0},.5,{ease:eOutBack})});
+  heart.material.opacity=1;heart.position.y=1.8;to(heart.position,{y:2.6},1,{ease:eOutCubic});to(heart.material,{opacity:0},1);
+  await wait(1000);
+  // 3) point at the affordable item (green ring pulses on its own)
+  hand.userData.baseY=item1.g.position.y-.85;hand.position.x=item1.x;to(hand.material,{opacity:1},.3);
+  to(item1.g.scale,{x:1.12,y:1.12},.3,{ease:eOutBack});
+  await wait(1150);
+  // 4) BUY -> the flower flies onto the buddy, coins spent, sparkle, meter up, Rosie hops
+  to(hand.material,{opacity:0},.2);
+  to(item1.g.scale,{x:1.3,y:1.3},.16,{ease:eOutBack});
+  await wait(200);
+  worn.material.opacity=1;worn.position.set(item1.x,.1,.5);worn.scale.set(1.05,1.05,1);
+  item1.ic.material.opacity=0;item1.badge.material.opacity=0;to(item1.ring.material,{opacity:0},.3);
+  to(worn.position,{x:buddy.position.x,y:buddy.position.y+.9},.6,{ease:eInOut});
+  to(worn.scale,{x:.9,y:.9},.6);
+  spendCoins(SHOP_X-.6,.5);
+  let cn=240;const iv=setInterval(()=>{cn-=3;if(cn<=225){cn=225;clearInterval(iv);}setCoins(cn);},55);
+  await wait(600);
+  burst(buddy.position.x,buddy.position.y+.6,['✨','💖','🌈','⭐','🌸']);
+  to(buddy.scale,{x:2.6,y:2.6},.2,{onDone:()=>to(buddy.scale,{x:2.3,y:2.3},.4,{ease:eOutBack})});
+  to(rosie.position,{y:1.85},.22,{ease:eOutCubic,onDone:()=>to(rosie.position,{y:1.15},.42,{ease:eOutBack})});
+  setWish(255/500);to(meter.scale,{x:1.08,y:1.18},.2,{onDone:()=>to(meter.scale,{x:1,y:1},.35,{ease:eOutBack})});
+  await wait(1500);
+  // 5) locked treasure: point -> it shakes, Rosie tilts ("not yet — save more")
+  hand.userData.baseY=item3.g.position.y-.85;hand.position.x=item3.x;to(hand.material,{opacity:1},.25);
+  await wait(450);
+  to(item3.g.position,{x:item3.x-.16},.06,{onDone:()=>to(item3.g.position,{x:item3.x+.16},.09,{onDone:()=>to(item3.g.position,{x:item3.x-.1},.08,{onDone:()=>to(item3.g.position,{x:item3.x},.12,{ease:eOutBack})})})});
+  if(item3.g.userData.lock)to(item3.g.userData.lock.scale,{x:.9,y:.9},.1,{onDone:()=>to(item3.g.userData.lock.scale,{x:.62,y:.62},.3,{ease:eOutBack})});
+  to(rosie.material,{rotation:-.28},.3,{onDone:()=>to(rosie.material,{rotation:0},.5,{ease:eOutBack})});
+  await wait(750);to(hand.material,{opacity:0},.3);
+  await wait(650);
+  // 6) pull back to reveal the whole living world
+  to(cam.position,{x:1.9},1.6,{ease:eInOut});
+  await wait(2100);
+  // reset + loop
+  cam.position.x=-1.4;buddy.position.set(-1.4,-1.9,.3);buddy.scale.set(2.3,2.3,1);worn.material.opacity=0;
+  item1.ic.material.opacity=1;item1.badge.material.opacity=1;item1.ring.material.opacity=.9;item1.g.scale.set(1,1,1);
+  setCoins(240);setWish(240/500);
+  demo();
+}
+demo();
+window.__protoReady=true;
+</script>
+</body>
+</html>
