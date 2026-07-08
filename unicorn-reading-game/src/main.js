@@ -341,6 +341,11 @@ class Game {
       ltChoices: document.getElementById('lt-choices'),
       ltFeedback: document.getElementById('lt-feedback'),
       ltClose: document.getElementById('lt-close'),
+      ltReward: document.querySelector('.lt-reward'),
+      ltStarCount: document.getElementById('lt-star-count'),
+      ltFriendProgress: document.getElementById('lt-friend-progress'),
+      ltBuddy: document.getElementById('lt-buddy'),
+      ltRecord: document.getElementById('lt-record'),
     };
     this.el.stars.textContent = String(this.stars);
     this._renderStage();
@@ -413,11 +418,57 @@ class Game {
   // Learn the Letters (alphabet foundation): meet each sound + match cases.
   // A self-contained mode; it never touches the blending game's state.
   // --------------------------------------------------------------------------
-  _openLetters() {
+  async _openLetters() {
     this.audio.unlock();
     this._closeMap();
+    // Which letter sounds have been recorded in the parent's voice? Sound-based
+    // rounds only use these, so she never has to act on a wrong robot sound.
+    try {
+      const keys = await this.audio.recordedKeys();
+      this._recordedLetters = new Set(
+        ALPHABET.filter(a => keys.has(this.audio.recKey('phoneme', a.letter))).map(a => a.letter)
+      );
+    } catch (_) { this._recordedLetters = new Set(); }
+    this._updateLettersReward();
     this._setLettersTab('explore');
     this.el.lettersScreen.classList.remove('hidden');
+  }
+
+  // Keep the letters screen's stars/buddy in sync with her collection so the
+  // mode feels part of the same adventure, not a side room.
+  _updateLettersReward() {
+    this.el.ltStarCount.textContent = String(this.stars);
+    this.el.ltBuddy.textContent = FRIENDS[this.progress.buddy] || '🦄';
+    if (this.progress.unlocked < FRIENDS.length) {
+      const toNext = GOAL_SIZE - (this.progress.lettersWins % GOAL_SIZE);
+      this.el.ltFriendProgress.textContent = `${toNext} more for a new friend!`;
+    } else {
+      this.el.ltFriendProgress.textContent = '';
+    }
+  }
+
+  // A correct letter answer (or newly met sound) earns a star and counts toward
+  // the very same friends she unlocks in the word game.
+  _letterReward() {
+    this.stars++;
+    this.progress.stars = this.stars;
+    this.el.stars.textContent = String(this.stars);
+    this._pop(this.el.stars.parentElement);
+    this.progress.lettersWins = (this.progress.lettersWins || 0) + 1;
+    let unlockedFriend = null;
+    if (this.progress.lettersWins % GOAL_SIZE === 0 && this.progress.unlocked < FRIENDS.length) {
+      unlockedFriend = FRIENDS[this.progress.unlocked];
+      this.progress.unlocked++;
+      this._renderCollection();
+    }
+    saveProgress(this.progress);
+    this._pop(this.el.ltReward);
+    this._updateLettersReward();
+    if (unlockedFriend) {
+      this.audio.fanfare();
+      this._showFriendToast(unlockedFriend, 'New friend!');
+      setTimeout(() => this.audio.praise(), 600);
+    }
   }
 
   _closeLetters() { this.el.lettersScreen.classList.add('hidden'); }
@@ -466,18 +517,24 @@ class Game {
     if (!this.lettersHeard.has(it.letter)) {
       this.lettersHeard.add(it.letter);
       this._saveLettersHeard();
+      cell.classList.add('heard');
+      this._updateLettersNote();
+      this._letterReward(); // meeting a new sound earns a star toward a friend
     }
-    cell.classList.add('heard');
-    this._updateLettersNote();
   }
 
   // Match game: alternate "find the little/BIG letter" (case) with "which letter
   // says this?" (sound). Correct → chime + praise; wrong → gentle retry.
   _lettersNextMatch() {
-    const kind = Math.random() < 0.6 ? 'case' : 'sound';
+    // Only offer a sound round if the target's sound is recorded in your voice —
+    // otherwise the robot pronunciation confuses her. With nothing recorded yet,
+    // every round is case-matching (which needs no audio and is her real struggle).
+    const recorded = this._recordedLetters && this._recordedLetters.size ? this._recordedLetters : null;
+    const kind = (recorded && Math.random() < 0.5) ? 'sound' : 'case';
+    const pool = kind === 'sound' ? ALPHABET.filter(a => recorded.has(a.letter)) : ALPHABET;
     let target;
-    do { target = ALPHABET[(Math.random() * ALPHABET.length) | 0]; }
-    while (ALPHABET.length > 1 && target === this._ltLastTarget);
+    do { target = pool[(Math.random() * pool.length) | 0]; }
+    while (pool.length > 1 && target === this._ltLastTarget);
     this._ltLastTarget = target;
     this._ltTarget = target;
     this._ltKind = kind;
@@ -524,7 +581,8 @@ class Game {
       btn.classList.add('correct');
       this.audio.chime();
       if (!this.lettersHeard.has(target.letter)) { this.lettersHeard.add(target.letter); this._saveLettersHeard(); }
-      this.el.ltFeedback.textContent = 'Yes! 🎉';
+      this.el.ltFeedback.textContent = 'Yes! ⭐';
+      this._letterReward(); // earns a star toward the next friend
       setTimeout(() => this.audio.praise(), 200);
       setTimeout(() => { if (!this.el.lettersScreen.classList.contains('hidden')) this._lettersNextMatch(); }, 1100);
     } else {
@@ -625,6 +683,7 @@ class Game {
     });
     this.el.ltTabExplore.addEventListener('click', () => this._setLettersTab('explore'));
     this.el.ltTabMatch.addEventListener('click', () => this._setLettersTab('match'));
+    this.el.ltRecord.addEventListener('click', () => { this._closeLetters(); this._openGuide(); });
 
     this.el.collectionBtn.addEventListener('click', () => {
       this._renderCollection();
