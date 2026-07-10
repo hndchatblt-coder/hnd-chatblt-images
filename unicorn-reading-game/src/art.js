@@ -625,3 +625,81 @@ export function treeCanvas() {
   }
   return c;
 }
+
+// ---- her cottage (the "home" on the map) -----------------------------------
+export function houseCanvas() {
+  const S = 256, c = cv(S), x = c.getContext('2d');
+  const lw = S * LWR * .8;
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  ao(x, 128, 232, 78, 14, .2);
+  // walls
+  rr(x, 52, 118, 152, 108, 14);
+  x.fillStyle = CREAM; x.fill(); x.strokeStyle = INK; x.lineWidth = lw; x.stroke();
+  // roof — soft pink with a scalloped eave
+  union(x, p => {
+    p.moveTo(34, 128);
+    p.quadraticCurveTo(128, 30, 222, 128);
+    for (let i = 0; i < 5; i++) p.arc(222 - 18.8 - i * 37.6, 128, 18.8, 0, Math.PI);
+    p.closePath();
+  }, tint(BUBBLE, .25), lw * .5);
+  // chimney
+  rr(x, 168, 58, 26, 34, 8);
+  x.fillStyle = shade(BUBBLE, .2); x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .7; x.stroke();
+  // door — arched, grape
+  x.beginPath();
+  x.moveTo(106, 226); x.lineTo(106, 176); x.arc(128, 176, 22, Math.PI, 0); x.lineTo(150, 226); x.closePath();
+  x.fillStyle = tint(GRAPE, .25); x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .8; x.stroke();
+  x.fillStyle = SUN; x.beginPath(); x.arc(141, 196, 4.5, 0, TAU); x.fill();
+  // round window with a heart
+  x.beginPath(); x.arc(80, 160, 17, 0, TAU);
+  x.fillStyle = tint(SKYB, .55); x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .7; x.stroke();
+  x.beginPath(); heartPath(x, 176, 158, 9);
+  x.fillStyle = BUBBLE; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .45; x.stroke();
+  // flowers at the base
+  for (const [fx, col] of [[62, BUBBLE], [196, SKYB]]) {
+    for (let k = 0; k < 5; k++) { const a = k * TAU / 5; x.beginPath(); x.ellipse(fx + Math.cos(a) * 6, 222 + Math.sin(a) * 6, 4, 5.5, a, 0, TAU); x.fillStyle = tint(col, .3); x.fill(); }
+    x.fillStyle = SUN; x.beginPath(); x.arc(fx, 222, 3.4, 0, TAU); x.fill();
+  }
+  return c;
+}
+
+// ---- Rosie's market stall (the "shop" on the map) --------------------------
+export function stallCanvas() {
+  const S = 256, c = cv(S), x = c.getContext('2d');
+  const lw = S * LWR * .8;
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  ao(x, 128, 232, 84, 14, .2);
+  // posts
+  for (const px of [58, 186]) {
+    rr(x, px - 7, 96, 14, 116, 6);
+    x.fillStyle = shade(SUN, .35); x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .6; x.stroke();
+  }
+  // counter with a heart
+  rr(x, 42, 168, 172, 58, 16);
+  x.fillStyle = tint(BUBBLE, .2); x.fill(); x.strokeStyle = INK; x.lineWidth = lw; x.stroke();
+  x.beginPath(); heartPath(x, 128, 194, 11);
+  x.fillStyle = '#fff'; x.fill();
+  // striped awning with scallops
+  const cols = [tint(BUBBLE, .3), '#fff', tint(SKYB, .5), tint(SUN, .5), tint(GRAPE, .5)];
+  const aw = 196, ax0 = 30, sw = aw / 5;
+  x.save();
+  rr(x, ax0, 62, aw, 44, 10); x.clip();
+  cols.forEach((col, i) => { x.fillStyle = col; x.fillRect(ax0 + i * sw, 62, sw, 44); });
+  x.restore();
+  for (let i = 0; i < 5; i++) {
+    x.fillStyle = cols[i];
+    x.beginPath(); x.arc(ax0 + i * sw + sw / 2, 106, sw / 2, 0, Math.PI); x.fill();
+  }
+  rr(x, ax0, 62, aw, 44, 10); x.strokeStyle = INK; x.lineWidth = lw * .7; x.stroke();
+  x.beginPath(); x.moveTo(ax0, 106); x.lineTo(ax0 + aw, 106); x.stroke();
+  for (let i = 1; i < 5; i++) {
+    x.beginPath(); x.arc(ax0 + i * sw, 106, 1, 0, TAU); x.stroke();
+  }
+  // little coin sign hanging from the awning
+  x.strokeStyle = INK; x.lineWidth = lw * .4;
+  x.beginPath(); x.moveTo(128, 118); x.lineTo(128, 132); x.stroke();
+  x.beginPath(); x.arc(128, 144, 14, 0, TAU);
+  x.fillStyle = SUN; x.fill(); x.strokeStyle = shade(SUN, .4); x.lineWidth = lw * .5; x.stroke();
+  x.fillStyle = CREAM; x.beginPath(); starPath(x, 128, 144, 7, 3.2); x.fill();
+  return c;
+}

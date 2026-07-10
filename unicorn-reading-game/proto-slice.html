@@ -135,7 +135,7 @@
 </div>
 
 <script type="module">
-import { unicornCanvas, UNICORN_TYPES, COSMETIC_ART, coinCanvas, girlCanvas, treeCanvas } from './src/art.js';
+import { unicornCanvas, UNICORN_TYPES, COSMETIC_ART, coinCanvas, girlCanvas, treeCanvas, houseCanvas, stallCanvas } from './src/art.js';
 import { WORDS, ALPHABET, COSMETICS, cosmeticById, VOICE_PROFILES } from './src/content.js';
 import { AudioManager } from './src/audio.js';
 
@@ -452,13 +452,16 @@ function drawTreeAt(tx, ty, scale=1){
   const s = TILE*1.35*scale;
   ctx.drawImage(treeImg, tx*TILE+TILE/2-s/2, ty*TILE+TILE-s*0.95, s, s);
 }
-function drawHubB(px,py,icon,near){
-  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE/2,44,0,7);
-  ctx.fillStyle='#fff'; ctx.fill();
-  ctx.lineWidth=6; ctx.strokeStyle = near ? '#ff6fc4' : 'rgba(255,255,255,.9)'; ctx.stroke();
-  ctx.font='40px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(icon, px+TILE/2, py+TILE/2+2);
+const houseImg = houseCanvas(), stallImg = stallCanvas();
+function drawHubB(px,py,which,near){
+  if (near){
+    ctx.beginPath(); ctx.ellipse(px+TILE/2, py+TILE*0.95, 56, 20, 0, 0, 7);
+    ctx.fillStyle = 'rgba(255,111,196,.28)'; ctx.fill();
+    ctx.lineWidth = 5; ctx.strokeStyle = '#ff6fc4'; ctx.stroke();
+  }
+  const img = which === 'home' ? houseImg : stallImg;
+  const s = TILE*1.7;
+  ctx.drawImage(img, px+TILE/2-s/2, py+TILE-s*0.94, s, s);
 }
 function drawAmbient(dt, t){
   for (const b of butterflies){
@@ -923,7 +926,7 @@ function loop(ts){
   ctx.translate(-cam.x, -cam.y);
 
   drawWorldBase(t);
-  for (const [k,b] of Object.entries(hub)) drawHubB(b.x*TILE, b.y*TILE, b.icon, inHub===k);
+  for (const [k,b] of Object.entries(hub)) drawHubB(b.x*TILE, b.y*TILE, k, inHub===k);
   homes.forEach((h,i)=>{
     const [tx,ty] = waypoints[HOME_WPS[i]];
     const n = nextIdx();
