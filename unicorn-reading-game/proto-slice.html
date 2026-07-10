@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Unicorn Village — slice</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#8ad290;font-family:"Baloo 2",ui-rounded,system-ui;touch-action:none;user-select:none;-webkit-user-select:none}
+  #world{position:fixed;inset:0}
+  .hidden{display:none!important}
+
+  /* coin HUD */
+  #coins{position:fixed;top:14px;left:14px;display:flex;align-items:center;gap:7px;background:#fff;
+    border-radius:999px;padding:6px 14px 6px 8px;font-weight:900;font-size:22px;color:#7a3b16;
+    box-shadow:0 4px 12px rgba(90,43,107,.3);z-index:5}
+  #coins canvas{width:30px;height:30px;display:block}
+  #coins.pop{animation:pop .4s ease}
+  @keyframes pop{40%{transform:scale(1.2)}}
+
+  #hint{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#fff;padding:8px 16px;border-radius:999px;
+    font-weight:800;color:#5a2b6b;font-size:13px;box-shadow:0 4px 10px rgba(90,43,107,.25);z-index:5;
+    max-width:62%;text-align:center}
+  #hint.pop{animation:hpop .4s ease}
+  @keyframes hpop{40%{transform:translateX(-50%) scale(1.1)}}
+  #progress{position:fixed;top:70px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:5}
+  .pdot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.6);box-shadow:0 2px 6px rgba(90,43,107,.3)}
+  .pdot.done{background:#7ee081}
+
+  /* d-pad */
+  #dpad{position:fixed;left:18px;bottom:28px;width:150px;height:150px;z-index:5}
+  .dbtn{position:absolute;width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.85);
+    box-shadow:0 4px 10px rgba(90,43,107,.35);display:flex;align-items:center;justify-content:center;
+    font-size:22px;color:#5a2b6b;font-weight:900}
+  .dbtn.active{background:#ffd6f5}
+  #up{left:49px;top:0} #down{left:49px;top:98px} #left{left:0;top:49px} #right{left:98px;top:49px}
+
+  /* meet popup */
+  #popup{position:fixed;left:50%;bottom:120px;transform:translate(-50%,20px);width:280px;
+    background:#fff;border-radius:24px;padding:16px;box-shadow:0 14px 34px rgba(90,43,107,.4);
+    text-align:center;opacity:0;pointer-events:none;transition:transform .25s ease,opacity .25s ease;z-index:6}
+  #popup.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  #popup canvas{width:110px;height:110px;display:block;margin:0 auto}
+  #popup .bubble{background:#fdeaf7;border-radius:14px;padding:8px 10px;font-weight:800;color:#5a2b6b;font-size:14px;margin:6px 0 12px}
+  .choices{display:flex;gap:14px;justify-content:center}
+  .choices button{width:56px;height:56px;border-radius:50%;border:none;font-size:26px;font-weight:900;cursor:pointer;color:#fff}
+  .yes{background:#7ee081} .no{background:#ff8a8a}
+
+  /* full-screen overlays (game / shop / home) */
+  .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;
+    background:linear-gradient(180deg,#fff3fb 0%,#ffe9f8 45%,#eaf6ff 100%);padding:14px;overflow:hidden}
+  .screen .xbtn{position:absolute;top:12px;right:12px;width:44px;height:44px;border:none;border-radius:50%;
+    background:rgba(138,107,255,.14);color:#8a5cff;font-size:22px;font-weight:900;cursor:pointer;z-index:2}
+  .host{display:flex;align-items:flex-end;gap:8px;margin-top:4px}
+  .host canvas{width:92px;height:92px;display:block}
+  .host .say{background:#fff;border-radius:14px;padding:7px 12px;font-weight:800;color:#5a2b6b;font-size:14px;
+    box-shadow:0 4px 10px rgba(90,43,107,.2);max-width:200px}
+  .host canvas.cheer{animation:cheer .5s ease}
+  @keyframes cheer{35%{transform:translateY(-14px) scale(1.08)}}
+
+  /* blending game */
+  #tiles{display:flex;gap:10px;justify-content:center;margin:16px 0 6px}
+  .tile{width:74px;height:74px;border:none;border-radius:18px;font-family:inherit;font-size:44px;font-weight:900;color:#fff;
+    box-shadow:0 5px 12px rgba(90,43,107,.28);cursor:pointer}
+  .tile:active{transform:scale(.92)}
+  .t0{background:#ff8fd4}.t1{background:#9d8cff}.t2{background:#5fc8ff}.t3{background:#ffd166}
+  #speak{border:none;background:#fff;border-radius:999px;width:54px;height:54px;font-size:24px;margin:4px auto;box-shadow:0 4px 10px rgba(90,43,107,.2);cursor:pointer}
+  #answers{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;max-width:360px;margin-top:10px}
+  .answer{height:74px;border:none;border-radius:18px;background:#fff;font-size:40px;box-shadow:0 4px 10px rgba(90,43,107,.18);cursor:pointer}
+  .answer:active{transform:scale(.94)}
+  .answer.correct{background:#c7f5cb;box-shadow:0 0 0 4px #7ee081;animation:pop .5s ease}
+  .answer.wrong{animation:shake .45s ease}
+  @keyframes shake{20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+
+  /* letter-match game */
+  #bigLetter{font-size:96px;font-weight:900;color:#8a5cff;line-height:1.05;margin:8px 0 2px}
+  #matchPrompt{font-weight:800;color:#5a2b6b;font-size:16px;margin-bottom:8px}
+  #letterChoices{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:360px}
+  .lchoice{aspect-ratio:1;border:none;border-radius:18px;background:#fff;font-family:inherit;font-size:42px;font-weight:900;color:#5a2b6b;
+    box-shadow:0 4px 10px rgba(90,43,107,.18);cursor:pointer}
+  .lchoice:active{transform:scale(.92)}
+  .lchoice.correct{background:#c7f5cb;box-shadow:0 0 0 4px #7ee081;animation:pop .5s ease}
+  .lchoice.wrong{animation:shake .45s ease}
+
+  .rounds{display:flex;gap:8px;margin-top:auto;margin-bottom:12px}
+  .rdot{width:16px;height:16px;border-radius:50%;background:rgba(138,107,255,.18)}
+  .rdot.done{background:#7ee081}
+
+  /* shop & home */
+  .cardgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;max-width:380px;margin-top:12px}
+  .item{position:relative;border:none;border-radius:18px;background:#fff;box-shadow:0 3px 10px rgba(90,43,107,.16);
+    padding:10px 6px 8px;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .item:active{transform:scale(.94)}
+  .item canvas{width:60px;height:60px;display:block}
+  .itag{display:inline-flex;align-items:center;gap:4px;font-size:14px;font-weight:900;color:#8a5a12;background:#fff3d9;border-radius:999px;padding:2px 10px}
+  .item.afford{box-shadow:0 0 0 3px #7ee081,0 3px 10px rgba(90,43,107,.16)}
+  .item.saving{opacity:.6}
+  .item.owned .itag{background:#d9f5dc;color:#2b8a3e}
+  .item.worn{box-shadow:0 0 0 3px #ff6fc4,0 3px 10px rgba(90,43,107,.16)}
+  .screen h2{margin:6px 0 0;color:#8a5cff;font-size:24px}
+  .note{margin:2px 0 0;color:#7a5f88;font-weight:700;font-size:13px;text-align:center}
+  #homePreview canvas{width:150px;height:150px;display:block}
+
+  /* start overlay (audio unlock) */
+  #start{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(160deg,#ffe1f6,#cfeeff);cursor:pointer}
+  .startcard{text-align:center;background:rgba(255,255,255,.85);border-radius:32px;padding:26px 30px;box-shadow:0 16px 40px rgba(120,70,140,.25)}
+  .startcard canvas{width:130px;height:130px;display:block;margin:0 auto}
+  .startcard h1{margin:4px 0 10px;color:#8a5cff;font-size:28px}
+  .tap{display:inline-block;background:linear-gradient(135deg,#ff6fc4,#8a6bff);color:#fff;font-size:20px;font-weight:900;
+    padding:12px 26px;border-radius:999px;animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{50%{transform:scale(1.06)}}
+
+  #toast{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);background:rgba(255,255,255,.96);border-radius:26px;
+    padding:18px 28px;text-align:center;box-shadow:0 16px 40px rgba(120,70,140,.35);z-index:30;pointer-events:none;font-weight:900;color:#8a5cff;font-size:20px}
+  #toast .big{font-size:56px;line-height:1.1}
+  #toast.pop{animation:pop .5s ease}
+</style></head><body>
+<canvas id="world"></canvas>
+<div id="coins"><canvas id="coinIcon" width="60" height="60"></canvas><span id="coinCount">0</span></div>
+<div id="hint"></div>
+<div id="progress"></div>
+<div id="dpad">
+  <div class="dbtn" id="up">▲</div><div class="dbtn" id="down">▼</div>
+  <div class="dbtn" id="left">◀</div><div class="dbtn" id="right">▶</div>
+</div>
+<div id="popup">
+  <canvas id="popupPortrait" width="220" height="220"></canvas>
+  <div class="bubble" id="popupText"></div>
+  <div class="choices"><button class="no" id="no">✕</button><button class="yes" id="yes">✓</button></div>
+</div>
+
+<!-- game screen -->
+<div id="game" class="screen hidden">
+  <button class="xbtn" id="gameX">✕</button>
+  <div class="host"><canvas id="hostArt" width="220" height="220"></canvas><div class="say" id="hostSay"></div></div>
+  <div id="blendUI" class="hidden" style="display:flex;flex-direction:column;align-items:center;width:100%">
+    <div id="tiles"></div>
+    <button id="speak">🔁</button>
+    <div id="answers"></div>
+  </div>
+  <div id="matchUI" class="hidden" style="display:flex;flex-direction:column;align-items:center;width:100%">
+    <div id="bigLetter"></div>
+    <div id="matchPrompt"></div>
+    <div id="letterChoices"></div>
+  </div>
+  <div class="rounds" id="rounds"></div>
+</div>
+
+<!-- shop screen -->
+<div id="shop" class="screen hidden">
+  <button class="xbtn" id="shopX">✕</button>
+  <div class="host"><canvas id="shopKeeper" width="220" height="220"></canvas><div class="say">Hi lovely! Buy something sparkly? Try it on at home!</div></div>
+  <div class="cardgrid" id="shopGrid"></div>
+</div>
+
+<!-- home screen -->
+<div id="home" class="screen hidden">
+  <button class="xbtn" id="homeX">✕</button>
+  <h2>My Home 🏠</h2>
+  <p class="note">Tap something you own to wear it!</p>
+  <div id="homePreview"></div>
+  <div class="cardgrid" id="homeGrid"></div>
+</div>
+
+<div id="toast" class="hidden"><div class="big" id="toastBig">🎉</div><div id="toastText"></div></div>
+
+<div id="start">
+  <div class="startcard">
+    <canvas id="startArt" width="512" height="512"></canvas>
+    <h1>Unicorn Village</h1>
+    <div class="tap">▶ Tap to play</div>
+  </div>
+</div>
+
+<script type="module">
+import { unicornCanvas, UNICORN_TYPES, COSMETIC_ART, coinCanvas } from './src/art.js';
+import { WORDS, ALPHABET, COSMETICS, cosmeticById, VOICE_PROFILES } from './src/content.js';
+import { AudioManager } from './src/audio.js';
+
+/* ========== slice save (own key — never touches the real game's save) ===== */
+const KEY = 'unicorn-slice-v1';
+const DEFAULTS = () => ({ coins: 0, met: [], cosmetics: [], equipped: {} });
+let save = DEFAULTS();
+try { save = { ...DEFAULTS(), ...(JSON.parse(localStorage.getItem(KEY) || 'null') || {}) }; } catch (_) {}
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (_) {} };
+
+/* ========== content: the four unicorns and their games ==================== */
+// 4-letter words: honestly decodable (CCVC/CVCC, short vowels, no digraphs),
+// pictures a 4yo names on sight.
+const WORDS4 = [
+  { word: 'nest', emoji: '🪺' }, { word: 'hand', emoji: '✋' },
+  { word: 'milk', emoji: '🥛' }, { word: 'frog', emoji: '🐸' },
+  { word: 'tent', emoji: '⛺' }, { word: 'gift', emoji: '🎁' },
+  { word: 'crab', emoji: '🦀' }, { word: 'flag', emoji: '🚩' },
+  { word: 'drum', emoji: '🥁' }, { word: 'swim', emoji: '🏊' },
+];
+const ROUNDS = 5;
+const homes = [
+  { type: 'type.starlight', name: 'Starlight', game: 'Letter Match',         mode: 'match',  coins: 1 },
+  { type: 'type.frost',     name: 'Frost',     game: 'Big Word Blending',    mode: 'blend',  caps: 'upper', words: WORDS,  coins: 2 },
+  { type: 'type.clover',    name: 'Clover',    game: 'Little Word Blending', mode: 'blend',  caps: 'lower', words: WORDS,  coins: 2 },
+  { type: 'type.sunbeam',   name: 'Sunbeam',   game: 'Big & Little Words',   mode: 'blend',  caps: 'alt',   words: WORDS4, coins: 3 },
+];
+const MEET_BONUS = 10; // first time she finishes a friend's game
+
+/* ========== audio ========================================================= */
+const audio = new AudioManager();
+
+/* ========== world ========================================================= */
+const cv = document.getElementById('world');
+const ctx = cv.getContext('2d');
+function resize(){ cv.width = innerWidth; cv.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+const TILE = 64, WORLD_W = 9, WORLD_H = 27;
+const waypoints = [ [3,1],[6,4],[3,7],[6,10],[3,13],[6,16],[3,19],[6,22],[3,24] ];
+const HOME_WPS = [1,3,5,7];
+const hub = {
+  home: { x: 1, y: 1, icon: '🏠' },
+  shop: { x: 7, y: 1, icon: '🛍️' },
+};
+function wpPos(i){ const [tx,ty]=waypoints[i]; return { x: tx*TILE+TILE/2, y: ty*TILE+TILE/2 }; }
+
+const gates = homes.map((h,i) => {
+  const a = wpPos(HOME_WPS[i]), b = wpPos(Math.min(HOME_WPS[i]+1, waypoints.length-1));
+  const gy = Math.round((a.y + (b.y-a.y)*0.55) / TILE);
+  return { row: gy, trees: Array.from({length: WORLD_W}, (_,tx)=>[tx,gy]), get open(){ return save.met.includes(homes[i].type); } };
+});
+const decorTrees = [];
+{ let seed = 7; const rnd = () => (seed = (seed*16807)%2147483647) / 2147483647; // deterministic scatter
+  for (let i=0;i<16;i++) decorTrees.push([1+Math.floor(rnd()*(WORLD_W-2)), 3+Math.floor(rnd()*(WORLD_H-4))]); }
+
+const player = { x: 4*TILE, y: 1*TILE, dir: 'down' };
+const SPEED = 190, PLAYER_R = 15, TREE_R = 22;
+const held = { up:false, down:false, left:false, right:false };
+
+function solids(){
+  const list = [...decorTrees];
+  for (const g of gates) if (!g.open) list.push(...g.trees);
+  return list;
+}
+function tryMove(px, py, dx, dy){
+  const list = solids();
+  const hits = (x,y) => list.some(([tx,ty]) => {
+    const cx = tx*TILE+TILE/2, cy = ty*TILE+TILE*0.75;
+    return Math.hypot(x+TILE/2-cx, y+TILE*0.86-cy) < (PLAYER_R+TREE_R);
+  });
+  let nx = px+dx, ny = py+dy;
+  if (hits(nx, py)) nx = px;
+  if (hits(nx, ny)) ny = py;
+  return [nx, ny];
+}
+
+/* ---- drawing ---- */
+const miniUni = {}; // cached small buddy canvases per equip-state
+function buddyCanvas(){
+  const eq = JSON.stringify(save.equipped);
+  if (miniUni[eq]) return miniUni[eq];
+  const S = 200, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d');
+  const back = save.equipped.back && COSMETIC_ART[save.equipped.back];
+  if (back) x.drawImage(back(), S*0.14, S*0.22, S*0.72, S*0.72);
+  x.drawImage(unicornCanvas('pink'), S*0.05, S*0.1, S*0.9, S*0.9);
+  const head = save.equipped.head && COSMETIC_ART[save.equipped.head];
+  if (head) x.drawImage(head(), S*0.31, S*-0.02, S*0.38, S*0.38);
+  miniUni[eq] = c;
+  return c;
+}
+const typeArt = {};
+function unicornArt(typeId){
+  if (typeArt[typeId]) return typeArt[typeId];
+  const t = UNICORN_TYPES[typeId];
+  return (typeArt[typeId] = unicornCanvas(t.mane, { pattern:t.pattern, hornColor:t.hornColor, irisColor:t.irisColor, sparkle:t.sparkle }));
+}
+
+function drawTree(px,py){
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE*.82,TILE*.32,TILE*.14,0,0,7);
+  ctx.fillStyle='rgba(60,40,30,.18)'; ctx.fill();
+  ctx.fillStyle='#7a5236'; ctx.fillRect(px+TILE/2-6,py+TILE*.5,12,TILE*.4);
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.42,TILE*.38,0,7);
+  ctx.fillStyle='#5cb26a'; ctx.fill(); ctx.strokeStyle='#3f8a4d'; ctx.lineWidth=4; ctx.stroke();
+}
+function drawPlayer(px,py,dir){
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE*.86,18,7,0,0,7);
+  ctx.fillStyle='rgba(60,40,30,.22)'; ctx.fill();
+  ctx.fillStyle='#ff8fd0';
+  ctx.beginPath(); ctx.moveTo(px+TILE/2,py+TILE*.42); ctx.lineTo(px+TILE*.32,py+TILE*.8); ctx.lineTo(px+TILE*.68,py+TILE*.8); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.32,16,0,7); ctx.fillStyle='#ffe0c2'; ctx.fill();
+  ctx.fillStyle='#7a4a2a'; ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.26,17,Math.PI,0); ctx.fill();
+  ctx.fillStyle='#5a2b6b';
+  const off = {down:[0,4],up:[0,-2],left:[-6,4],right:[6,4]}[dir];
+  for (const s of [-4,4]) { ctx.beginPath(); ctx.arc(px+TILE/2+off[0]+s,py+TILE*.32+off[1],2.2,0,7); ctx.fill(); }
+  // her unicorn buddy trots alongside, wearing whatever's equipped
+  ctx.drawImage(buddyCanvas(), px-TILE*0.72, py+TILE*0.18, TILE*0.78, TILE*0.78);
+}
+function drawClearing(px,py,state){
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE/2,54,30,0,0,7);
+  ctx.fillStyle = state==='locked' ? 'rgba(255,255,255,.35)' : '#ffe9f7'; ctx.fill();
+  ctx.lineWidth=6; ctx.strokeStyle = state==='ready' ? '#ff6fc4' : (state==='done' ? '#7ee081' : 'rgba(255,255,255,.6)'); ctx.stroke();
+}
+function drawResident(px,py,typeId,bob){
+  const art = unicornArt(typeId);
+  const s = TILE*1.05;
+  ctx.drawImage(art, px+TILE/2-s/2, py+TILE*0.45-s/2 + bob, s, s);
+}
+function drawHub(px,py,icon,near){
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE/2,44,0,7);
+  ctx.fillStyle='#fff'; ctx.fill();
+  ctx.lineWidth=6; ctx.strokeStyle = near ? '#ff6fc4' : 'rgba(255,255,255,.9)'; ctx.stroke();
+  ctx.font='40px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(icon, px+TILE/2, py+TILE/2+2);
+}
+
+/* ---- HUD ---- */
+document.getElementById('coinIcon').getContext('2d').drawImage(coinCanvas(128),0,0,60,60);
+const coinEl = document.getElementById('coinCount'), coinWrap = document.getElementById('coins');
+function setCoins(n){ save.coins = n; persist(); coinEl.textContent = String(n);
+  coinWrap.classList.remove('pop'); void coinWrap.offsetWidth; coinWrap.classList.add('pop'); }
+setCoins(save.coins);
+
+const hintEl = document.getElementById('hint');
+let realHint = '';
+function setHint(t){ hintEl.textContent = t; hintEl.classList.remove('pop'); void hintEl.offsetWidth; hintEl.classList.add('pop'); }
+function realSetHint(t){ realHint = t; if (!inHub) setHint(t); }
+function renderDots(){
+  const el = document.getElementById('progress'); el.innerHTML='';
+  homes.forEach(h => { const d=document.createElement('div'); d.className='pdot'+(save.met.includes(h.type)?' done':''); el.appendChild(d); });
+}
+renderDots();
+
+function toast(big, text){
+  const t = document.getElementById('toast');
+  document.getElementById('toastBig').textContent = big;
+  document.getElementById('toastText').textContent = text;
+  t.classList.remove('hidden'); t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.add('hidden'), 2600);
+}
+
+/* ---- world loop ---- */
+let popupOpen = false, screenOpen = false, inHub = null, activeIdx = null, lastTs = performance.now();
+const nextIdx = () => homes.findIndex(h => !save.met.includes(h.type));
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05,(ts-lastTs)/1000); lastTs = ts;
+  const t = ts/1000;
+
+  if (!popupOpen && !screenOpen){
+    let vx=0, vy=0;
+    if (held.up) vy-=1; if (held.down) vy+=1; if (held.left) vx-=1; if (held.right) vx+=1;
+    if (vx||vy){
+      const len=Math.hypot(vx,vy); vx/=len; vy/=len;
+      player.dir = Math.abs(vx)>Math.abs(vy) ? (vx>0?'right':'left') : (vy>0?'down':'up');
+      const [nx,ny] = tryMove(player.x, player.y, vx*SPEED*dt, vy*SPEED*dt);
+      player.x = Math.max(0, Math.min(WORLD_W*TILE-TILE, nx));
+      player.y = Math.max(0, Math.min(WORLD_H*TILE-TILE, ny));
+    }
+    // meet the next unmet friend — or revisit any met one to play again
+    for (let i=0;i<homes.length;i++){
+      const reachable = i <= (nextIdx()===-1 ? homes.length-1 : nextIdx());
+      if (!reachable) continue;
+      const pos = wpPos(HOME_WPS[i]);
+      if (Math.hypot((player.x+TILE/2)-pos.x,(player.y+TILE/2)-pos.y) < TILE*0.9){ openPopup(i); break; }
+    }
+    // hub proximity
+    let nowIn = null;
+    for (const [k,b] of Object.entries(hub)){
+      if (Math.hypot((player.x+TILE/2)-(b.x*TILE+TILE/2),(player.y+TILE/2)-(b.y*TILE+TILE/2)) < TILE*0.8) nowIn = k;
+    }
+    if (nowIn !== inHub){
+      inHub = nowIn;
+      if (inHub === 'home') openHome();
+      else if (inHub === 'shop') openShop();
+    }
+  }
+
+  const camX = player.x - cv.width/2 + TILE/2, camY = player.y - cv.height/2 + TILE/2;
+  ctx.save(); ctx.translate(-camX,-camY);
+  for (let ty=0; ty<WORLD_H; ty++) for (let tx=0; tx<WORLD_W; tx++){
+    const onPath = waypoints.some(([wx,wy]) => Math.abs(wx-tx)<=1 && Math.abs(wy-ty)<=1) || ty<=2;
+    ctx.fillStyle = onPath ? '#e8c99a' : ((tx+ty)%7===0 ? '#8fd497' : '#8ad290');
+    ctx.fillRect(tx*TILE,ty*TILE,TILE,TILE);
+  }
+  for (const [k,b] of Object.entries(hub)) drawHub(b.x*TILE, b.y*TILE, b.icon, inHub===k);
+  homes.forEach((h,i)=>{
+    const [tx,ty] = waypoints[HOME_WPS[i]];
+    const n = nextIdx();
+    const state = save.met.includes(h.type) ? 'done' : (i===n ? 'ready' : 'locked');
+    drawClearing(tx*TILE,ty*TILE,state);
+    if (state !== 'locked') drawResident(tx*TILE,ty*TILE,h.type, Math.sin(t*2+i)*3);
+  });
+  for (const [tx,ty] of decorTrees) drawTree(tx*TILE,ty*TILE);
+  for (const g of gates) if (!g.open) for (const [tx,ty] of g.trees) drawTree(tx*TILE,ty*TILE);
+  drawPlayer(player.x,player.y,player.dir);
+  ctx.restore();
+}
+requestAnimationFrame(loop);
+
+/* ---- meet popup ---- */
+function openPopup(i){
+  if (popupOpen || screenOpen) return;
+  popupOpen = true; activeIdx = i;
+  const h = homes[i];
+  const met = save.met.includes(h.type);
+  document.getElementById('popupPortrait').getContext('2d').clearRect(0,0,220,220);
+  document.getElementById('popupPortrait').getContext('2d').drawImage(unicornArt(h.type),0,0,220,220);
+  const line = met ? `Play ${h.game} again?` : `Hi! I'm ${h.name}! Want to play ${h.game} with me?`;
+  document.getElementById('popupText').textContent = line;
+  document.getElementById('popup').classList.add('show');
+  audio.speakAs(h.type, met ? `Play again?` : `Hi! I'm ${h.name}! Want to play with me?`);
+}
+function closePopup(){ popupOpen=false; document.getElementById('popup').classList.remove('show'); }
+document.getElementById('yes').addEventListener('click', () => { closePopup(); startGame(activeIdx); });
+document.getElementById('no').addEventListener('click', () => { closePopup(); player.y += 40; });
+
+/* ========== the games ===================================================== */
+const gameEl = document.getElementById('game');
+let game = null; // { idx, round, correctNeeded }
+
+function startGame(idx){
+  screenOpen = true;
+  const h = homes[idx];
+  game = { idx, round: 0 };
+  document.getElementById('hostArt').getContext('2d').clearRect(0,0,220,220);
+  document.getElementById('hostArt').getContext('2d').drawImage(unicornArt(h.type),0,0,220,220);
+  gameEl.classList.remove('hidden');
+  renderRounds();
+  nextRound();
+}
+function endGame(finished){
+  gameEl.classList.add('hidden');
+  document.getElementById('blendUI').classList.add('hidden');
+  document.getElementById('matchUI').classList.add('hidden');
+  screenOpen = false;
+  if (finished){
+    const h = homes[game.idx];
+    const firstTime = !save.met.includes(h.type);
+    if (firstTime){
+      save.met.push(h.type);
+      setCoins(save.coins + MEET_BONUS);
+      persist(); renderDots();
+      toast('🎉', `${h.name} is your friend! +${MEET_BONUS}`);
+      audio.fanfare && audio.fanfare();
+      const n = nextIdx();
+      realSetHint(n===-1 ? 'You met everyone! Visit the shop 🛍️' : `The path opens! Walk to ${homes[n].name} 👇`);
+      player.y += 50; // step back so the popup doesn't instantly reopen
+    } else {
+      toast('💖', 'That was fun!');
+      player.y += 50;
+    }
+  } else {
+    player.y += 50;
+  }
+  game = null;
+}
+document.getElementById('gameX').addEventListener('click', ()=>endGame(false));
+
+function renderRounds(){
+  const el = document.getElementById('rounds'); el.innerHTML='';
+  for (let i=0;i<ROUNDS;i++){ const d=document.createElement('div'); d.className='rdot'+(i<game.round?' done':''); el.appendChild(d); }
+}
+function say(text, speak){
+  document.getElementById('hostSay').textContent = text;
+  if (speak) audio.speakAs(homes[game.idx].type, text);
+}
+function hostCheer(){
+  const a = document.getElementById('hostArt');
+  a.classList.remove('cheer'); void a.offsetWidth; a.classList.add('cheer');
+}
+function roundWon(){
+  const h = homes[game.idx];
+  setCoins(save.coins + h.coins);
+  hostCheer();
+  audio.chime && audio.chime();
+  game.round++;
+  renderRounds();
+  if (game.round >= ROUNDS){
+    say('You did it! 🎉', false);
+    audio.praise();
+    setTimeout(()=>endGame(true), 1200);
+  } else {
+    setTimeout(nextRound, 900);
+  }
+}
+
+const shuffle = a => { for (let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a; };
+
+function nextRound(){
+  const h = homes[game.idx];
+  if (h.mode === 'match') matchRound();
+  else blendRound(h);
+}
+
+/* ---- Letter Match (Starlight): BIG letter -> find the little one, and back */
+function matchRound(){
+  document.getElementById('matchUI').classList.remove('hidden');
+  document.getElementById('blendUI').classList.add('hidden');
+  const askBig = Math.random() < 0.5;
+  const target = ALPHABET[(Math.random()*ALPHABET.length)|0];
+  const others = shuffle(ALPHABET.filter(a=>a!==target)).slice(0,3);
+  const choices = shuffle([target, ...others]);
+  document.getElementById('bigLetter').textContent = askBig ? target.letter.toUpperCase() : target.letter;
+  document.getElementById('matchPrompt').textContent = askBig ? 'Find the little letter!' : 'Find the BIG letter!';
+  say(askBig ? 'Find the little one!' : 'Find the BIG one!', game.round===0);
+  const grid = document.getElementById('letterChoices'); grid.innerHTML='';
+  let locked = false;
+  choices.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'lchoice';
+    b.textContent = askBig ? c.letter : c.letter.toUpperCase();
+    b.addEventListener('click', () => {
+      if (locked) return;
+      if (c === target){ locked = true; b.classList.add('correct'); roundWon(); }
+      else { b.classList.add('wrong'); audio.nope && audio.nope(); audio.playPhoneme(target.letter); setTimeout(()=>b.classList.remove('wrong'),500); }
+    });
+    grid.appendChild(b);
+  });
+}
+
+/* ---- Blending (Frost / Clover / Sunbeam) ---- */
+function displayWord(word, caps, round){
+  if (caps === 'upper') return word.toUpperCase();
+  if (caps === 'lower') return word.toLowerCase();
+  return round % 2 ? word.toLowerCase() : word.toUpperCase(); // 'alt': flips each round
+}
+function blendRound(h){
+  document.getElementById('blendUI').classList.remove('hidden');
+  document.getElementById('matchUI').classList.add('hidden');
+  const pool = h.words;
+  const pick = pool[(Math.random()*pool.length)|0];
+  const disp = displayWord(pick.word, h.caps, game.round);
+  const tiles = document.getElementById('tiles'); tiles.innerHTML='';
+  disp.split('').forEach((ch,i) => {
+    const b = document.createElement('button');
+    b.className = 'tile t'+(i%4);
+    b.textContent = ch;
+    b.addEventListener('click', ()=>audio.playPhoneme(pick.word[i]));
+    tiles.appendChild(b);
+  });
+  say('Sound it out, then tap the picture!', game.round===0);
+  document.getElementById('speak').onclick = async () => {
+    for (const ch of pick.word){ await audio.playPhoneme(ch); await new Promise(r=>setTimeout(r,180)); }
+  };
+  const others = shuffle(pool.filter(w=>w!==pick)).slice(0,5);
+  const choices = shuffle([pick, ...others]);
+  const grid = document.getElementById('answers'); grid.innerHTML='';
+  let locked = false;
+  choices.forEach(w => {
+    const b = document.createElement('button');
+    b.className = 'answer';
+    b.textContent = w.emoji;
+    b.addEventListener('click', async () => {
+      if (locked) return;
+      if (w === pick){ locked = true; b.classList.add('correct'); await audio.playWord(pick.word); roundWon(); }
+      else { b.classList.add('wrong'); audio.nope && audio.nope(); setTimeout(()=>b.classList.remove('wrong'),500); }
+    });
+    grid.appendChild(b);
+  });
+}
+
+/* ========== shop (buy only — equipping happens at home) =================== */
+function openShop(){
+  screenOpen = true;
+  const k = document.getElementById('shopKeeper');
+  k.getContext('2d').clearRect(0,0,220,220);
+  k.getContext('2d').drawImage(unicornCanvas('lavender',{apron:true}),0,0,220,220);
+  renderShop();
+  document.getElementById('shop').classList.remove('hidden');
+}
+function renderShop(){
+  const grid = document.getElementById('shopGrid'); grid.innerHTML='';
+  COSMETICS.forEach(cos => {
+    const owned = save.cosmetics.includes(cos.id);
+    const afford = !owned && save.coins >= cos.price;
+    const cell = document.createElement('button');
+    cell.className = 'item' + (owned ? ' owned' : afford ? ' afford' : ' saving');
+    const ic = COSMETIC_ART[cos.id](); ic.style.width='60px'; ic.style.height='60px';
+    cell.appendChild(ic);
+    const tag = document.createElement('span'); tag.className='itag';
+    tag.textContent = owned ? '✓' : cos.price;
+    cell.appendChild(tag);
+    cell.addEventListener('click', () => {
+      if (owned) { toast('🏠', 'Wear it at home!'); return; }
+      if (save.coins >= cos.price){
+        save.cosmetics.push(cos.id);
+        setCoins(save.coins - cos.price);
+        persist(); renderShop();
+        toast('🎁', 'Yours! Try it on at home!');
+        audio.fanfare && audio.fanfare();
+      } else {
+        audio.nope && audio.nope();
+      }
+    });
+    grid.appendChild(cell);
+  });
+}
+function closeScreen(id){
+  document.getElementById(id).classList.add('hidden');
+  screenOpen = false; inHub = null;
+  player.y += 50; // step away so it doesn't reopen instantly
+  setHint(realHint);
+}
+document.getElementById('shopX').addEventListener('click', ()=>closeScreen('shop'));
+
+/* ========== home (equip what you own) ===================================== */
+function openHome(){
+  screenOpen = true;
+  renderHome();
+  document.getElementById('home').classList.remove('hidden');
+}
+function renderHome(){
+  const prev = document.getElementById('homePreview');
+  const c = buddyCanvas().cloneNode ? (()=>{ const cc=document.createElement('canvas'); cc.width=cc.height=200; cc.getContext('2d').drawImage(buddyCanvas(),0,0); return cc; })() : buddyCanvas();
+  prev.replaceChildren(c);
+  const grid = document.getElementById('homeGrid'); grid.innerHTML='';
+  if (!save.cosmetics.length){
+    const p = document.createElement('p'); p.className='note'; p.textContent = 'Nothing yet — earn coins and visit the shop! 🛍️';
+    grid.appendChild(p);
+    return;
+  }
+  save.cosmetics.forEach(id => {
+    const cos = cosmeticById(id);
+    if (!cos) return;
+    const worn = save.equipped[cos.slot] === id;
+    const cell = document.createElement('button');
+    cell.className = 'item owned' + (worn ? ' worn' : '');
+    const ic = COSMETIC_ART[id](); ic.style.width='60px'; ic.style.height='60px';
+    cell.appendChild(ic);
+    const tag = document.createElement('span'); tag.className='itag'; tag.textContent = worn ? '👗' : ' ';
+    cell.appendChild(tag);
+    cell.addEventListener('click', () => {
+      if (worn) delete save.equipped[cos.slot];
+      else save.equipped[cos.slot] = id;
+      persist();
+      audio.chime && audio.chime();
+      renderHome();
+    });
+    grid.appendChild(cell);
+  });
+}
+document.getElementById('homeX').addEventListener('click', ()=>closeScreen('home'));
+
+/* ========== d-pad + start ================================================= */
+function bind(id, key){
+  const el = document.getElementById(id);
+  const on = e => { e.preventDefault(); held[key]=true; el.classList.add('active'); };
+  const off = () => { held[key]=false; el.classList.remove('active'); };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointerleave', off);
+  el.addEventListener('pointercancel', off);
+}
+bind('up','up'); bind('down','down'); bind('left','left'); bind('right','right');
+
+document.getElementById('startArt').getContext('2d').drawImage(unicornCanvas('pink'),0,0,512,512);
+document.getElementById('start').addEventListener('click', () => {
+  audio.unlock();
+  document.getElementById('start').remove();
+  const n = nextIdx();
+  realSetHint(n===-1 ? 'Welcome back! Visit anyone you like 💖' : `Walk to ${homes[n].name} with the d-pad 👇`);
+});
+
+/* test hooks */
+window.__slice = { save, player, homes, gates, get nextIdx(){ return nextIdx(); }, startGame, setCoins };
+window.__ready = true;
+</script>
+</body></html>
