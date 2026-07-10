@@ -137,6 +137,61 @@ export const ALPHABET = [
   { letter: 'z', keyword: 'zebra',    emoji: '🦓' },
 ];
 
+// ----------------------------------------------------------------------------
+// Rewards & economy. Every record below carries a stable string ID — saved
+// progress references these IDs (never array positions), so content can be
+// added, reordered or retired later without ever disturbing a child's save.
+// ----------------------------------------------------------------------------
+
+export const GOAL_SIZE = 5; // words to complete a stage
+
+// Coins earned per correct action (the "earn" side of the economy).
+export const COIN_REWARDS = {
+  word: 2,        // blended a word and picked the right picture
+  letter: 1,      // correct answer in the letters match game
+  sound: 1,       // met a brand-new letter sound in explore
+  stageBonus: 10, // completed a whole stage
+};
+
+// Magical friends unlocked one-by-one as stages complete. Order = unlock order.
+// The `id` is forever; the emoji is just today's artwork for it.
+export const FRIENDS = [
+  { id: 'friend.unicorn',   emoji: '🦄' },
+  { id: 'friend.butterfly', emoji: '🦋' },
+  { id: 'friend.bee',       emoji: '🐝' },
+  { id: 'friend.ladybird',  emoji: '🐞' },
+  { id: 'friend.fish',      emoji: '🐠' },
+  { id: 'friend.turtle',    emoji: '🐢' },
+  { id: 'friend.bunny',     emoji: '🐰' },
+  { id: 'friend.cat',       emoji: '🐱' },
+  { id: 'friend.puppy',     emoji: '🐶' },
+  { id: 'friend.chick',     emoji: '🐥' },
+  { id: 'friend.owl',       emoji: '🦉' },
+  { id: 'friend.mushroom',  emoji: '🍄' },
+  { id: 'friend.dolphin',   emoji: '🐬' },
+  { id: 'friend.flamingo',  emoji: '🦩' },
+  { id: 'friend.peacock',   emoji: '🦚' },
+  { id: 'friend.penguin',   emoji: '🐧' },
+  { id: 'friend.koala',     emoji: '🐨' },
+  { id: 'friend.fox',       emoji: '🦊' },
+  { id: 'friend.panda',     emoji: '🐼' },
+  { id: 'friend.star',      emoji: '🌟' },
+];
+export const friendById = (id) => FRIENDS.find(f => f.id === id);
+
+// Cosmetics sold in Rosie's shop, priced in coins. Tiered so a small treat is
+// a session away and grand treasures take real saving. `slot` is where it sits
+// on the buddy: 'head' or 'back'. Artwork lives in art.js (COSMETIC_ART).
+export const COSMETICS = [
+  { id: 'cos.flower', name: 'Flower crown',  price: 15,  slot: 'head' },
+  { id: 'cos.bow',    name: 'Pink bow',      price: 20,  slot: 'head' },
+  { id: 'cos.star',   name: 'Star clip',     price: 25,  slot: 'head' },
+  { id: 'cos.wings',  name: 'Fairy wings',   price: 90,  slot: 'back' },
+  { id: 'cos.crown',  name: 'Sparkle crown', price: 120, slot: 'head' },
+  { id: 'cos.cape',   name: 'Rainbow cape',  price: 500, slot: 'back' },
+];
+export const cosmeticById = (id) => COSMETICS.find(c => c.id === id);
+
 // Friendly, kid-pronounceable name for each letter sound, used ONLY as the
 // text-to-speech fallback when a recorded phoneme file is missing. These nudge
 // the browser voice toward the pure SOUND ("mmm") rather than the letter NAME

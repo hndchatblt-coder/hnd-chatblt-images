@@ -16,7 +16,7 @@
 // Mobile browsers block audio until the first user gesture, so call
 // `audio.unlock()` from a tap/click handler before playing anything.
 
-import { PHONEME_HINTS } from './words.js';
+import { PHONEME_HINTS } from './content.js';
 
 const MANIFEST_URL = './audio/manifest.json';
 const PHONEME_DIR = './audio/phonemes/';

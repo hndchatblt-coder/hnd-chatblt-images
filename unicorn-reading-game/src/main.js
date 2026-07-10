@@ -9,10 +9,13 @@
 // Built with three.js (vendored locally so the installed PWA works offline).
 
 import * as THREE from 'three';
-import { WORDS, STAGES, ALPHABET } from './words.js';
+import {
+  WORDS, STAGES, ALPHABET, FRIENDS, friendById,
+  COSMETICS, cosmeticById, GOAL_SIZE, COIN_REWARDS,
+} from './content.js';
 import { AudioManager } from './audio.js';
-import { FRIENDS, GOAL_SIZE } from './quests.js';
-import { loadProgress, saveProgress, resetProgress } from './progress.js';
+import { loadProgress, saveProgress, resetProgress, bumpItem, itemAccuracy } from './progress.js';
+import { unicornCanvas, coinCanvas, COSMETIC_ART, MANES } from './art.js';
 
 // ----------------------------------------------------------------------------
 // Tiny tween engine (no dependencies). Animates numeric properties of an
@@ -61,7 +64,6 @@ function updateTweens(dt) {
 // ----------------------------------------------------------------------------
 const TILE_COLORS = ['#ff8fd4', '#9d8cff', '#5fc8ff', '#ffd166', '#7ee081', '#ff9e6d'];
 const CAPS_KEY = 'unicorn-reading-caps';
-const LETTERS_KEY = 'unicorn-reading-letters'; // letters she's heard in Learn mode
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -129,20 +131,6 @@ function makeEmojiTexture(emoji, size = 256) {
   return tex;
 }
 
-function makeGlowTexture() {
-  const S = 256;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(S / 2, S / 2, S * 0.15, S / 2, S / 2, S * 0.5);
-  g.addColorStop(0, 'rgba(255,245,170,0.95)');
-  g.addColorStop(0.5, 'rgba(255,225,120,0.45)');
-  g.addColorStop(1, 'rgba(255,225,120,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, S, S);
-  return new THREE.CanvasTexture(c);
-}
-
 function makeSkyTexture() {
   const c = document.createElement('canvas');
   c.width = 8; c.height = 256;
@@ -192,15 +180,12 @@ class Game {
     this.state = 'start';        // 'start' | 'playing' | 'celebrating'
     this.progress = loadProgress();
     this.capsMode = localStorage.getItem(CAPS_KEY) === 'true';
-    try { this.lettersHeard = new Set(JSON.parse(localStorage.getItem(LETTERS_KEY) || '[]')); }
-    catch (_) { this.lettersHeard = new Set(); }
-    this.stars = this.progress.stars;
+    this.lettersHeard = new Set(this.progress.lettersHeard);
     // Word order is per-stage: a shuffled run through the current stage's words.
     this.order = [];
     this.orderPos = -1;
-    this._orderStage = -1;
+    this._orderStage = null;
     this.tiles = [];
-    this.expected = 0;           // next tile index the child should tap
     this.particles = [];
     this.stageJustCompleted = false;
     this.clock = new THREE.Clock();
@@ -226,7 +211,6 @@ class Game {
   }
 
   _initScene() {
-    this.glowTex = makeGlowTexture();
 
     // Rainbow (top)
     const rainbow = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeRainbowTexture(), transparent: true, opacity: 0.85 }));
@@ -255,17 +239,21 @@ class Game {
     ground.position.set(0, -8.5, -2);
     this.scene.add(ground);
 
-    // Active-tile highlight (glow behind the next card to tap)
-    this.highlight = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, transparent: true, opacity: 0, depthWrite: false }));
-    this.highlight.scale.set(3.2, 3.2, 1);
-    this.highlight.position.set(0, TILE_Y, -0.5);
-    this.highlight.material.opacity = 0; // unused now (kept to avoid churn)
-
-    // Buddy character (unicorn by default; swappable for a collected friend)
-    this.unicorn = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeEmojiTexture(FRIENDS[this.progress.buddy] || '🦄', 256), transparent: true }));
+    // Buddy character — the drawn unicorn (or a collected friend), wearing
+    // whatever cosmetics she has equipped from Rosie's shop.
+    this.unicorn = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._buddyTexture(), transparent: true }));
     this.unicorn.scale.set(3, 3, 1);
     this.unicorn.position.set(0, 3.3, 0);
     this.scene.add(this.unicorn);
+
+    // Equipped cosmetic overlays, pinned to the buddy in the render loop.
+    this.cosHead = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    this.cosHead.scale.set(1.1, 1.1, 1);
+    this.scene.add(this.cosHead);
+    this.cosBack = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    this.cosBack.scale.set(2.1, 2.1, 1);
+    this.scene.add(this.cosBack);
+    this._applyEquipped();
 
     // Reward picture (hidden until a word is blended)
     this.reward = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeEmojiTexture('⭐', 256), transparent: true, opacity: 0 }));
@@ -277,11 +265,82 @@ class Game {
     this.scene.add(this.tileGroup);
   }
 
+  // The buddy's texture: the drawn storybook unicorn for the unicorn friend,
+  // emoji art for the other collectibles (until they get drawn portraits).
+  _buddyTexture() {
+    if (this.progress.buddy === 'friend.unicorn') {
+      const t = new THREE.CanvasTexture(unicornCanvas('pink'));
+      t.anisotropy = 4;
+      return t;
+    }
+    const f = friendById(this.progress.buddy);
+    return makeEmojiTexture(f ? f.emoji : '🦄', 256);
+  }
+
+  // Show/hide the cosmetic overlay sprites to match what's equipped.
+  _applyEquipped() {
+    const eq = this.progress.equipped || {};
+    for (const [slot, sprite] of [['head', this.cosHead], ['back', this.cosBack]]) {
+      const id = eq[slot];
+      const draw = id && COSMETIC_ART[id];
+      if (draw) {
+        if (sprite.material.map) sprite.material.map.dispose();
+        const t = new THREE.CanvasTexture(draw());
+        t.anisotropy = 4;
+        sprite.material.map = t;
+        sprite.material.opacity = 1;
+      } else {
+        sprite.material.opacity = 0;
+      }
+      sprite.material.needsUpdate = true;
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // The single reward choke-point: every correct action earns coins here.
+  // Grants are applied immediately (so racing ahead never loses them) and the
+  // HUD pops; celebrations stay the caller's job.
+  // ------------------------------------------------------------------------
+  _grant(kind) {
+    const amount = COIN_REWARDS[kind] || 0;
+    if (!amount) return 0;
+    this.progress.coins += amount;
+    this.progress.starsEarned += amount;
+    saveProgress(this.progress);
+    this._updateCoinHud();
+    return amount;
+  }
+
+  _spend(amount) {
+    if (this.progress.coins < amount) return false;
+    this.progress.coins -= amount;
+    saveProgress(this.progress);
+    this._updateCoinHud();
+    return true;
+  }
+
+  _updateCoinHud() {
+    this.el.coins.textContent = String(this.progress.coins);
+    this._pop(this.el.coins.parentElement);
+  }
+
+  // The next friend not yet owned (unlock order = FRIENDS order). Idempotent:
+  // owning is set-membership by id, so re-completing a stage can't double-grant.
+  _unlockNextFriend() {
+    const next = FRIENDS.find(f => !this.progress.friends.includes(f.id));
+    if (!next) return null;
+    this.progress.friends.push(next.id);
+    saveProgress(this.progress);
+    this._renderCollection();
+    return next;
+  }
+
   _initDOM() {
     this.el = {
       start: document.getElementById('start-screen'),
       hud: document.getElementById('hud'),
-      stars: document.getElementById('star-count'),
+      coins: document.getElementById('coin-count'),
+      coinIcon: document.getElementById('coin-icon'),
       mute: document.getElementById('mute-btn'),
       replay: document.getElementById('replay-btn'),
       next: document.getElementById('next-btn'),
@@ -300,14 +359,28 @@ class Game {
       collectionClose: document.getElementById('collection-close'),
       resetBtn: document.getElementById('reset-btn'),
       friendToast: document.getElementById('friend-toast'),
-      settingsBtn: document.getElementById('settings-btn'),
+      // Rosie's shop
+      shopBtn: document.getElementById('shop-btn'),
+      shopScreen: document.getElementById('shop-screen'),
+      shopClose: document.getElementById('shop-close'),
+      shopCoins: document.getElementById('shop-coin-count'),
+      shopKeeper: document.getElementById('shop-keeper'),
+      shopPreview: document.getElementById('shop-preview'),
+      shopGrid: document.getElementById('shop-grid'),
+      shopWish: document.getElementById('shop-wish'),
+      // Parent corner (press-and-hold gate)
+      parentBtn: document.getElementById('parent-btn'),
+      parentScreen: document.getElementById('parent-screen'),
+      parentClose: document.getElementById('parent-close'),
+      parentStudio: document.getElementById('parent-studio'),
+      parentVoice: document.getElementById('parent-voice'),
+      parentGuide: document.getElementById('parent-guide'),
       settingsScreen: document.getElementById('settings-screen'),
       settingsClose: document.getElementById('settings-close'),
       studioList: document.getElementById('studio-list'),
       studioProgress: document.getElementById('studio-progress'),
       tabSounds: document.getElementById('tab-sounds'),
       tabWords: document.getElementById('tab-words'),
-      voiceBtn: document.getElementById('voice-btn'),
       voiceScreen: document.getElementById('voice-screen'),
       voiceSelect: document.getElementById('voice-select'),
       voiceRate: document.getElementById('voice-rate'),
@@ -342,18 +415,34 @@ class Game {
       ltFeedback: document.getElementById('lt-feedback'),
       ltClose: document.getElementById('lt-close'),
       ltReward: document.querySelector('.lt-reward'),
-      ltStarCount: document.getElementById('lt-star-count'),
-      ltFriendProgress: document.getElementById('lt-friend-progress'),
+      ltCoinCount: document.getElementById('lt-coin-count'),
+      ltCoinIcon: document.getElementById('lt-coin-icon'),
       ltBuddy: document.getElementById('lt-buddy'),
-      ltRecord: document.getElementById('lt-record'),
     };
-    this.el.stars.textContent = String(this.stars);
+    // Draw the coin icon into every coin badge (one shared artwork).
+    for (const cvs of [this.el.coinIcon, this.el.ltCoinIcon, document.getElementById('shop-coin-icon')]) {
+      if (cvs) cvs.getContext('2d').drawImage(coinCanvas(128), 0, 0, cvs.width, cvs.height);
+    }
+    this.el.coins.textContent = String(this.progress.coins);
+    // The start screen greets her with HER buddy, not a generic unicorn.
+    const startBuddy = document.getElementById('start-buddy');
+    if (startBuddy) {
+      if (this.progress.buddy === 'friend.unicorn') {
+        const c = unicornCanvas('pink'); c.style.width = c.style.height = '120px';
+        startBuddy.replaceChildren(c);
+      } else {
+        const f = friendById(this.progress.buddy);
+        startBuddy.textContent = f ? f.emoji : '🦄';
+      }
+    }
     this._renderStage();
     this._renderCollection();
   }
 
-  // The stage (vowel family) she is currently playing.
-  get stage() { return STAGES[Math.min(this.progress.stage, STAGES.length - 1)]; }
+  // The stage (vowel family) she is currently playing, by id — never by index.
+  get stage() {
+    return STAGES.find(s => s.id === this.progress.currentStage) || STAGES[0];
+  }
 
   // Build the goal banner: the stage name (tap to open the map) + a row of
   // tokens to fill, one per word read toward completing the stage.
@@ -377,10 +466,12 @@ class Game {
   // A stage is reachable once the one before it is cleared.
   _renderMap() {
     this.el.mapGrid.innerHTML = '';
+    const cleared = this.progress.clearedStages;
     STAGES.forEach((s, i) => {
-      const reached = i <= this.progress.cleared;   // playable now
-      const done = i < this.progress.cleared;        // fully completed
-      const current = i === this.progress.stage;
+      const done = cleared.includes(s.id);
+      // A stage opens when the one before it is cleared (the first is open).
+      const reached = i === 0 || cleared.includes(STAGES[i - 1].id) || done;
+      const current = s.id === this.progress.currentStage;
       const cell = document.createElement('div');
       cell.className = 'map-cell' + (reached ? '' : ' locked') + (current ? ' current' : '') + (done ? ' done' : '');
       cell.innerHTML = `
@@ -388,7 +479,7 @@ class Game {
         <div class="map-label">${s.label}</div>
         <div class="map-focus">${s.focus}</div>
         <div class="map-badge">${done ? '✓' : current ? '▶' : ''}</div>`;
-      if (reached) cell.addEventListener('click', () => this._selectStage(i));
+      if (reached) cell.addEventListener('click', () => this._selectStage(s.id));
       this.el.mapGrid.appendChild(cell);
     });
   }
@@ -401,16 +492,19 @@ class Game {
   _closeMap() { this.el.mapScreen.classList.add('hidden'); }
 
   // Jump to a reached stage from the map and start a fresh word from it.
-  _selectStage(i) {
-    if (i > this.progress.cleared) return;
-    this.progress.stage = i;
+  _selectStage(id) {
+    const idx = STAGES.findIndex(s => s.id === id);
+    if (idx < 0) return;
+    const reached = idx === 0 || this.progress.clearedStages.includes(STAGES[idx - 1].id) || this.progress.clearedStages.includes(id);
+    if (!reached) return;
+    this.progress.currentStage = id;
     this.progress.stageProgress = 0;
     this.stageJustCompleted = false;
     saveProgress(this.progress);
     this._renderStage();
     this._closeMap();
     this.orderPos = -1;
-    this._orderStage = -1; // force a reshuffle for the new stage
+    this._orderStage = null; // force a reshuffle for the new stage
     this.nextWord();
   }
 
@@ -434,47 +528,28 @@ class Game {
     this.el.lettersScreen.classList.remove('hidden');
   }
 
-  // Keep the letters screen's stars/buddy in sync with her collection so the
-  // mode feels part of the same adventure, not a side room.
+  // Keep the letters screen's coins/buddy in sync with the rest of the world
+  // so the mode feels part of the same adventure, not a side room.
   _updateLettersReward() {
-    this.el.ltStarCount.textContent = String(this.stars);
-    this.el.ltBuddy.textContent = FRIENDS[this.progress.buddy] || '🦄';
-    if (this.progress.unlocked < FRIENDS.length) {
-      const toNext = GOAL_SIZE - (this.progress.lettersWins % GOAL_SIZE);
-      this.el.ltFriendProgress.textContent = `${toNext} more for a new friend!`;
-    } else {
-      this.el.ltFriendProgress.textContent = '';
-    }
+    this.el.ltCoinCount.textContent = String(this.progress.coins);
+    const f = friendById(this.progress.buddy);
+    this.el.ltBuddy.textContent = f ? f.emoji : '🦄';
   }
 
-  // A correct letter answer (or newly met sound) earns a star and counts toward
-  // the very same friends she unlocks in the word game.
-  _letterReward() {
-    this.stars++;
-    this.progress.stars = this.stars;
-    this.el.stars.textContent = String(this.stars);
-    this._pop(this.el.stars.parentElement);
-    this.progress.lettersWins = (this.progress.lettersWins || 0) + 1;
-    let unlockedFriend = null;
-    if (this.progress.lettersWins % GOAL_SIZE === 0 && this.progress.unlocked < FRIENDS.length) {
-      unlockedFriend = FRIENDS[this.progress.unlocked];
-      this.progress.unlocked++;
-      this._renderCollection();
-    }
-    saveProgress(this.progress);
-    this._pop(this.el.ltReward);
+  // A correct letter action earns coins through the same choke-point as the
+  // word game — one economy everywhere. The buddy badge cheers with her.
+  _letterReward(kind) {
+    this._grant(kind);
     this._updateLettersReward();
-    if (unlockedFriend) {
-      this.audio.fanfare();
-      this._showFriendToast(unlockedFriend, 'New friend!');
-      setTimeout(() => this.audio.praise(), 600);
-    }
+    this._pop(this.el.ltReward);
+    this._pop(this.el.ltBuddy);
   }
 
   _closeLetters() { this.el.lettersScreen.classList.add('hidden'); }
 
   _saveLettersHeard() {
-    try { localStorage.setItem(LETTERS_KEY, JSON.stringify([...this.lettersHeard])); } catch (_) {}
+    this.progress.lettersHeard = [...this.lettersHeard];
+    saveProgress(this.progress);
   }
 
   _setLettersTab(tab) {
@@ -519,7 +594,7 @@ class Game {
       this._saveLettersHeard();
       cell.classList.add('heard');
       this._updateLettersNote();
-      this._letterReward(); // meeting a new sound earns a star toward a friend
+      this._letterReward('sound'); // meeting a brand-new sound earns a coin
     }
   }
 
@@ -532,9 +607,21 @@ class Game {
     const recorded = this._recordedLetters && this._recordedLetters.size ? this._recordedLetters : null;
     const kind = (recorded && Math.random() < 0.5) ? 'sound' : 'case';
     const pool = kind === 'sound' ? ALPHABET.filter(a => recorded.has(a.letter)) : ALPHABET;
+    // The lite learning brain: most of the time, practise her weakest letters
+    // (lowest accuracy, unseen first); sometimes roam free so it stays fresh.
     let target;
-    do { target = pool[(Math.random() * pool.length) | 0]; }
-    while (pool.length > 1 && target === this._ltLastTarget);
+    if (Math.random() < 0.6) {
+      const scored = pool
+        .filter(a => a !== this._ltLastTarget)
+        .map(a => ({ a, acc: itemAccuracy(this.progress, 'l.' + a.letter) }))
+        .sort((x, y) => (x.acc ?? -1) - (y.acc ?? -1)); // never-tried (null) first
+      const weakest = scored.slice(0, Math.max(3, scored.length >> 2));
+      target = weakest[(Math.random() * weakest.length) | 0]?.a;
+    }
+    if (!target) {
+      do { target = pool[(Math.random() * pool.length) | 0]; }
+      while (pool.length > 1 && target === this._ltLastTarget);
+    }
     this._ltLastTarget = target;
     this._ltTarget = target;
     this._ltKind = kind;
@@ -576,13 +663,15 @@ class Game {
 
   _lettersChoose(btn, it, target, kind) {
     if (this._ltLocked) return;
+    bumpItem(this.progress, 'l.' + target.letter, it === target);
     if (it === target) {
       this._ltLocked = true;
       btn.classList.add('correct');
       this.audio.chime();
-      if (!this.lettersHeard.has(target.letter)) { this.lettersHeard.add(target.letter); this._saveLettersHeard(); }
-      this.el.ltFeedback.textContent = 'Yes! ⭐';
-      this._letterReward(); // earns a star toward the next friend
+      if (!this.lettersHeard.has(target.letter)) { this.lettersHeard.add(target.letter); }
+      this._saveLettersHeard(); // also persists the item stats bumped above
+      this.el.ltFeedback.textContent = 'Yes! 🪙';
+      this._letterReward('letter');
       setTimeout(() => this.audio.praise(), 200);
       setTimeout(() => { if (!this.el.lettersScreen.classList.contains('hidden')) this._lettersNextMatch(); }, 1100);
     } else {
@@ -595,44 +684,169 @@ class Game {
   }
 
   _renderCollection() {
-    this.el.collectionCount.textContent = String(this.progress.unlocked);
+    this.el.collectionCount.textContent = String(this.progress.friends.length);
     this.el.collectionGrid.innerHTML = '';
-    FRIENDS.forEach((emoji, i) => {
-      const unlocked = i < this.progress.unlocked;
+    FRIENDS.forEach((f) => {
+      const owned = this.progress.friends.includes(f.id);
       const cell = document.createElement('div');
-      cell.className = 'friend-cell' + (unlocked ? '' : ' locked') + (unlocked && i === this.progress.buddy ? ' buddy' : '');
-      cell.textContent = unlocked ? emoji : '❔';
-      if (unlocked) cell.addEventListener('click', () => this._setBuddy(i));
+      cell.className = 'friend-cell' + (owned ? '' : ' locked') + (owned && f.id === this.progress.buddy ? ' buddy' : '');
+      cell.textContent = owned ? f.emoji : '❔';
+      if (owned) cell.addEventListener('click', () => this._setBuddy(f.id));
       this.el.collectionGrid.appendChild(cell);
     });
   }
 
-  // Wipe stars/friends/stage/buddy and begin again. Recordings are kept.
+  // Wipe coins/friends/stage/buddy and begin again. Recordings are kept.
+  // Parent-gated (lives in the parent corner), so a text confirm is fine here.
   _resetProgress() {
-    if (!window.confirm('Start over? This clears stars, friends and progress so you begin fresh. (Your recorded sounds are kept.)')) return;
+    if (!window.confirm('Start over? This clears coins, friends and progress so you begin fresh. (Your recorded sounds are kept.)')) return;
     this.progress = resetProgress();
-    this.stars = this.progress.stars;
-    this.el.stars.textContent = '0';
+    this.lettersHeard = new Set();
+    this._updateCoinHud();
     this.unicorn.material.map.dispose();
-    this.unicorn.material.map = makeEmojiTexture(FRIENDS[this.progress.buddy] || '🦄', 256);
+    this.unicorn.material.map = this._buddyTexture();
+    this._applyEquipped();
     this.stageJustCompleted = false;
     this.orderPos = -1;
-    this._orderStage = -1;
+    this._orderStage = null;
     this._renderStage();
     this._renderCollection();
     this.el.collectionScreen.classList.add('hidden');
+    this.el.parentScreen.classList.add('hidden');
     this.nextWord();
   }
 
-  // Swap the on-screen character for a collected friend.
-  _setBuddy(i) {
-    if (i >= this.progress.unlocked) return;
-    this.progress.buddy = i;
+  // Swap the on-screen character for a collected friend. The collection closes
+  // so she SEES the new buddy hop — the confirmation used to play hidden
+  // behind the overlay.
+  _setBuddy(id) {
+    if (!this.progress.friends.includes(id)) return;
+    this.progress.buddy = id;
     saveProgress(this.progress);
     this.unicorn.material.map.dispose();
-    this.unicorn.material.map = makeEmojiTexture(FRIENDS[i], 256);
+    this.unicorn.material.map = this._buddyTexture();
     this._renderCollection();
-    this._unicornCheer(); // little hop to confirm the swap
+    this.el.collectionScreen.classList.add('hidden');
+    this._unicornCheer();
+    this.audio.chime();
+  }
+
+  // --------------------------------------------------------------------------
+  // Rosie's shop — spend coins on cosmetics for the buddy. Everything reads
+  // visually: green ring = can buy now, dimmed + price = keep saving (tap to
+  // wish for it), sparkle badge = already owned (tap to wear / take off).
+  // --------------------------------------------------------------------------
+  _openShop() {
+    this.audio.unlock();
+    if (!this._keeperDrawn) {
+      const c = unicornCanvas('lavender', { apron: true });
+      c.className = 'keeper-art';
+      this.el.shopKeeper.replaceChildren(c);
+      this._keeperDrawn = true;
+    }
+    this._renderShop();
+    this.el.shopScreen.classList.remove('hidden');
+  }
+
+  _closeShop() { this.el.shopScreen.classList.add('hidden'); }
+
+  // Composite preview: her buddy wearing what's equipped, so a purchase shows
+  // its effect instantly, inside the shop.
+  _renderShopPreview() {
+    const S = 300;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const x = c.getContext('2d');
+    const eq = this.progress.equipped || {};
+    const drawCos = (id, dx, dy, ds) => {
+      const draw = id && COSMETIC_ART[id];
+      if (draw) x.drawImage(draw(), dx, dy, ds, ds);
+    };
+    drawCos(eq.back, S * 0.18, S * 0.3, S * 0.68);
+    if (this.progress.buddy === 'friend.unicorn') {
+      x.drawImage(unicornCanvas('pink'), S * 0.08, S * 0.12, S * 0.84, S * 0.84);
+    } else {
+      const f = friendById(this.progress.buddy);
+      x.font = `${S * 0.55}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(f ? f.emoji : '🦄', S / 2, S * 0.58);
+    }
+    drawCos(eq.head, S * 0.33, S * 0.0, S * 0.36);
+    c.className = 'shop-preview-art';
+    this.el.shopPreview.replaceChildren(c);
+  }
+
+  _renderShop() {
+    this.el.shopCoins.textContent = String(this.progress.coins);
+    this._renderShopPreview();
+    this.el.shopGrid.innerHTML = '';
+    COSMETICS.forEach((cos) => {
+      const owned = this.progress.cosmetics.includes(cos.id);
+      const worn = this.progress.equipped[cos.slot] === cos.id;
+      const afford = !owned && this.progress.coins >= cos.price;
+      const cell = document.createElement('button');
+      cell.className = 'shop-item'
+        + (owned ? ' owned' : afford ? ' afford' : ' saving')
+        + (worn ? ' worn' : '')
+        + (this.progress.wish === cos.id ? ' wished' : '');
+      const icon = COSMETIC_ART[cos.id]();
+      icon.className = 'shop-icon';
+      cell.appendChild(icon);
+      const tag = document.createElement('span');
+      tag.className = 'shop-tag';
+      tag.innerHTML = owned
+        ? (worn ? '✓' : '👗')
+        : `<span class="shop-coin"></span>${cos.price}`;
+      cell.appendChild(tag);
+      cell.addEventListener('click', () => this._shopTap(cos, cell));
+      this.el.shopGrid.appendChild(cell);
+    });
+    // Wish meter: the treasure she's saving toward fills as coins grow.
+    const wish = this.progress.wish && cosmeticById(this.progress.wish);
+    if (wish && !this.progress.cosmetics.includes(wish.id)) {
+      const frac = Math.min(1, this.progress.coins / wish.price);
+      this.el.shopWish.classList.remove('hidden');
+      this.el.shopWish.querySelector('.wish-fill').style.width = `${Math.max(6, frac * 100)}%`;
+      const ic = COSMETIC_ART[wish.id](); ic.className = 'wish-icon';
+      this.el.shopWish.querySelector('.wish-icon-slot').replaceChildren(ic);
+      this.el.shopWish.classList.toggle('ready', frac >= 1);
+    } else {
+      this.el.shopWish.classList.add('hidden');
+    }
+  }
+
+  _shopTap(cos, cell) {
+    if (this.progress.cosmetics.includes(cos.id)) {
+      // Owned: tap to wear / take off.
+      const worn = this.progress.equipped[cos.slot] === cos.id;
+      if (worn) delete this.progress.equipped[cos.slot];
+      else this.progress.equipped[cos.slot] = cos.id;
+      saveProgress(this.progress);
+      this.audio.chime();
+      this._applyEquipped();
+      this._renderShop();
+      return;
+    }
+    if (this.progress.coins >= cos.price) {
+      // Buy! Coins out, treasure on — celebrate right here.
+      this._spend(cos.price);
+      this.progress.cosmetics.push(cos.id);
+      this.progress.equipped[cos.slot] = cos.id;
+      if (this.progress.wish === cos.id) this.progress.wish = null;
+      saveProgress(this.progress);
+      this.audio.fanfare();
+      this._pop(cell);
+      this._applyEquipped();
+      this._renderShop();
+      setTimeout(() => this.audio.praise(), 500);
+      return;
+    }
+    // Can't afford yet: make it her wish — the meter shows her saving toward it.
+    this.progress.wish = cos.id;
+    saveProgress(this.progress);
+    this.audio.chime();
+    this._renderShop();
+    this._pop(this.el.shopWish);
   }
 
   _bindEvents() {
@@ -683,7 +897,13 @@ class Game {
     });
     this.el.ltTabExplore.addEventListener('click', () => this._setLettersTab('explore'));
     this.el.ltTabMatch.addEventListener('click', () => this._setLettersTab('match'));
-    this.el.ltRecord.addEventListener('click', () => { this._closeLetters(); this._openGuide(); });
+
+    // Rosie's shop
+    this.el.shopBtn.addEventListener('click', () => this._openShop());
+    this.el.shopClose.addEventListener('click', () => this._closeShop());
+    this.el.shopScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.shopScreen) this._closeShop();
+    });
 
     this.el.collectionBtn.addEventListener('click', () => {
       this._renderCollection();
@@ -697,9 +917,35 @@ class Game {
     });
     this.el.resetBtn.addEventListener('click', () => this._resetProgress());
 
+    // Parent corner: opens only after a 1.5s press-and-hold, so little fingers
+    // can't wander into mic prompts, voice settings or the reset button.
+    let holdTimer = null;
+    const holdStart = (e) => {
+      e.preventDefault();
+      this.el.parentBtn.classList.add('holding');
+      holdTimer = setTimeout(() => {
+        this.el.parentBtn.classList.remove('holding');
+        this.audio.unlock();
+        this.el.parentScreen.classList.remove('hidden');
+      }, 1500);
+    };
+    const holdEnd = () => {
+      this.el.parentBtn.classList.remove('holding');
+      clearTimeout(holdTimer);
+    };
+    this.el.parentBtn.addEventListener('pointerdown', holdStart);
+    this.el.parentBtn.addEventListener('pointerup', holdEnd);
+    this.el.parentBtn.addEventListener('pointerleave', holdEnd);
+    this.el.parentClose.addEventListener('click', () => this.el.parentScreen.classList.add('hidden'));
+    this.el.parentScreen.addEventListener('click', (e) => {
+      if (e.target === this.el.parentScreen) this.el.parentScreen.classList.add('hidden');
+    });
+    this.el.parentStudio.addEventListener('click', () => { this.el.parentScreen.classList.add('hidden'); this._openStudio(); });
+    this.el.parentVoice.addEventListener('click', () => { this.el.parentScreen.classList.add('hidden'); this.audio.unlock(); this._openVoice(); });
+    this.el.parentGuide.addEventListener('click', () => { this.el.parentScreen.classList.add('hidden'); this._openGuide(); });
+
     // Recording studio (for a grown-up)
     this._studioTab = 'sounds';
-    this.el.settingsBtn.addEventListener('click', () => this._openStudio());
     this.el.settingsClose.addEventListener('click', () => this._closeStudio());
     this.el.settingsScreen.addEventListener('click', (e) => {
       if (e.target === this.el.settingsScreen) this._closeStudio();
@@ -720,8 +966,7 @@ class Game {
     this.el.guidePrev.addEventListener('click', () => this._guideStep(-1));
     this.el.guideNext.addEventListener('click', () => this._guideStep(1));
 
-    // Robot-voice settings
-    this.el.voiceBtn.addEventListener('click', () => { this.audio.unlock(); this._openVoice(); });
+    // Robot-voice settings (reached via the parent corner)
     this.el.voiceClose.addEventListener('click', () => this.el.voiceScreen.classList.add('hidden'));
     this.el.voiceScreen.addEventListener('click', (e) => {
       if (e.target === this.el.voiceScreen) this.el.voiceScreen.classList.add('hidden');
@@ -1033,9 +1278,10 @@ class Game {
     // If the last word completed the stage, advance to the next stage on the map.
     if (this.stageJustCompleted) {
       this.stageJustCompleted = false;
-      if (this.progress.stage < STAGES.length - 1) this.progress.stage++;
+      const idx = STAGES.findIndex(s => s.id === this.progress.currentStage);
+      if (idx >= 0 && idx < STAGES.length - 1) this.progress.currentStage = STAGES[idx + 1].id;
       this.progress.stageProgress = 0;
-      this._orderStage = -1; // new stage -> new word pool
+      this._orderStage = null; // new stage -> new word pool
       saveProgress(this.progress);
       this._renderStage();
     }
@@ -1053,12 +1299,16 @@ class Game {
     this.el.hint.textContent = 'Sound it out, then tap the picture 👇';
 
     // Draw the next word from the CURRENT stage's words (a shuffled run so she
-    // sees every word in the family before any repeats).
+    // sees every word in the family before any repeats). The lite learning
+    // brain leads each run with her two weakest words in the family.
     const stageWords = this.stage.words;
-    if (this._orderStage !== this.progress.stage) {
+    if (this._orderStage !== this.progress.currentStage) {
       this.order = shuffle([...stageWords.keys()]);
+      const acc = (i) => itemAccuracy(this.progress, 'w.' + stageWords[i].word) ?? -1; // unseen first
+      const weakFirst = [...this.order].sort((a, b) => acc(a) - acc(b)).slice(0, 2);
+      this.order = [...weakFirst, ...this.order.filter(i => !weakFirst.includes(i))];
       this.orderPos = -1;
-      this._orderStage = this.progress.stage;
+      this._orderStage = this.progress.currentStage;
     }
     this.orderPos = (this.orderPos + 1) % this.order.length;
     if (this.orderPos === 0) this.order = shuffle(this.order); // reshuffle each loop
@@ -1083,7 +1333,9 @@ class Game {
   // choices grows with experience — gentle at first (6), up to 10 — and the
   // grid stays two rows so the layout never shifts under the word.
   _renderAnswers() {
-    const n = Math.max(6, Math.min(10, 6 + Math.floor(this.stars / 4)));
+    // Adaptive challenge: more picture choices as lifetime earnings grow
+    // (2 coins per word ≈ the old 1 star, so /8 keeps the original pacing).
+    const n = Math.max(6, Math.min(10, 6 + Math.floor(this.progress.starsEarned / 8)));
     const cols = Math.ceil(n / 2);
     const correct = this.current.emoji;
     // Prefer distractors from the SAME stage (same-vowel discrimination is the
@@ -1107,6 +1359,7 @@ class Game {
 
   _chooseAnswer(btn, isCorrect) {
     if (this.state !== 'playing') return;
+    bumpItem(this.progress, 'w.' + this.current.word, isCorrect); // learning stats
     if (isCorrect) {
       btn.classList.add('correct');
       this._win();
@@ -1204,10 +1457,7 @@ class Game {
     });
 
     // --- Grant rewards IMMEDIATELY so advancing fast never loses them ---
-    this.stars++;
-    this.progress.stars = this.stars;
-    this.el.stars.textContent = String(this.stars);
-    this._pop(this.el.stars.parentElement);
+    this._grant('word'); // coins for the read word, through the one choke-point
 
     this.progress.stageProgress++;
     this._fillQuestSlot(this.progress.stageProgress - 1);
@@ -1215,14 +1465,16 @@ class Game {
 
     let unlockedFriend = null;
     if (stageDone) {
-      // Mark this stage cleared so the next one opens on the map.
-      this.progress.cleared = Math.max(this.progress.cleared, this.progress.stage + 1);
-      if (this.progress.unlocked < FRIENDS.length) {
-        unlockedFriend = FRIENDS[this.progress.unlocked];
-        this.progress.unlocked++;
-        this._renderCollection();
+      // Mark this stage cleared (by id, idempotently) so the next one opens.
+      if (!this.progress.clearedStages.includes(this.stage.id)) {
+        this.progress.clearedStages.push(this.stage.id);
       }
+      this._grant('stageBonus');
+      unlockedFriend = this._unlockNextFriend();
       this.stageJustCompleted = true;
+      // Show the new friend NOW — racing ahead should never skip the one
+      // moment that explains why her collection grew.
+      if (unlockedFriend) this._showFriendToast(unlockedFriend.emoji, 'New friend!');
     }
     saveProgress(this.progress);
     this.el.next.classList.remove('disabled');
@@ -1271,7 +1523,7 @@ class Game {
     }, 620);
   }
 
-  // Stage-complete celebration visuals (the friend was already unlocked in _win).
+  // Stage-complete celebration visuals (rewards + toast already granted in _win).
   _celebrateStage(friend) {
     const s = this.stage;
     this.audio.fanfare();
@@ -1279,14 +1531,14 @@ class Game {
     this._burst([s.token, '✨', '🌈', '⭐', '🎉']);
     this._burst([s.token, '✨', '💖']);
     if (friend) this._pop(this.el.collectionBtn);
+    else this._showFriendToast(null, s.cheer); // stage cheer when no friend left to unlock
     setTimeout(() => this.audio.praise(), 900);
-    this._showFriendToast(friend, s.cheer);
   }
 
-  _showFriendToast(friend, cheer) {
+  _showFriendToast(friendEmoji, cheer) {
     const toast = this.el.friendToast;
-    toast.querySelector('.toast-emoji').textContent = friend || '🌟';
-    toast.querySelector('.toast-text').textContent = friend ? 'New friend!' : cheer;
+    toast.querySelector('.toast-emoji').textContent = friendEmoji || '🌟';
+    toast.querySelector('.toast-text').textContent = friendEmoji ? 'New friend!' : cheer;
     toast.classList.remove('hidden');
     this._pop(toast);
     clearTimeout(this._toastTimer);
@@ -1354,6 +1606,15 @@ class Game {
       this.unicorn.position.y = 3.3 + Math.sin(t * 1.6) * 0.12;
       this.unicorn.material.rotation = Math.sin(t * 1.2) * 0.05;
     }
+    // equipped cosmetics ride along with the buddy (hat on head, wings behind)
+    const u = this.unicorn.position;
+    const buddyScale = this.unicorn.scale.x / 3;
+    this.cosHead.position.set(u.x, u.y + 1.32 * buddyScale, u.z + 0.2);
+    this.cosHead.scale.set(1.1 * buddyScale, 1.1 * buddyScale, 1);
+    this.cosHead.material.rotation = this.unicorn.material.rotation;
+    this.cosBack.position.set(u.x, u.y + 0.15 * buddyScale, u.z - 0.2);
+    this.cosBack.scale.set(2.1 * buddyScale, 2.1 * buddyScale, 1);
+    this.cosBack.material.rotation = this.unicorn.material.rotation;
     // drifting clouds
     for (const cl of this.clouds) {
       cl.position.x += cl.userData.speed * dt;
