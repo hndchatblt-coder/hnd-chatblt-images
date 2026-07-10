@@ -336,7 +336,7 @@ function toast(big, text){
 }
 
 /* ---- world loop ---- */
-let popupOpen = false, screenOpen = false, inHub = null, activeIdx = null, lastTs = performance.now();
+let popupOpen = false, screenOpen = false, inHub = null, nearIdx = null, activeIdx = null, lastTs = performance.now();
 const nextIdx = () => homes.findIndex(h => !save.met.includes(h.type));
 
 function loop(ts){
@@ -354,14 +354,23 @@ function loop(ts){
       player.x = Math.max(0, Math.min(WORLD_W*TILE-TILE, nx));
       player.y = Math.max(0, Math.min(WORLD_H*TILE-TILE, ny));
     }
-    // meet the next unmet friend — or revisit any met one to play again
+    // meet the next unmet friend — or revisit any met one to play again.
+    // EDGE-TRIGGERED: a popup only fires when she ENTERS the radius (was
+    // outside last frame), never while she stays inside — so closing a popup
+    // or finishing a game can't instantly reopen it. Walk away and back to
+    // re-offer.
+    let nowNear = null;
     for (let i=0;i<homes.length;i++){
       const reachable = i <= (nextIdx()===-1 ? homes.length-1 : nextIdx());
       if (!reachable) continue;
       const pos = wpPos(HOME_WPS[i]);
-      if (Math.hypot((player.x+TILE/2)-pos.x,(player.y+TILE/2)-pos.y) < TILE*0.9){ openPopup(i); break; }
+      if (Math.hypot((player.x+TILE/2)-pos.x,(player.y+TILE/2)-pos.y) < TILE*0.9){ nowNear = i; break; }
     }
-    // hub proximity
+    if (nowNear !== null && nowNear !== nearIdx) openPopup(nowNear);
+    nearIdx = nowNear;
+
+    // hub proximity — same edge-trigger idea: only a fresh entry opens a
+    // screen (closeScreen re-syncs inHub to wherever she's still standing).
     let nowIn = null;
     for (const [k,b] of Object.entries(hub)){
       if (Math.hypot((player.x+TILE/2)-(b.x*TILE+TILE/2),(player.y+TILE/2)-(b.y*TILE+TILE/2)) < TILE*0.8) nowIn = k;
@@ -410,7 +419,7 @@ function openPopup(i){
 }
 function closePopup(){ popupOpen=false; document.getElementById('popup').classList.remove('show'); }
 document.getElementById('yes').addEventListener('click', () => { closePopup(); startGame(activeIdx); });
-document.getElementById('no').addEventListener('click', () => { closePopup(); player.y += 40; });
+document.getElementById('no').addEventListener('click', () => closePopup());
 
 /* ========== the games ===================================================== */
 const gameEl = document.getElementById('game');
@@ -442,13 +451,9 @@ function endGame(finished){
       audio.fanfare && audio.fanfare();
       const n = nextIdx();
       realSetHint(n===-1 ? 'You met everyone! Visit the shop 🛍️' : `The path opens! Walk to ${homes[n].name} 👇`);
-      player.y += 50; // step back so the popup doesn't instantly reopen
     } else {
       toast('💖', 'That was fun!');
-      player.y += 50;
     }
-  } else {
-    player.y += 50;
   }
   game = null;
 }
@@ -595,8 +600,13 @@ function renderShop(){
 }
 function closeScreen(id){
   document.getElementById(id).classList.add('hidden');
-  screenOpen = false; inHub = null;
-  player.y += 50; // step away so it doesn't reopen instantly
+  screenOpen = false;
+  // Re-sync inHub to wherever she's still standing so the entry edge-trigger
+  // doesn't refire until she actually leaves and comes back.
+  inHub = null;
+  for (const [k,b] of Object.entries(hub)){
+    if (Math.hypot((player.x+TILE/2)-(b.x*TILE+TILE/2),(player.y+TILE/2)-(b.y*TILE+TILE/2)) < TILE*0.8) inHub = k;
+  }
   setHint(realHint);
 }
 document.getElementById('shopX').addEventListener('click', ()=>closeScreen('shop'));
