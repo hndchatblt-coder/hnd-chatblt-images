@@ -85,7 +85,7 @@ function starPath(x, cx, cy, R, r, rot = -Math.PI / 2) {
   x.closePath();
 }
 
-function drawEye(x, cx, cy, s, lw) {
+function drawEye(x, cx, cy, s) {
   x.beginPath(); x.ellipse(cx, cy, s * .82, s * 1.08, 0, 0, TAU);
   x.fillStyle = INK; x.fill();
   x.beginPath(); x.arc(cx - s * .26, cy - s * .38, s * .36, 0, TAU); x.fillStyle = '#fff'; x.fill();
@@ -204,7 +204,7 @@ export function unicornCanvas(maneKey = 'pink', { apron = false } = {}) {
   x.restore();
 
   // face
-  drawEye(x, 206, 244, 28, lw); drawEye(x, 306, 244, 28, lw);
+  drawEye(x, 206, 244, 28); drawEye(x, 306, 244, 28);
   ao(x, 172, 290, 30, 24, .55, BUBBLE); ao(x, 340, 290, 30, 24, .55, BUBBLE);
   x.strokeStyle = INK; x.lineWidth = lw * .6; x.lineCap = 'round';
   x.beginPath(); x.arc(256, 288, 20, .2 * Math.PI, .8 * Math.PI); x.stroke();
