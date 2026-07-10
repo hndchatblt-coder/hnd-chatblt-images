@@ -77,6 +77,16 @@ const homes = [
 
 function wpPos(i){ const [tx,ty] = waypoints[i]; return { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2 }; }
 
+// The starting hub: home (equip anything already bought) and the shop (spend
+// coins on new things) sit side by side right where she begins, before the
+// path to the first unicorn even starts. Just proving placement/navigation
+// here — the real equip/buy screens already exist elsewhere in the game.
+const hub = {
+  home: { x: 1, y: 1, icon: '🏠', label: 'Home', msg: 'Equip anything you’ve bought here!' },
+  shop: { x: 7, y: 1, icon: '🛍️', label: 'Shop', msg: 'Spend coins on new things here!' },
+};
+function tilePos(t){ return { x: t.x*TILE + TILE/2, y: t.y*TILE + TILE/2 }; }
+
 // Build gates: a solid wall of trees spanning the FULL world width, placed a
 // couple of tiles after each home along the path direction, one per home.
 const gates = homes.map((h, i) => {
@@ -148,6 +158,15 @@ function drawPlayer(px,py,dir){
   ctx.beginPath(); ctx.arc(px+TILE/2+off[0]+4,py+TILE*.32+off[1],2.2,0,7); ctx.fill();
 }
 
+function drawHubBuilding(px,py, icon, near){
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE/2,44,44,0,0,7);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.lineWidth=6; ctx.strokeStyle = near ? '#ff6fc4' : 'rgba(255,255,255,.9)'; ctx.stroke();
+  ctx.font = '40px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(icon, px+TILE/2, py+TILE/2+2);
+}
+
 // small map-dot for each home (placeholder for the future real map sprite)
 const homeDotColors = { 'type.starlight':'#b79bff', 'type.frost':'#8fd0ff', 'type.clover':'#a8e0ae', 'type.sunbeam':'#ffd166' };
 function drawHomeDot(px,py,type){
@@ -184,7 +203,11 @@ function renderProgressDots(){
   });
 }
 renderProgressDots();
-setHint(`Walk to ${homes[0].name} with the d-pad 👇`);
+let realHint = `Walk to ${homes[0].name} with the d-pad 👇`;
+setHint(realHint);
+let inHub = null; // null | 'home' | 'shop' — which building she's currently standing near
+
+function realSetHint(text){ realHint = text; if (!inHub) setHint(text); }
 
 function loop(ts){
   requestAnimationFrame(loop);
@@ -209,6 +232,19 @@ function loop(ts){
       const dist = Math.hypot((player.x+TILE/2)-pos.x, (player.y+TILE/2)-pos.y);
       if (dist < TILE*0.9) openPopup(nextIdx);
     }
+
+    // proximity to the home/shop hub — overrides the hint while she's there,
+    // no modal (these already have real screens elsewhere in the game; this
+    // prototype only proves she can walk up to them).
+    let nowIn = null;
+    for (const [key, b] of Object.entries(hub)){
+      const pos = tilePos(b);
+      if (Math.hypot((player.x+TILE/2)-pos.x, (player.y+TILE/2)-pos.y) < TILE*0.8) nowIn = key;
+    }
+    if (nowIn !== inHub){
+      inHub = nowIn;
+      setHint(inHub ? `${hub[inHub].icon} ${hub[inHub].label} — ${hub[inHub].msg}` : realHint);
+    }
   }
 
   const camX = player.x - cv.width/2 + TILE/2;
@@ -219,6 +255,8 @@ function loop(ts){
     const onPath = waypoints.some(([wx,wy]) => Math.abs(wx-tx)<=1 && Math.abs(wy-ty)<=1);
     if (onPath) drawPathTile(tx*TILE,ty*TILE); else drawGrassTile(tx*TILE,ty*TILE,(tx+ty)%7===0);
   }
+  // the starting hub — her home and the shop, side by side
+  for (const [key,b] of Object.entries(hub)) drawHubBuilding(b.x*TILE, b.y*TILE, b.icon, inHub===key);
   // home clearings (draw under trees/player)
   homes.forEach((h,i) => {
     const [tx,ty] = waypoints[h.wp];
@@ -254,12 +292,12 @@ document.getElementById('yes').addEventListener('click', () => {
   const gate = gates[activeHome]; if (gate) gate.open = true;
   closePopup();
   const next = homes[activeHome+1];
-  setHint(next ? `The path opens! Walk to ${next.name} 👇` : `You've met everyone so far! 🎉`);
+  realSetHint(next ? `The path opens! Walk to ${next.name} 👇` : `You've met everyone so far! 🎉`);
 });
 document.getElementById('no').addEventListener('click', () => {
   closePopup();
   player.y += 30; // nudge back so it doesn't instantly retrigger
-  setHint(`Maybe later — walk away and come back anytime`);
+  realSetHint(`Maybe later — walk away and come back anytime`);
 });
 
 function bind(id, key){
