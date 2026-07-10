@@ -261,6 +261,25 @@ export class AudioManager {
     this._beep(247, 0.1, 0.18, { type: 'sine', gain: 0.1 });
   }
 
+  // Soft tick underfoot while walking the world (call sparingly, ~4/sec).
+  footstep() {
+    if (this.muted || !this._ctx) return;
+    this._beep(160 + Math.random() * 40, 0, 0.05, { type: 'sine', gain: 0.035 });
+  }
+
+  // A single bright ping as one coin lands in the purse (distinct from chime).
+  coinPing() {
+    if (this.muted || !this._ctx) return;
+    this._beep(1560, 0, 0.12, { type: 'triangle', gain: 0.12 });
+  }
+
+  // A magical upward gliss when a gate of trees opens and the world grows.
+  gateGliss() {
+    if (this.muted || !this._ctx) return;
+    const notes = [523, 659, 784, 988, 1175, 1319];
+    notes.forEach((f, i) => this._beep(f, i * 0.07, 0.3, { type: 'triangle', gain: 0.1 }));
+  }
+
   // Happy ascending fanfare when a whole quest is completed.
   fanfare() {
     if (this.muted || !this._ctx) return;
