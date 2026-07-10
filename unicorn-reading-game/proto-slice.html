@@ -216,7 +216,15 @@ const audio = new AudioManager();
 /* ================= world =================================================== */
 const cv = document.getElementById('world');
 const ctx = cv.getContext('2d');
-function resize(){ cv.width = innerWidth; cv.height = innerHeight; }
+// Render at device resolution (retina) — CSS pixels for all math, DPR applied
+// once as the base transform. Without this every asset blurs on phones.
+const DPR = Math.min(window.devicePixelRatio || 1, 3);
+let vw = innerWidth, vh = innerHeight;
+function resize(){
+  vw = innerWidth; vh = innerHeight;
+  cv.width = Math.round(vw * DPR); cv.height = Math.round(vh * DPR);
+  cv.style.width = vw + 'px'; cv.style.height = vh + 'px';
+}
 addEventListener('resize', resize); resize();
 
 const TILE = 64, WORLD_W = 9, WORLD_H = 27;
@@ -554,10 +562,10 @@ function renderRounds(){
 }
 
 function worldToScreen(wx, wy){
-  return { x: (wx - cam.x)*cam.zoom + cv.width/2, y: (wy - cam.y)*cam.zoom + cv.height/2 };
+  return { x: (wx - cam.x)*cam.zoom + vw/2, y: (wy - cam.y)*cam.zoom + vh/2 };
 }
 function screenToWorld(sx, sy){
-  return { x: (sx - cv.width/2)/cam.zoom + cam.x, y: (sy - cv.height/2)/cam.zoom + cam.y };
+  return { x: (sx - vw/2)/cam.zoom + cam.x, y: (sy - vh/2)/cam.zoom + cam.y };
 }
 
 function makeCard(o){ return { scale: 0, rot: 0, lift: 0, ...o }; }
@@ -629,7 +637,7 @@ function endGame(finished){
       const firstTime = !save.met.includes(h.type);
       if (firstTime){
         save.met.push(h.type); persist(); renderDots();
-        grantCoins(MEET_BONUS, cv.width/2, cv.height/2);
+        grantCoins(MEET_BONUS, vw/2, vh/2);
         toast('🎉', `${h.name} is your friend! +${MEET_BONUS}`);
         audio.fanfare && audio.fanfare();
         const n = nextIdx();
@@ -957,11 +965,11 @@ function loop(ts){
   }
 
   // ---- render ----
-  ctx.setTransform(1,0,0,1,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
   ctx.fillStyle = '#7cc487';
-  ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillRect(0,0,vw,vh);
   ctx.save();
-  ctx.translate(cv.width/2, cv.height/2);
+  ctx.translate(vw/2, vh/2);
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
 
@@ -1002,7 +1010,7 @@ function loop(ts){
   if (game){
     // soft stage dim so the cards and the host read clearly over the world
     ctx.fillStyle = 'rgba(255,242,250,.62)';
-    ctx.fillRect(cam.x - cv.width, cam.y - cv.height, cv.width*2, cv.height*2);
+    ctx.fillRect(cam.x - vw, cam.y - vh, vw*2, vh*2);
     // the host stays vivid on stage, beside the cards
     const h = homes[game.idx], r = residents[game.idx];
     const art = unicornArt(h.type);
