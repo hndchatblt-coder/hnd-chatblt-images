@@ -519,3 +519,109 @@ export function giftCanvas() {
     x.fillStyle = tint(SUN, .35); x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .6; x.stroke();
   });
 }
+
+// ---- the girl (the player character) ---------------------------------------
+// Same storybook conventions as the unicorns: one ink outline, AO ground
+// shadow, palette-derived colours. dir: 'down'|'up'|'left'|'right'.
+// step 0/1 gives a simple two-frame walk (legs alternate).
+const GIRL_SKIN = tint(SUN, .78);
+const GIRL_HAIR = shade(SUN, .52);
+export function girlCanvas(dir = 'down', step = 0) {
+  const S = 256, c = cv(S), x = c.getContext('2d');
+  const lw = S * LWR * .8;
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  ao(x, 128, 236, 62, 12, .18);
+
+  // legs — stubby, alternating on walk frames
+  const legUp = step ? 8 : 0;
+  for (const [lx, dy] of [[104, step ? legUp : 0], [152, step ? 0 : legUp]]) {
+    rr(x, lx - 13, 196 - dy, 26, 44 - (8 - dy) * 0, 12);
+    x.fillStyle = GIRL_SKIN; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .8; x.stroke();
+    rr(x, lx - 13, 226 - dy, 26, 14, 7);
+    x.fillStyle = tint(BUBBLE, .35); x.fill(); x.stroke();
+  }
+
+  // dress — soft pink trapezoid with a scalloped hem
+  union(x, p => {
+    p.moveTo(96, 132);
+    p.quadraticCurveTo(128, 118, 160, 132);
+    p.lineTo(178, 200);
+    for (let i = 0; i < 4; i++) {
+      const hx = 178 - i * 25;
+      p.arc(hx - 12.5, 200, 12.5, 0, Math.PI);
+    }
+    p.closePath();
+  }, tint(BUBBLE, .3), lw * .5);
+  // little heart on the dress (only from the front)
+  if (dir === 'down') {
+    x.beginPath(); heartPath(x, 128, 165, 9);
+    x.fillStyle = BUBBLE; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .45; x.stroke();
+  }
+
+  // arms
+  for (const s of [-1, 1]) {
+    rr(x, 128 + s * 44 - 9, 138, 18, 40, 9);
+    x.fillStyle = GIRL_SKIN; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .7; x.stroke();
+  }
+
+  // head — big and round
+  x.beginPath(); x.arc(128, 84, 58, 0, TAU);
+  x.fillStyle = GIRL_SKIN; x.fill(); x.strokeStyle = INK; x.lineWidth = lw; x.stroke();
+
+  // hair: fringe cap + two pigtail puffs
+  if (dir === 'up') {
+    // back of head: full hair
+    x.beginPath(); x.arc(128, 82, 56, 0, TAU);
+    x.fillStyle = GIRL_HAIR; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .9; x.stroke();
+  } else {
+    union(x, p => {
+      p.moveTo(72, 92);
+      p.arc(128, 84, 57, Math.PI * .95, Math.PI * 2.05);
+      p.quadraticCurveTo(160, 66, 128, 62);
+      p.quadraticCurveTo(96, 66, 72, 92);
+      p.closePath();
+    }, GIRL_HAIR, lw * .5);
+  }
+  for (const s of [-1, 1]) {
+    x.beginPath(); x.arc(128 + s * 58, 96, 20, 0, TAU);
+    x.fillStyle = GIRL_HAIR; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .7; x.stroke();
+    x.beginPath(); x.arc(128 + s * 55, 88, 7, 0, TAU);
+    x.fillStyle = BUBBLE; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .4; x.stroke();
+  }
+
+  // face (not when walking away)
+  if (dir !== 'up') {
+    const ox = dir === 'left' ? -14 : dir === 'right' ? 14 : 0;
+    drawEye(x, 108 + ox, 92, 11); drawEye(x, 148 + ox, 92, 11);
+    ao(x, 96 + ox, 108, 12, 9, .5, BUBBLE); ao(x, 160 + ox, 108, 12, 9, .5, BUBBLE);
+    x.strokeStyle = INK; x.lineWidth = lw * .5;
+    x.beginPath(); x.arc(128 + ox, 106, 9, .2 * Math.PI, .8 * Math.PI); x.stroke();
+  }
+  return c;
+}
+
+// ---- a storybook tree (world prop / gate) ----------------------------------
+export function treeCanvas() {
+  const S = 256, c = cv(S), x = c.getContext('2d');
+  const lw = S * LWR * .8;
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  ao(x, 128, 232, 66, 14, .2);
+  // trunk
+  const tg = x.createLinearGradient(112, 0, 148, 0);
+  tg.addColorStop(0, shade(SUN, .45)); tg.addColorStop(.5, shade(SUN, .3)); tg.addColorStop(1, shade(SUN, .5));
+  rr(x, 112, 150, 32, 84, 12);
+  x.fillStyle = tg; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .8; x.stroke();
+  // canopy — one united silhouette of lobes
+  union(x, p => {
+    for (const [cx2, cy2, r] of [[128, 84, 62], [80, 116, 44], [176, 116, 44], [104, 60, 38], [152, 60, 38]]) {
+      p.moveTo(cx2 + r, cy2); p.arc(cx2, cy2, r, 0, TAU);
+    }
+  }, MINTC, lw * .55);
+  // highlight lobe + a couple of tiny blossoms
+  x.beginPath(); x.arc(106, 74, 30, 0, TAU); x.fillStyle = tint(MINTC, .35); x.fill();
+  for (const [fx, fy] of [[88, 118], [162, 92], [140, 128]]) {
+    x.beginPath(); x.arc(fx, fy, 7, 0, TAU); x.fillStyle = tint(BUBBLE, .25); x.fill();
+    x.beginPath(); x.arc(fx, fy, 3, 0, TAU); x.fillStyle = SUN; x.fill();
+  }
+  return c;
+}
