@@ -46,14 +46,16 @@ export const MANES = {
 // own buddy, just a different colourway/marking, so the whole roster is free
 // to grow without ever needing external art.
 export const UNICORN_TYPES = {
-  'type.blossom':  { label: 'Blossom',  mane: 'pink',       pattern: null,    hornColor: null },
-  'type.starlight':{ label: 'Starlight',mane: 'lavender',   pattern: 'stars', hornColor: tint(GRAPE, .55) },
-  'type.frost':    { label: 'Frost',    mane: 'sky',        pattern: null,    hornColor: tint(SKYB, .5) },
-  'type.clover':   { label: 'Clover',   mane: 'mint',       pattern: 'spots', hornColor: null },
+  'type.blossom':  { label: 'Blossom',  mane: 'pink',       pattern: null,      hornColor: null },
+  'type.starlight':{ label: 'Starlight',mane: 'lavender',   pattern: 'stars',   hornColor: tint(GRAPE, .55) },
+  'type.frost':    { label: 'Frost',    mane: 'sky',        pattern: null,      hornColor: tint(SKYB, .5), irisColor: tint(SKYB, .3) },
+  'type.clover':   { label: 'Clover',   mane: 'mint',       pattern: 'spots',   hornColor: null },
   'type.sunbeam':  { label: 'Sunbeam',  mane: 'sunshine',   pattern: 'stripes', hornColor: null },
-  'type.berry':    { label: 'Berry',    mane: 'berry',      pattern: 'hearts', hornColor: tint(BUBBLE, .4) },
-  'type.coral':    { label: 'Coral',    mane: 'coral',      pattern: 'spots', hornColor: tint(SUN, .3) },
-  'type.dream':    { label: 'Dream',    mane: 'periwinkle', pattern: 'stars', hornColor: tint(SKYB, .45) },
+  'type.berry':    { label: 'Berry',    mane: 'berry',      pattern: 'hearts', hornColor: tint(BUBBLE, .4), irisColor: tint(BUBBLE, .35) },
+  'type.coral':    { label: 'Coral',    mane: 'coral',      pattern: 'spots',   hornColor: tint(SUN, .3) },
+  'type.dream':    { label: 'Dream',    mane: 'periwinkle', pattern: 'stars',   hornColor: tint(SKYB, .45) },
+  'type.stardust': { label: 'Stardust', mane: 'lavender',   pattern: null,      hornColor: tint(GRAPE, .6), sparkle: true },
+  'type.honey':    { label: 'Honey',    mane: 'sunshine',   pattern: null,      hornColor: null,           irisColor: tint(SUN, .25) },
 };
 
 // ---- shared drawing kit ---------------------------------------------------
@@ -133,16 +135,34 @@ function starPath(x, cx, cy, R, r, rot = -Math.PI / 2) {
   x.closePath();
 }
 
-function drawEye(x, cx, cy, s) {
+function drawEye(x, cx, cy, s, irisColor) {
   x.beginPath(); x.ellipse(cx, cy, s * .82, s * 1.08, 0, 0, TAU);
   x.fillStyle = INK; x.fill();
+  // a tinted iris ring sits between the ink pupil-shape and the sparkle
+  // highlights — subtle by design, never louder than the highlight itself.
+  if (irisColor) {
+    x.beginPath(); x.ellipse(cx, cy + s * .1, s * .5, s * .62, 0, 0, TAU);
+    x.fillStyle = rgba(irisColor, .6); x.fill();
+  }
   x.beginPath(); x.arc(cx - s * .26, cy - s * .38, s * .36, 0, TAU); x.fillStyle = '#fff'; x.fill();
   x.beginPath(); x.arc(cx + s * .3, cy + s * .42, s * .15, 0, TAU); x.fillStyle = 'rgba(255,255,255,.9)'; x.fill();
 }
 
+// A scatter of tiny star-glints — reserved for a "magical" one-or-two types,
+// not everyone, or it stops reading as special.
+function sparkle(x, cx, cy, rx, ry) {
+  x.save();
+  x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, TAU); x.clip();
+  x.fillStyle = 'rgba(255,255,255,.85)';
+  for (const [dx, dy, s] of [[-.5, -.55, .05], [.3, -.7, .04], [-.15, -.2, .045], [.5, -.35, .035], [-.35, .05, .04]]) {
+    x.beginPath(); starPath(x, cx + dx * rx, cy + dy * ry, s * rx, s * rx * .4); x.fill();
+  }
+  x.restore();
+}
+
 // ---- the chibi unicorn ----------------------------------------------------
 // maneKey picks a colourway; apron marks the shopkeeper.
-export function unicornCanvas(maneKey = 'pink', { apron = false, pattern = null, hornColor = null } = {}) {
+export function unicornCanvas(maneKey = 'pink', { apron = false, pattern = null, hornColor = null, irisColor = null, sparkle: sparkleOn = false } = {}) {
   const { main: mane, dark: maneD } = MANES[maneKey] || MANES.pink;
   const S = 512, c = cv(S), x = c.getContext('2d');
   const lw = S * LWR * .8; // 14.3 — hero canvas, one weight throughout
@@ -235,6 +255,7 @@ export function unicornCanvas(maneKey = 'pink', { apron = false, pattern = null,
     [158, 208, 26, .1 * Math.PI, .7 * Math.PI],
     [146, 268, 23, .15 * Math.PI, .75 * Math.PI],
   ]) { x.beginPath(); x.arc(cx, cy, r, a0, a1); x.stroke(); }
+  if (sparkleOn) sparkle(x, 220, 200, 130, 110);
 
   // horn — gold by default, or a type's own tint — with a candy spiral
   const hornCol = hornColor || SUN;
@@ -254,7 +275,7 @@ export function unicornCanvas(maneKey = 'pink', { apron = false, pattern = null,
   x.restore();
 
   // face
-  drawEye(x, 206, 244, 28); drawEye(x, 306, 244, 28);
+  drawEye(x, 206, 244, 28, irisColor); drawEye(x, 306, 244, 28, irisColor);
   ao(x, 172, 290, 30, 24, .55, BUBBLE); ao(x, 340, 290, 30, 24, .55, BUBBLE);
   x.strokeStyle = INK; x.lineWidth = lw * .6; x.lineCap = 'round';
   x.beginPath(); x.arc(256, 288, 20, .2 * Math.PI, .8 * Math.PI); x.stroke();
