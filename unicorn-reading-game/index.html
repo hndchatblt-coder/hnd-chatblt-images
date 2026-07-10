@@ -24,13 +24,13 @@
 
   <!-- HUD overlay -->
   <div id="hud" class="hidden">
-    <div id="stars" class="badge"><span class="star">⭐</span><span id="star-count">0</span></div>
+    <div id="coins" class="badge"><canvas id="coin-icon" width="34" height="34"></canvas><span id="coin-count">0</span></div>
     <div class="right-buttons">
       <button id="collection-btn" class="icon-btn" aria-label="My friends">🎒<span id="collection-count" class="count">0</span></button>
+      <button id="shop-btn" class="icon-btn" aria-label="Rosie's shop">🛍️</button>
       <button id="replay-btn" class="icon-btn" aria-label="Hear again">🔁</button>
       <button id="mute-btn" class="icon-btn" aria-label="Sound on/off">🔊</button>
-      <button id="settings-btn" class="icon-btn" aria-label="Record voice">🎙️</button>
-      <button id="voice-btn" class="icon-btn" aria-label="Robot voice settings">⚙️</button>
+      <button id="parent-btn" class="icon-btn parent" aria-label="Grown-ups: press and hold">⚙️<span class="hold-ring"></span></button>
     </div>
 
     <!-- Goal banner: the current stage + a tray of tokens to fill. Tap to open the map. -->
@@ -50,11 +50,46 @@
     <div class="toast-text">New friend!</div>
   </div>
 
+  <!-- Rosie's shop: spend coins on treasures for the buddy -->
+  <div id="shop-screen" class="overlay hidden">
+    <div class="collection-card shop-card">
+      <button id="shop-close" class="x-btn" aria-label="Back to playing">✕</button>
+      <div class="shop-top">
+        <div id="shop-keeper" aria-hidden="true"></div>
+        <div id="shop-preview" aria-hidden="true"></div>
+        <div class="badge shop-badge"><canvas id="shop-coin-icon" width="30" height="30"></canvas><span id="shop-coin-count">0</span></div>
+      </div>
+      <div id="shop-grid"></div>
+      <div id="shop-wish" class="hidden">
+        <span class="wish-icon-slot"></span>
+        <div class="wish-bar"><span class="wish-fill"></span></div>
+        <span class="wish-star">⭐</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Grown-ups' corner (opens via press-and-hold on ⚙️) -->
+  <div id="parent-screen" class="overlay hidden">
+    <div class="collection-card">
+      <h2>Grown-ups' corner 👋</h2>
+      <p class="settings-note">Tools for you — she can't get in here without the long press.</p>
+      <div class="parent-menu">
+        <button id="parent-studio" class="parent-item">🎙️ Record the sounds</button>
+        <button id="parent-guide" class="parent-item">✨ Guided recording</button>
+        <button id="parent-voice" class="parent-item">🤖 Robot voice &amp; letters</button>
+        <button id="reset-btn" class="parent-item danger">🔄 Start over (clear progress)</button>
+      </div>
+      <div class="settings-buttons">
+        <button id="parent-close" class="close-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Recording studio (for a grown-up): record the sounds in your own voice -->
   <div id="settings-screen" class="overlay hidden">
     <div class="collection-card studio">
       <h2>Record the sounds 🎙️</h2>
-      <p class="settings-note">For a grown-up. Tap a tile and say the <b>sound</b> (“mmm”, not “em”); tap again to stop. Tap ▶ to hear it. Saved on this device. <span id="studio-progress"></span></p>
+      <p class="settings-note">Tap a tile and say the <b>sound</b> (“mmm”, not “em”); tap again to stop. Tap ▶ to hear it. Saved on this device. <span id="studio-progress"></span></p>
       <div class="studio-tools">
         <button id="guide-btn" class="mini-btn">✨ Guided</button>
         <button id="backup-btn" class="mini-btn">⬇️ Backup</button>
@@ -108,48 +143,34 @@
   <!-- Reading journey map: the sequence of stages (vowel families) -->
   <div id="map-screen" class="overlay hidden">
     <div class="collection-card">
+      <button id="map-close" class="x-btn" aria-label="Back to playing">✕</button>
       <h2>Your reading journey 🗺️</h2>
-      <p class="settings-note">Tap a family you've reached to play it. New families open up as you finish each one!</p>
       <div id="map-grid"></div>
       <button id="map-letters-btn" class="mini-btn">🔤 Practise the letters</button>
-      <button id="map-close" class="close-btn">Keep playing</button>
     </div>
   </div>
 
   <!-- Collection of unlocked friends -->
   <div id="collection-screen" class="overlay hidden">
     <div class="collection-card">
+      <button id="collection-close" class="x-btn" aria-label="Back to playing">✕</button>
       <h2>My Magical Friends</h2>
-      <p class="settings-note">Tap a friend you've collected to make it your buddy! ⭐ = your buddy now.</p>
       <div id="collection-grid"></div>
-      <button id="collection-close" class="close-btn">Keep playing</button>
-      <button id="reset-btn" class="reset-link">🔄 Start over (clear stars &amp; friends)</button>
-    </div>
-  </div>
-
-  <!-- Start screen (also unlocks audio on first tap) -->
-  <div id="start-screen">
-    <div class="start-card">
-      <div class="start-unicorn">🦄</div>
-      <h1>Unicorn Reading</h1>
-      <p>Tap each letter, hear its sound, then blend them into a word — earn stars and collect magical friends!</p>
-      <div class="tap-to-play">▶ Tap to play</div>
-      <button id="learn-letters-btn" class="start-secondary">🔤 Learn the letters first</button>
     </div>
   </div>
 
   <!-- Learn the Letters: meet each sound + practise upper/lowercase -->
   <div id="letters-screen" class="overlay hidden">
     <div class="collection-card letters-card">
+      <button id="lt-close" class="x-btn" aria-label="Back to playing">✕</button>
       <h2>Learn the Letters 🔤</h2>
       <div class="lt-reward">
-        <span class="lt-stars">⭐ <b id="lt-star-count">0</b></span>
-        <span class="lt-progress" id="lt-friend-progress"></span>
+        <span class="badge lt-badge"><canvas id="lt-coin-icon" width="26" height="26"></canvas><b id="lt-coin-count">0</b></span>
         <span class="lt-buddy" id="lt-buddy">🦄</span>
       </div>
       <div class="studio-tabs">
-        <button id="lt-tab-explore" class="tab active">Explore sounds</button>
-        <button id="lt-tab-match" class="tab">Match game</button>
+        <button id="lt-tab-explore" class="tab active">🔍 Explore sounds</button>
+        <button id="lt-tab-match" class="tab">🎯 Match game</button>
       </div>
       <p class="settings-note" id="lt-note"></p>
       <div id="lt-explore">
@@ -160,8 +181,16 @@
         <div id="lt-choices"></div>
         <div id="lt-feedback"></div>
       </div>
-      <button id="lt-record" class="mini-btn">🎙️ Make the sounds perfect</button>
-      <button id="lt-close" class="close-btn">Done</button>
+    </div>
+  </div>
+
+  <!-- Start screen (also unlocks audio on first tap) -->
+  <div id="start-screen">
+    <div class="start-card">
+      <div id="start-buddy" class="start-unicorn">🦄</div>
+      <h1>Unicorn Reading</h1>
+      <div class="tap-to-play">▶ Tap to play</div>
+      <button id="learn-letters-btn" class="start-secondary">🔤 Learn the letters first</button>
     </div>
   </div>
 

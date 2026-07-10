@@ -610,6 +610,132 @@ html, body {
 .settings-buttons { display: flex; gap: 10px; justify-content: center; }
 .close-btn.alt { background: #fff; color: var(--purple); box-shadow: inset 0 0 0 2px var(--purple); }
 
+/* ----- coin badge ----- */
+.badge canvas { display: block; }
+
+/* ----- universal child-facing close: one glyph always means "back" ----- */
+.x-btn {
+  position: absolute;
+  top: 10px; right: 10px;
+  width: 44px; height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(138, 107, 255, 0.14);
+  color: var(--purple);
+  font-size: 22px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.x-btn:active { transform: scale(0.9); }
+.collection-card { position: relative; }
+
+/* ----- parent gate: press-and-hold ring ----- */
+.icon-btn.parent { position: relative; overflow: visible; }
+.icon-btn.parent .hold-ring {
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 4px solid transparent;
+  pointer-events: none;
+}
+.icon-btn.parent.holding .hold-ring {
+  border-color: var(--pink);
+  animation: holdfill 1.5s linear forwards;
+}
+@keyframes holdfill {
+  0% { clip-path: polygon(50% 0, 50% 0, 50% 0, 50% 0); opacity: .4; }
+  100% { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); opacity: 1; }
+}
+
+/* ----- parent menu ----- */
+.parent-menu { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 18px; }
+.parent-item {
+  border: none;
+  background: rgba(138, 107, 255, 0.12);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 17px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: left;
+}
+.parent-item:active { transform: scale(0.97); }
+.parent-item.danger { background: rgba(255, 93, 93, 0.12); color: #c92a2a; }
+
+/* ----- Rosie's shop ----- */
+.shop-card { max-width: 480px; padding-top: 18px; }
+.shop-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding-top: 4px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0) 55%, rgba(255,143,212,0.25) 100%),
+    repeating-linear-gradient(90deg, #ffd7ea 0 26px, #ffffff 26px 52px, #d8ecff 52px 78px, #fff3d0 78px 104px, #e7ddff 104px 130px);
+}
+.keeper-art { width: 130px; height: 130px; display: block; animation: bob 2.6s ease-in-out infinite; }
+.shop-preview-art { width: 150px; height: 150px; display: block; }
+.shop-badge { position: static; padding: 5px 12px 5px 8px; font-size: 20px; align-self: flex-start; margin-right: 46px; }
+#shop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.shop-item {
+  position: relative;
+  border: none;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 3px 10px rgba(120, 70, 140, 0.16);
+  padding: 10px 6px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.shop-item:active { transform: scale(0.94); }
+.shop-icon { width: 64px; height: 64px; display: block; }
+.shop-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 15px; font-weight: 900; color: #8a5a12;
+  background: #fff3d9; border-radius: 999px; padding: 2px 10px;
+}
+.shop-coin {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe89a, #e6a417);
+  box-shadow: inset 0 0 0 2px #c8860c;
+}
+.shop-item.afford { box-shadow: 0 0 0 3px #7ee081, 0 3px 10px rgba(120, 70, 140, 0.16); animation: affordpulse 1.6s ease-in-out infinite; }
+@keyframes affordpulse { 0%,100% { box-shadow: 0 0 0 3px #7ee081, 0 3px 10px rgba(120,70,140,.16); } 50% { box-shadow: 0 0 0 5px #a5edaa, 0 3px 14px rgba(120,70,140,.2); } }
+.shop-item.saving { opacity: 0.65; }
+.shop-item.saving .shop-tag { background: #efe6f2; color: #9a86ab; }
+.shop-item.saving .shop-coin { filter: grayscale(0.6); }
+.shop-item.owned .shop-tag { background: #d9f5dc; color: #2b8a3e; font-size: 17px; }
+.shop-item.worn { box-shadow: 0 0 0 3px var(--pink), 0 3px 10px rgba(120, 70, 140, 0.16); }
+.shop-item.wished::after { content: '⭐'; position: absolute; top: -8px; right: -6px; font-size: 18px; }
+.shop-item.pop { animation: pop 0.5s ease; }
+#shop-wish {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+#shop-wish.pop { animation: pop 0.4s ease; }
+#shop-wish.ready { box-shadow: 0 0 0 3px #7ee081; }
+.wish-icon { width: 40px; height: 40px; display: block; }
+.wish-bar { flex: 1; height: 14px; border-radius: 999px; background: #f0e0ef; overflow: hidden; }
+.wish-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff8fd4, #b197fc, #74c0fc); transition: width 0.5s ease; }
+.wish-star { font-size: 20px; }
+
+/* letters screen coin badge */
+.lt-badge { position: static; padding: 4px 10px 4px 7px; font-size: 18px; gap: 5px; }
+.lt-reward { justify-content: center; }
+
 /* ----- Robot voice settings ----- */
 .vrow {
   display: flex;
