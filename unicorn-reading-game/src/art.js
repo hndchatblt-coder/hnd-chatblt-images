@@ -31,10 +31,31 @@ const rgba  = (h, a) =>
   `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
 
 export const MANES = {
-  pink:     { main: tint(BUBBLE, .15), dark: shade(BUBBLE, .25) },
-  lavender: { main: tint(GRAPE, .25),  dark: shade(GRAPE, .22) },
-  sky:      { main: tint(SKYB, .18),   dark: shade(SKYB, .28) },
-  mint:     { main: tint(MINTC, .12),  dark: shade(MINTC, .28) },
+  pink:        { main: tint(BUBBLE, .15), dark: shade(BUBBLE, .25) },
+  lavender:    { main: tint(GRAPE, .25),  dark: shade(GRAPE, .22) },
+  sky:         { main: tint(SKYB, .18),   dark: shade(SKYB, .28) },
+  mint:        { main: tint(MINTC, .12),  dark: shade(MINTC, .28) },
+  sunshine:    { main: tint(SUN, .1),          dark: shade(SUN, .3) },
+  berry:       { main: tint(BUBBLE, .05),      dark: shade(BUBBLE, .42) },
+  coral:       { main: tint(mix(BUBBLE, SUN, .5), .15), dark: shade(mix(BUBBLE, SUN, .5), .25) },
+  periwinkle:  { main: tint(mix(GRAPE, SKYB, .5), .18), dark: shade(mix(GRAPE, SKYB, .5), .26) },
+};
+
+// A unicorn "type" = a mane colourway + an optional coat pattern + an optional
+// horn tint. Every friend she meets is one of these — same rigged shape as her
+// own buddy, just a different colourway/marking, so the whole roster is free
+// to grow without ever needing external art.
+export const UNICORN_TYPES = {
+  'type.blossom':  { label: 'Blossom',  mane: 'pink',       pattern: null,      hornColor: null },
+  'type.starlight':{ label: 'Starlight',mane: 'lavender',   pattern: 'stars',   hornColor: tint(GRAPE, .55) },
+  'type.frost':    { label: 'Frost',    mane: 'sky',        pattern: null,      hornColor: tint(SKYB, .5), irisColor: tint(SKYB, .3) },
+  'type.clover':   { label: 'Clover',   mane: 'mint',       pattern: 'spots',   hornColor: null },
+  'type.sunbeam':  { label: 'Sunbeam',  mane: 'sunshine',   pattern: 'stripes', hornColor: null },
+  'type.berry':    { label: 'Berry',    mane: 'berry',      pattern: 'hearts', hornColor: tint(BUBBLE, .4), irisColor: tint(BUBBLE, .35) },
+  'type.coral':    { label: 'Coral',    mane: 'coral',      pattern: 'spots',   hornColor: tint(SUN, .3) },
+  'type.dream':    { label: 'Dream',    mane: 'periwinkle', pattern: 'stars',   hornColor: tint(SKYB, .45) },
+  'type.stardust': { label: 'Stardust', mane: 'lavender',   pattern: null,      hornColor: tint(GRAPE, .6), sparkle: true },
+  'type.honey':    { label: 'Honey',    mane: 'sunshine',   pattern: null,      hornColor: null,           irisColor: tint(SUN, .25) },
 };
 
 // ---- shared drawing kit ---------------------------------------------------
@@ -68,6 +89,35 @@ function ao(x, cx, cy, rx, ry, alpha = .16, col = INK) {
   x.restore();
 }
 
+// A small coat marking, clipped to whatever shape is currently in the path
+// (call right after a fill+stroke, before the next shape resets the path).
+// Kept subtle — these mark a TYPE, they shouldn't fight the face for attention.
+function coatPattern(x, kind, cx, cy, rx, ry, col) {
+  if (!kind) return;
+  x.save();
+  x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, TAU); x.clip();
+  x.fillStyle = rgba(col, .38);
+  if (kind === 'spots') {
+    for (const [dx, dy, r] of [[-.5, -.3, .16], [.35, -.5, .12], [-.15, .35, .14], [.5, .25, .1], [.05, -.05, .11]]) {
+      x.beginPath(); x.arc(cx + dx * rx, cy + dy * ry, r * rx, 0, TAU); x.fill();
+    }
+  } else if (kind === 'stars') {
+    for (const [dx, dy, s] of [[-.45, -.35, .16], [.4, -.15, .12], [-.1, .4, .14], [.45, .35, .1]]) {
+      x.beginPath(); starPath(x, cx + dx * rx, cy + dy * ry, s * rx, s * rx * .45); x.fill();
+    }
+  } else if (kind === 'hearts') {
+    for (const [dx, dy, s] of [[-.42, -.3, .13], [.38, -.1, .1], [-.05, .38, .12]]) {
+      x.beginPath(); heartPath(x, cx + dx * rx, cy + dy * ry, s * rx); x.fill();
+    }
+  } else if (kind === 'stripes') {
+    x.strokeStyle = rgba(col, .4); x.lineWidth = rx * .12; x.lineCap = 'round';
+    for (const dx of [-.5, -.1, .3]) {
+      x.beginPath(); x.moveTo(cx + dx * rx, cy - ry); x.quadraticCurveTo(cx + (dx + .25) * rx, cy, cx + dx * rx, cy + ry); x.stroke();
+    }
+  }
+  x.restore();
+}
+
 function heartPath(x, cx, cy, s) {
   x.moveTo(cx, cy + s * .95);
   x.bezierCurveTo(cx - s * 1.25, cy + s * .1, cx - s * .8, cy - s * .85, cx, cy - s * .28);
@@ -85,16 +135,34 @@ function starPath(x, cx, cy, R, r, rot = -Math.PI / 2) {
   x.closePath();
 }
 
-function drawEye(x, cx, cy, s) {
+function drawEye(x, cx, cy, s, irisColor) {
   x.beginPath(); x.ellipse(cx, cy, s * .82, s * 1.08, 0, 0, TAU);
   x.fillStyle = INK; x.fill();
+  // a tinted iris ring sits between the ink pupil-shape and the sparkle
+  // highlights — subtle by design, never louder than the highlight itself.
+  if (irisColor) {
+    x.beginPath(); x.ellipse(cx, cy + s * .1, s * .5, s * .62, 0, 0, TAU);
+    x.fillStyle = rgba(irisColor, .6); x.fill();
+  }
   x.beginPath(); x.arc(cx - s * .26, cy - s * .38, s * .36, 0, TAU); x.fillStyle = '#fff'; x.fill();
   x.beginPath(); x.arc(cx + s * .3, cy + s * .42, s * .15, 0, TAU); x.fillStyle = 'rgba(255,255,255,.9)'; x.fill();
 }
 
+// A scatter of tiny star-glints — reserved for a "magical" one-or-two types,
+// not everyone, or it stops reading as special.
+function sparkle(x, cx, cy, rx, ry) {
+  x.save();
+  x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, TAU); x.clip();
+  x.fillStyle = 'rgba(255,255,255,.85)';
+  for (const [dx, dy, s] of [[-.5, -.55, .05], [.3, -.7, .04], [-.15, -.2, .045], [.5, -.35, .035], [-.35, .05, .04]]) {
+    x.beginPath(); starPath(x, cx + dx * rx, cy + dy * ry, s * rx, s * rx * .4); x.fill();
+  }
+  x.restore();
+}
+
 // ---- the chibi unicorn ----------------------------------------------------
 // maneKey picks a colourway; apron marks the shopkeeper.
-export function unicornCanvas(maneKey = 'pink', { apron = false } = {}) {
+export function unicornCanvas(maneKey = 'pink', { apron = false, pattern = null, hornColor = null, irisColor = null, sparkle: sparkleOn = false } = {}) {
   const { main: mane, dark: maneD } = MANES[maneKey] || MANES.pink;
   const S = 512, c = cv(S), x = c.getContext('2d');
   const lw = S * LWR * .8; // 14.3 — hero canvas, one weight throughout
@@ -126,6 +194,7 @@ export function unicornCanvas(maneKey = 'pink', { apron = false } = {}) {
   // body
   x.beginPath(); x.ellipse(256, 372, 102, 72, 0, 0, TAU);
   x.fillStyle = CREAM; x.fill(); x.strokeStyle = INK; x.lineWidth = lw; x.stroke();
+  coatPattern(x, pattern, 256, 372, 102, 72, maneD);
   ao(x, 256, 438, 78, 18, .08); // soft AO inside the body, above the legs
 
   // shopkeeper apron: bib + skirt as one shape, pocket, heart name-tag
@@ -186,17 +255,19 @@ export function unicornCanvas(maneKey = 'pink', { apron = false } = {}) {
     [158, 208, 26, .1 * Math.PI, .7 * Math.PI],
     [146, 268, 23, .15 * Math.PI, .75 * Math.PI],
   ]) { x.beginPath(); x.arc(cx, cy, r, a0, a1); x.stroke(); }
+  if (sparkleOn) sparkle(x, 220, 200, 130, 110);
 
-  // horn — sunshine gold with a candy spiral, standing proud of the fringe
+  // horn — gold by default, or a type's own tint — with a candy spiral
+  const hornCol = hornColor || SUN;
   x.beginPath();
   x.moveTo(226, 122);
   x.quadraticCurveTo(246, 58, 256, 26);
   x.quadraticCurveTo(266, 58, 286, 122);
   x.quadraticCurveTo(256, 136, 226, 122);
   x.closePath();
-  x.fillStyle = SUN; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .8; x.stroke();
+  x.fillStyle = hornCol; x.fill(); x.strokeStyle = INK; x.lineWidth = lw * .8; x.stroke();
   x.save(); x.clip();
-  x.strokeStyle = shade(SUN, .35); x.lineWidth = lw * .45;
+  x.strokeStyle = shade(hornCol, .35); x.lineWidth = lw * .45;
   for (let i = 0; i < 3; i++) {
     const yy = 104 - i * 28;
     x.beginPath(); x.moveTo(222, yy + 8); x.lineTo(290, yy - 12); x.stroke();
@@ -204,7 +275,7 @@ export function unicornCanvas(maneKey = 'pink', { apron = false } = {}) {
   x.restore();
 
   // face
-  drawEye(x, 206, 244, 28); drawEye(x, 306, 244, 28);
+  drawEye(x, 206, 244, 28, irisColor); drawEye(x, 306, 244, 28, irisColor);
   ao(x, 172, 290, 30, 24, .55, BUBBLE); ao(x, 340, 290, 30, 24, .55, BUBBLE);
   x.strokeStyle = INK; x.lineWidth = lw * .6; x.lineCap = 'round';
   x.beginPath(); x.arc(256, 288, 20, .2 * Math.PI, .8 * Math.PI); x.stroke();

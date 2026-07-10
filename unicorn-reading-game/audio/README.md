@@ -1,34 +1,53 @@
-# Audio — recorded sounds
+# Audio — the shipped default sounds
 
-The game sounds **best** with real recorded audio. Until you add files here, it
-automatically falls back to the phone's built-in text-to-speech voice, so it is
-fully playable right now — but recorded sounds (especially your own voice!) make
-a big difference for learning to blend.
+These are the sounds **every install gets out of the box**, before any parent
+records anything on their own device. Until these are filled in, the game
+falls back to the phone's built-in text-to-speech voice, so it's fully
+playable right now — but bundled recordings are what make the phonics
+actually correct (and identical) for every family from the very first launch.
+
+A parent's own in-app recording (via the 🎙️ studio / guided flow, saved on
+their device) always wins over these when present — this folder is just the
+shared default underneath that.
 
 ## How it works
 
-When the game needs a sound it first looks for a recording. If the file isn't
-here, it speaks using the browser voice instead. So you can add files gradually
-— even just the words your daughter is working on this week.
+Playback order for every letter sound and word: **1)** this device's own
+recording (if the parent made one) → **2)** the bundled file here → **3)**
+text-to-speech. So filling this folder in raises the floor for every family,
+without touching anyone's personal recordings.
 
-## Where files go
+## The easiest way to fill it in
+
+You don't need to hand-produce audio files yourself — reuse the recording
+studio that's already built into the app:
+
+1. Open the app → ⚙️ (long-press) → **✨ Guided recording** and record all 26
+   letter sounds (and any words you like) in one sitting.
+2. Tap **⬇️ Backup** to export everything as one file.
+3. Send that backup file over — it gets decoded and baked into this folder
+   (in whatever format your browser actually recorded, e.g. `.webm`) plus a
+   filled-in `manifest.json`, and committed so every install ships with it.
+
+No manual audio conversion needed — whatever format the phone recorded in is
+what ships.
+
+## Where files end up
 
 ```
 audio/
   phonemes/   ← the pure SOUND of a single letter
-    a.mp3  b.mp3  c.mp3  ...  z.mp3
+    a.webm  b.webm  c.webm  ...  z.webm   (extension depends on what was recorded)
   words/      ← the whole word, said normally
-    cat.mp3  dog.mp3  sun.mp3  ...
-    cheer.mp3   ← (optional) a "yay! you did it!" praise clip
+    cat.webm  dog.webm  sun.webm  ...
+    cheer.webm   ← (optional) a "yay! you did it!" praise clip
 ```
 
-- File names are **lowercase**, matching the letter or word, ending in `.mp3`.
-- Words come from `src/words.js` — record any of those you want.
-- After adding files, list them in [`manifest.json`](./manifest.json) so the
-  game knows to use them, e.g.
-  `{ "phonemes": ["c","a","t"], "words": ["cat"], "cheer": false }`.
-  (Prefer the no-fuss route? Delete `manifest.json` and the game will just
-  auto-detect whatever files are present.)
+`manifest.json` lists which letters/words have a bundled file and the shared
+file extension, e.g. `{ "ext": "webm", "phonemes": ["c","a","t"], "words":
+["cat"], "cheer": false }`. (Deleting `manifest.json` makes the game
+auto-detect `.mp3` files on demand instead — handy if you ever hand-supply
+real `.mp3`s from elsewhere.)
 
 ## Recording tips (phonics matters here!)
 
@@ -41,10 +60,7 @@ The single most important thing: record the **sound**, not the letter **name**.
 - For "stop" sounds (b, c/k, d, g, p, t) keep them short and crisp.
 - Record somewhere quiet, trim silence at the start/end, keep it warm and happy.
 
-You can record on your phone's voice memo app, export, convert to `.mp3`, and
-drop them in. Any tool that exports `.mp3` works.
-
 ## After adding or changing audio
 
-Bump `CACHE_VERSION` in `../service-worker.js` (e.g. `v1` → `v2`) so installed
-phones pick up the new files.
+Bump `CACHE_VERSION` in `../service-worker.js` so installed phones pick up the
+new files.
