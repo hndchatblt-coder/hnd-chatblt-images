@@ -192,6 +192,27 @@ export const COSMETICS = [
 ];
 export const cosmeticById = (id) => COSMETICS.find(c => c.id === id);
 
+// Per-unicorn-type "personality" for spoken DIALOGUE only (greetings, praise,
+// "want to play with me?") — never for phoneme/word playback, which must
+// always sound the same regardless of who's on screen, so a child never hears
+// a letter's sound change depending on which friend she's with. Reuses the
+// single device TTS voice already chosen in settings; only pitch/rate vary,
+// so no extra recorded content is needed per character. Keyed by the same ids
+// as UNICORN_TYPES in art.js. Unlisted types fall back to the default voice.
+export const VOICE_PROFILES = {
+  'type.blossom':   { pitch: 1.15, rate: 1.0  },
+  'type.starlight': { pitch: 1.3,  rate: 0.95 }, // dreamy, a little slower
+  'type.frost':     { pitch: 1.05, rate: 0.9  }, // cool and calm
+  'type.clover':    { pitch: 1.2,  rate: 1.05 },
+  'type.sunbeam':   { pitch: 1.35, rate: 1.15 }, // bright and quick
+  'type.berry':     { pitch: 1.25, rate: 1.0  },
+  'type.coral':     { pitch: 1.15, rate: 1.05 },
+  'type.dream':     { pitch: 1.1,  rate: 0.9  },
+  'type.stardust':  { pitch: 1.4,  rate: 0.95 }, // airy and light
+  'type.honey':     { pitch: 1.2,  rate: 0.95 },
+  'type.rosie':     { pitch: 1.1,  rate: 1.0  },
+};
+
 // Friendly, kid-pronounceable name for each letter sound, used ONLY as the
 // text-to-speech fallback when a recorded phoneme file is missing. These nudge
 // the browser voice toward the pure SOUND ("mmm") rather than the letter NAME

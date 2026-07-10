@@ -16,12 +16,12 @@
 // Mobile browsers block audio until the first user gesture, so call
 // `audio.unlock()` from a tap/click handler before playing anything.
 
-import { PHONEME_HINTS } from './content.js';
+import { PHONEME_HINTS, VOICE_PROFILES } from './content.js';
 
 const MANIFEST_URL = './audio/manifest.json';
 const PHONEME_DIR = './audio/phonemes/';
 const WORD_DIR = './audio/words/';
-const EXT = '.mp3';
+const DEFAULT_EXT = '.mp3'; // overridden by manifest.ext — browsers record webm/mp4, not mp3
 const REC_DB = 'unicorn-reading';     // IndexedDB holding the grown-up's recordings
 const REC_STORE = 'recordings';
 const VOICE_KEY = 'unicorn-reading-voice'; // tweakable fallback-voice settings
@@ -278,6 +278,9 @@ export class AudioManager {
         phonemes: new Set((data.phonemes || []).map(s => String(s).toLowerCase())),
         words: new Set((data.words || []).map(s => String(s).toLowerCase())),
         cheer: !!data.cheer,
+        // Whatever format the recordings were actually baked in (e.g. "webm").
+        // Defaults to mp3 for backwards compatibility with hand-supplied files.
+        ext: data.ext ? '.' + String(data.ext).replace(/^\./, '') : DEFAULT_EXT,
       };
       this.hasManifest = true;
     } catch (_) {
@@ -289,14 +292,15 @@ export class AudioManager {
   // present (no network probing); otherwise HEAD-probes once and caches.
   async _resolve(kind, name) {
     const n = name.toLowerCase();
-    const url = (kind === 'phoneme' ? PHONEME_DIR : WORD_DIR) + n + EXT;
+    const ext = this.hasManifest ? this.manifest.ext : DEFAULT_EXT;
+    const url = (kind === 'phoneme' ? PHONEME_DIR : WORD_DIR) + n + ext;
     if (this.hasManifest) {
-      if (kind === 'cheer') return this.manifest.cheer ? WORD_DIR + 'cheer' + EXT : null;
+      if (kind === 'cheer') return this.manifest.cheer ? WORD_DIR + 'cheer' + ext : null;
       const set = kind === 'phoneme' ? this.manifest.phonemes : this.manifest.words;
       return set.has(n) ? url : null;
     }
-    // Auto-detect mode.
-    const probe = kind === 'cheer' ? WORD_DIR + 'cheer' + EXT : url;
+    // Auto-detect mode (no manifest): probe the default extension only.
+    const probe = kind === 'cheer' ? WORD_DIR + 'cheer' + DEFAULT_EXT : url;
     return (await this._urlExists(probe)) ? probe : null;
   }
 
@@ -388,6 +392,19 @@ export class AudioManager {
     await this.ready;
     if (await this._playRecordedOrFile('word', word)) return;
     await this._speak(word, { rate: 0.85 });
+  }
+
+  // Speak a DIALOGUE line (greeting, "want to play with me?", banter) in a
+  // given unicorn's voice — pitch/rate personality only, same device voice.
+  // Deliberately separate from playPhoneme/playWord: those never take a
+  // character id and always sound identical no matter who's on screen.
+  speakAs(typeId, text, opts = {}) {
+    if (this.muted) return Promise.resolve();
+    const profile = VOICE_PROFILES[typeId];
+    return this._speak(text, {
+      rate: (opts.rate ?? 0.95) * (profile ? profile.rate : 1),
+      pitch: (profile ? profile.pitch : this._userPitch) * (opts.pitchMul ?? 1),
+    });
   }
 
   // Short spoken praise on success.
