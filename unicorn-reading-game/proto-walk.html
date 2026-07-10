@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#8ad290;font-family:system-ui;touch-action:none}
+  #world{position:fixed;inset:0}
+  #dpad{position:fixed;left:18px;bottom:28px;width:150px;height:150px;z-index:5}
+  .dbtn{position:absolute;width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.85);
+    box-shadow:0 4px 10px rgba(90,43,107,.35);display:flex;align-items:center;justify-content:center;
+    font-size:22px;color:#5a2b6b;font-weight:900;user-select:none}
+  .dbtn.active{background:#ffd6f5}
+  #up{left:49px;top:0} #down{left:49px;top:98px} #left{left:0;top:49px} #right{left:98px;top:49px}
+  #popup{position:fixed;left:50%;bottom:120px;transform:translate(-50%,20px);width:280px;
+    background:#fff;border-radius:24px;padding:16px;box-shadow:0 14px 34px rgba(90,43,107,.4);
+    text-align:center;opacity:0;pointer-events:none;transition:transform .25s ease,opacity .25s ease;z-index:6}
+  #popup.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  #popup canvas{width:110px;height:110px;display:block;margin:0 auto}
+  #popup .bubble{background:#fdeaf7;border-radius:14px;padding:8px 10px;font-weight:800;color:#5a2b6b;font-size:14px;margin:6px 0 12px}
+  #popup .choices{display:flex;gap:14px;justify-content:center}
+  #popup button{width:56px;height:56px;border-radius:50%;border:none;font-size:26px;font-weight:900;cursor:pointer}
+  #yes{background:#7ee081;color:#fff} #no{background:#ff8a8a;color:#fff}
+  #hint{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#fff;padding:8px 16px;border-radius:999px;
+    font-weight:800;color:#5a2b6b;font-size:13px;box-shadow:0 4px 10px rgba(90,43,107,.25);z-index:5;
+    max-width:80%;text-align:center;transition:transform .2s ease}
+  #hint.pop{animation:pop .4s ease}
+  @keyframes pop{40%{transform:translateX(-50%) scale(1.12)}}
+  #progress{position:fixed;top:66px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:5}
+  .pdot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.6);box-shadow:0 2px 6px rgba(90,43,107,.3)}
+  .pdot.done{background:#7ee081}
+</style>
+</head><body>
+<canvas id="world"></canvas>
+<div id="hint">Walk to Starlight with the d-pad 👇</div>
+<div id="progress"></div>
+<div id="dpad">
+  <div class="dbtn" id="up">▲</div>
+  <div class="dbtn" id="down">▼</div>
+  <div class="dbtn" id="left">◀</div>
+  <div class="dbtn" id="right">▶</div>
+</div>
+<div id="popup">
+  <canvas id="popupPortrait" width="220" height="220"></canvas>
+  <div class="bubble" id="popupText"></div>
+  <div class="choices">
+    <button id="no">✕</button>
+    <button id="yes">✓</button>
+  </div>
+</div>
+<script type="module">
+import { unicornCanvas, UNICORN_TYPES } from '/src/art.js';
+
+const cv = document.getElementById('world');
+const ctx = cv.getContext('2d');
+function resize(){ cv.width = innerWidth; cv.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+const TILE = 64;
+const WORLD_W = 13; // tiles wide
+const WORLD_H = 46; // tiles tall — a long linear journey
+
+// The path: waypoints the world winds through (tile coords), used both to draw
+// the path AND to place homes/gates relative to it.
+const waypoints = [
+  [3,2], [8,6], [4,10], [9,14], [3,18], [8,22], [4,26], [9,30], [5,34], [8,38], [4,42],
+];
+
+// Homes sit ON the path at these waypoint indices; gates sit just after each
+// home (a full-width wall of trees) until that home is resolved.
+const homes = [
+  { wp: 1, type: 'type.starlight', name: 'Starlight', game: 'Big Word Blending' },
+  { wp: 3, type: 'type.frost',     name: 'Frost',     game: 'Little Word Blending' },
+  { wp: 5, type: 'type.clover',    name: 'Clover',    game: 'Case Match' },
+  { wp: 7, type: 'type.sunbeam',   name: 'Sunbeam',   game: 'Big & Little Words' },
+];
+
+function wpPos(i){ const [tx,ty] = waypoints[i]; return { x: tx*TILE + TILE/2, y: ty*TILE + TILE/2 }; }
+
+// Build gates: a solid wall of trees spanning the FULL world width, placed a
+// couple of tiles after each home along the path direction, one per home.
+const gates = homes.map((h, i) => {
+  const a = wpPos(h.wp), b = wpPos(Math.min(h.wp+1, waypoints.length-1));
+  const t = 0.55; // partway from the home to the next waypoint
+  const gy = Math.round((a.y + (b.y-a.y)*t) / TILE);
+  const trees = [];
+  for (let tx=0; tx<WORLD_W; tx++) trees.push([tx, gy]);
+  return { homeIndex: i, row: gy, trees, open: false };
+});
+
+let progress = { resolved: [false,false,false,false] };
+let activeHome = null; // the home currently shown in the popup
+
+// decorative (non-gate) trees, scattered off the path
+const decorTrees = [];
+for (let i=0;i<40;i++){
+  decorTrees.push([1+Math.floor(Math.random()*(WORLD_W-2)), 1+Math.floor(Math.random()*(WORLD_H-2))]);
+}
+
+const player = { x: waypoints[0][0]*TILE, y: (waypoints[0][1]-2)*TILE, dir: 'down' };
+const SPEED = 190;
+const held = { up:false, down:false, left:false, right:false };
+const PLAYER_R = 15, TREE_R = 22;
+
+function solidTreeList(){
+  const list = [...decorTrees];
+  for (const g of gates) if (!g.open) for (const t of g.trees) list.push(t);
+  return list;
+}
+
+function drawGrassTile(x,y,variant){
+  ctx.fillStyle = variant ? '#8fd497':'#8ad290';
+  ctx.fillRect(x,y,TILE,TILE);
+}
+function drawPathTile(x,y){
+  ctx.fillStyle = '#e8c99a'; ctx.fillRect(x,y,TILE,TILE);
+}
+function drawTree(px,py, fading){
+  ctx.save();
+  if (fading) ctx.globalAlpha = fading;
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE*.82,TILE*.32,TILE*.14,0,0,7);
+  ctx.fillStyle='rgba(60,40,30,.18)'; ctx.fill();
+  ctx.fillStyle='#7a5236'; ctx.fillRect(px+TILE/2-6,py+TILE*.5,12,TILE*.4);
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.42,TILE*.38,0,7);
+  ctx.fillStyle='#5cb26a'; ctx.fill();
+  ctx.strokeStyle='#3f8a4d'; ctx.lineWidth=4; ctx.stroke();
+  ctx.restore();
+}
+function drawHomeClearing(px,py, state){ // state: 'locked'|'ready'|'done'
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE/2,54,30,0,0,7);
+  ctx.fillStyle = state==='locked' ? 'rgba(255,255,255,.35)' : '#ffe9f7';
+  ctx.fill();
+  ctx.lineWidth=6; ctx.strokeStyle = state==='ready' ? '#ff6fc4' : (state==='done' ? '#7ee081' : 'rgba(255,255,255,.6)');
+  ctx.stroke();
+}
+function drawPlayer(px,py,dir){
+  ctx.beginPath(); ctx.ellipse(px+TILE/2,py+TILE*.86,18,7,0,0,7);
+  ctx.fillStyle='rgba(60,40,30,.22)'; ctx.fill();
+  ctx.fillStyle='#ff8fd0';
+  ctx.beginPath(); ctx.moveTo(px+TILE/2,py+TILE*.42); ctx.lineTo(px+TILE*.32,py+TILE*.8); ctx.lineTo(px+TILE*.68,py+TILE*.8); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.32,16,0,7); ctx.fillStyle='#ffe0c2'; ctx.fill();
+  ctx.fillStyle='#7a4a2a';
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.26,17,Math.PI,0); ctx.fill();
+  ctx.fillStyle='#5a2b6b';
+  const off = {down:[0,4],up:[0,-2],left:[-6,4],right:[6,4]}[dir];
+  ctx.beginPath(); ctx.arc(px+TILE/2+off[0]-4,py+TILE*.32+off[1],2.2,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(px+TILE/2+off[0]+4,py+TILE*.32+off[1],2.2,0,7); ctx.fill();
+}
+
+// small map-dot for each home (placeholder for the future real map sprite)
+const homeDotColors = { 'type.starlight':'#b79bff', 'type.frost':'#8fd0ff', 'type.clover':'#a8e0ae', 'type.sunbeam':'#ffd166' };
+function drawHomeDot(px,py,type){
+  ctx.beginPath(); ctx.arc(px+TILE/2,py+TILE*.55,16,0,7);
+  ctx.fillStyle = homeDotColors[type]; ctx.fill();
+  ctx.lineWidth=3; ctx.strokeStyle='#5a2b6b'; ctx.stroke();
+}
+
+// axis-independent circle-vs-circles collision, with a small push-back so
+// grazing a tree slides instead of fully stopping
+function tryMove(px, py, dx, dy){
+  const solids = solidTreeList();
+  let nx = px + dx, ny = py + dy;
+  const hits = (x,y) => solids.some(([tx,ty]) => {
+    const cx = tx*TILE+TILE/2, cy = ty*TILE+TILE*0.75; // collide near the trunk, not the canopy top
+    return Math.hypot(x+TILE/2-cx, y+TILE*0.86-cy) < (PLAYER_R+TREE_R);
+  });
+  if (hits(nx, py)) nx = px; // blocked on X
+  if (hits(nx, ny)) ny = py; // blocked on Y (using possibly-updated nx for corner sliding)
+  return [nx, ny];
+}
+
+let popupOpen = false, lastTs = performance.now();
+const hintEl = document.getElementById('hint');
+function setHint(text){ hintEl.textContent = text; hintEl.classList.remove('pop'); void hintEl.offsetWidth; hintEl.classList.add('pop'); }
+
+function renderProgressDots(){
+  const el = document.getElementById('progress');
+  el.innerHTML = '';
+  homes.forEach((h,i) => {
+    const d = document.createElement('div');
+    d.className = 'pdot' + (progress.resolved[i] ? ' done' : '');
+    el.appendChild(d);
+  });
+}
+renderProgressDots();
+setHint(`Walk to ${homes[0].name} with the d-pad 👇`);
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05,(ts-lastTs)/1000); lastTs = ts;
+
+  if (!popupOpen){
+    let vx=0, vy=0;
+    if (held.up) vy -= 1; if (held.down) vy += 1;
+    if (held.left) vx -= 1; if (held.right) vx += 1;
+    if (vx||vy){
+      const len = Math.hypot(vx,vy); vx/=len; vy/=len;
+      player.dir = Math.abs(vx)>Math.abs(vy) ? (vx>0?'right':'left') : (vy>0?'down':'up');
+      const [nx, ny] = tryMove(player.x, player.y, vx*SPEED*dt, vy*SPEED*dt);
+      player.x = Math.max(0, Math.min(WORLD_W*TILE-TILE, nx));
+      player.y = Math.max(0, Math.min(WORLD_H*TILE-TILE, ny));
+    }
+    // proximity check against the NEXT unresolved home only (linear progression)
+    const nextIdx = progress.resolved.findIndex(r => !r);
+    if (nextIdx >= 0){
+      const h = homes[nextIdx];
+      const pos = wpPos(h.wp);
+      const dist = Math.hypot((player.x+TILE/2)-pos.x, (player.y+TILE/2)-pos.y);
+      if (dist < TILE*0.9) openPopup(nextIdx);
+    }
+  }
+
+  const camX = player.x - cv.width/2 + TILE/2;
+  const camY = player.y - cv.height/2 + TILE/2;
+  ctx.save();
+  ctx.translate(-camX,-camY);
+  for (let ty=0; ty<WORLD_H; ty++) for (let tx=0; tx<WORLD_W; tx++) {
+    const onPath = waypoints.some(([wx,wy]) => Math.abs(wx-tx)<=1 && Math.abs(wy-ty)<=1);
+    if (onPath) drawPathTile(tx*TILE,ty*TILE); else drawGrassTile(tx*TILE,ty*TILE,(tx+ty)%7===0);
+  }
+  // home clearings (draw under trees/player)
+  homes.forEach((h,i) => {
+    const [tx,ty] = waypoints[h.wp];
+    const state = progress.resolved[i] ? 'done' : (i === homes.findIndex((_,j)=>!progress.resolved[j]) ? 'ready' : 'locked');
+    drawHomeClearing(tx*TILE, ty*TILE, state);
+    if (state !== 'locked') drawHomeDot(tx*TILE, ty*TILE, h.type);
+  });
+  for (const [tx,ty] of decorTrees) drawTree(tx*TILE,ty*TILE);
+  for (const g of gates) if (!g.open) for (const [tx,ty] of g.trees) drawTree(tx*TILE,ty*TILE);
+  drawPlayer(player.x,player.y,player.dir);
+  ctx.restore();
+}
+requestAnimationFrame(loop);
+
+function openPopup(homeIdx){
+  if (popupOpen) return;
+  popupOpen = true;
+  activeHome = homeIdx;
+  const h = homes[homeIdx];
+  const t = UNICORN_TYPES[h.type];
+  const c = unicornCanvas(t.mane, {pattern:t.pattern, hornColor:t.hornColor, irisColor:t.irisColor, sparkle:t.sparkle});
+  document.getElementById('popupPortrait').getContext('2d').drawImage(c,0,0,220,220);
+  document.getElementById('popupText').innerHTML = `Hi! Want to play<br>${h.game}<br>with me?`;
+  document.getElementById('popup').classList.add('show');
+}
+function closePopup(){ popupOpen=false; document.getElementById('popup').classList.remove('show'); }
+
+document.getElementById('yes').addEventListener('click', () => {
+  const h = homes[activeHome];
+  progress.resolved[activeHome] = true;
+  renderProgressDots();
+  // open this home's gate
+  const gate = gates[activeHome]; if (gate) gate.open = true;
+  closePopup();
+  const next = homes[activeHome+1];
+  setHint(next ? `The path opens! Walk to ${next.name} 👇` : `You've met everyone so far! 🎉`);
+});
+document.getElementById('no').addEventListener('click', () => {
+  closePopup();
+  player.y += 30; // nudge back so it doesn't instantly retrigger
+  setHint(`Maybe later — walk away and come back anytime`);
+});
+
+function bind(id, key){
+  const el = document.getElementById(id);
+  const on = (e)=>{ e.preventDefault(); held[key]=true; el.classList.add('active'); };
+  const off = ()=>{ held[key]=false; el.classList.remove('active'); };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointerleave', off);
+  el.addEventListener('pointercancel', off);
+}
+bind('up','up'); bind('down','down'); bind('left','left'); bind('right','right');
+
+window.__setHeld = (k,v)=>{ held[k]=v; };
+window.__player = player;
+window.__progress = progress;
+window.__gates = gates;
+window.__ready = true;
+</script>
+</body></html>
