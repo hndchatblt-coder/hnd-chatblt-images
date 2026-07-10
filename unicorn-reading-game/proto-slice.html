@@ -139,6 +139,33 @@ import { unicornCanvas, UNICORN_TYPES, COSMETIC_ART, coinCanvas, girlCanvas, tre
 import { WORDS, ALPHABET, COSMETICS, cosmeticById, VOICE_PROFILES } from './src/content.js';
 import { AudioManager } from './src/audio.js';
 
+/* ================= generated art assets (with procedural fallbacks) ======== */
+const ASSETS = {};
+const ASSET_NAMES = [
+  'uni-blossom','uni-starlight','uni-frost','uni-clover','uni-sunbeam',
+  'uni-berry','uni-coral','uni-dream','uni-stardust','uni-honey',
+  'girl-down','girl-up','girl-left','girl-right','girl-celebrate','girl-sit',
+  'house','stall','tree','signpost','well','arch',
+  'house-blossom','house-starlight','house-frost','house-clover','house-sunbeam',
+  'house-berry','house-coral','house-dream','house-stardust','house-honey',
+];
+for (const n of ASSET_NAMES){
+  const im = new Image();
+  im.onload = () => { ASSETS[n] = im; };
+  im.src = './assets/' + n + '.png';
+}
+const TYPE_ASSET = {
+  'type.blossom':'uni-blossom','type.starlight':'uni-starlight','type.frost':'uni-frost',
+  'type.clover':'uni-clover','type.sunbeam':'uni-sunbeam','type.berry':'uni-berry',
+  'type.coral':'uni-coral','type.dream':'uni-dream','type.stardust':'uni-stardust','type.honey':'uni-honey',
+};
+// draw any image/canvas centred at (cx,cy), contain-fit inside size x size
+function drawFit(g, img, cx, cy, size){
+  const w = img.width, h = img.height;
+  const s = size / Math.max(w, h);
+  g.drawImage(img, cx - w*s/2, cy - h*s/2, w*s, h*s);
+}
+
 /* ================= tween engine (ported from the original game) =========== */
 const tweens = [];
 const eOutCubic = p => 1 - Math.pow(1 - p, 3);
@@ -242,21 +269,25 @@ function girlArt(dir, step){ const k=dir+step; return girlCache[k] || (girlCache
 const treeImg = treeCanvas();
 const typeArt = {};
 function unicornArt(typeId){
+  const gen = ASSETS[TYPE_ASSET[typeId]];
+  if (gen) return gen;
   if (typeArt[typeId]) return typeArt[typeId];
   const t = UNICORN_TYPES[typeId];
   return (typeArt[typeId] = unicornCanvas(t.mane, { pattern:t.pattern, hornColor:t.hornColor, irisColor:t.irisColor, sparkle:t.sparkle }));
 }
 const buddyCache = {};
 function buddyArt(){
-  const k = JSON.stringify(save.equipped);
+  const gen = ASSETS['uni-blossom'];
+  const k = (gen ? 'g:' : 'p:') + JSON.stringify(save.equipped);
   if (buddyCache[k]) return buddyCache[k];
   const S = 220, c = document.createElement('canvas'); c.width = c.height = S;
   const x = c.getContext('2d');
   const back = save.equipped.back && COSMETIC_ART[save.equipped.back];
   if (back) x.drawImage(back(), S*0.14, S*0.22, S*0.72, S*0.72);
-  x.drawImage(unicornCanvas('pink'), S*0.05, S*0.1, S*0.9, S*0.9);
+  if (gen) drawFit(x, gen, S/2, S*0.55, S*0.9);
+  else x.drawImage(unicornCanvas('pink'), S*0.05, S*0.1, S*0.9, S*0.9);
   const head = save.equipped.head && COSMETIC_ART[save.equipped.head];
-  if (head) x.drawImage(head(), S*0.31, S*-0.02, S*0.38, S*0.38);
+  if (head) x.drawImage(head(), S*0.33, S*0.02, S*0.34, S*0.34);
   return (buddyCache[k] = c);
 }
 
@@ -449,8 +480,8 @@ function drawClearing(px,py,state,t){
 }
 function drawTreeAt(tx, ty, scale=1){
   if (scale <= 0.02) return;
-  const s = TILE*1.35*scale;
-  ctx.drawImage(treeImg, tx*TILE+TILE/2-s/2, ty*TILE+TILE-s*0.95, s, s);
+  const img = ASSETS['tree'] || treeImg;
+  drawFit(ctx, img, tx*TILE+TILE/2, ty*TILE+TILE*0.4 + (1-scale)*TILE*0.3, TILE*1.4*scale);
 }
 const houseImg = houseCanvas(), stallImg = stallCanvas();
 function drawHubB(px,py,which,near){
@@ -459,9 +490,8 @@ function drawHubB(px,py,which,near){
     ctx.fillStyle = 'rgba(255,111,196,.28)'; ctx.fill();
     ctx.lineWidth = 5; ctx.strokeStyle = '#ff6fc4'; ctx.stroke();
   }
-  const img = which === 'home' ? houseImg : stallImg;
-  const s = TILE*1.7;
-  ctx.drawImage(img, px+TILE/2-s/2, py+TILE-s*0.94, s, s);
+  const img = (which === 'home' ? (ASSETS['house-blossom'] || ASSETS['house']) : ASSETS['stall']) || (which === 'home' ? houseImg : stallImg);
+  drawFit(ctx, img, px+TILE/2, py+TILE*0.35, TILE*1.75);
 }
 function drawAmbient(dt, t){
   for (const b of butterflies){
@@ -494,9 +524,19 @@ function drawGirlAndBuddy(){
   const trot = player.moving ? Math.abs(Math.sin(performance.now()/90))*5 : 0;
   const bs = TILE*0.85;
   ctx.drawImage(buddyArt(), buddyPos.x+TILE/2-bs/2, buddyPos.y+TILE*0.2-trot, bs, bs);
-  const g = girlArt(player.dir, player.moving ? player.step : 0);
-  const gs = TILE*1.05;
-  ctx.drawImage(g, player.x+TILE/2-gs/2, player.y+TILE*0.95-gs, gs, gs);
+  const genGirl = ASSETS['girl-' + player.dir];
+  if (genGirl){
+    const wob = player.moving ? Math.sin(performance.now()/85)*0.07 : 0;
+    ctx.save();
+    ctx.translate(player.x+TILE/2, player.y+TILE*0.9);
+    ctx.rotate(wob);
+    drawFit(ctx, genGirl, 0, -TILE*0.55, TILE*1.28);
+    ctx.restore();
+  } else {
+    const g = girlArt(player.dir, player.moving ? player.step : 0);
+    const gs = TILE*1.05;
+    ctx.drawImage(g, player.x+TILE/2-gs/2, player.y+TILE*0.95-gs, gs, gs);
+  }
 }
 
 /* ================= the in-world game stage ================================= */
@@ -773,7 +813,7 @@ function openPopup(i){
   const h = homes[i];
   const met = save.met.includes(h.type);
   const pc = document.getElementById('popupPortrait').getContext('2d');
-  pc.clearRect(0,0,220,220); pc.drawImage(unicornArt(h.type),0,0,220,220);
+  pc.clearRect(0,0,220,220); drawFit(pc, unicornArt(h.type), 110, 110, 210);
   document.getElementById('popupText').textContent = met ? `Play ${h.game} again?` : `Hi! I'm ${h.name}! Want to play ${h.game} with me?`;
   document.getElementById('popup').classList.add('show');
   audio.speakAs(h.type, met ? 'Play again?' : `Hi! I'm ${h.name}! Want to play with me?`);
@@ -931,16 +971,24 @@ function loop(ts){
     const [tx,ty] = waypoints[HOME_WPS[i]];
     const n = nextIdx();
     const state = save.met.includes(h.type) ? 'done' : (i===n ? 'ready' : 'locked');
+    // the friend's own little house sits beside their clearing, away from the path
+    const hs = ASSETS['house-' + h.type.replace('type.','')];
+    if (hs){
+      const side = tx > WORLD_W/2 ? 1 : -1;
+      ctx.save();
+      if (state === 'locked') ctx.globalAlpha = 0.45;
+      drawFit(ctx, hs, (tx+side)*TILE+TILE/2, (ty-0.8)*TILE+TILE/2, TILE*1.9);
+      ctx.restore();
+    }
     drawClearing(tx*TILE,ty*TILE,state,t);
     if (state !== 'locked'){
       const r = residents[i];
       const bob = Math.sin(t*2+i)*3;
       const art = unicornArt(h.type);
-      const s = TILE*1.1;
       ctx.save();
       ctx.translate(tx*TILE+TILE/2, ty*TILE+TILE*0.45 + bob - r.hop);
       ctx.rotate(r.tilt);
-      ctx.drawImage(art, -s/2, -s/2, s, s);
+      drawFit(ctx, art, 0, 0, TILE*1.15);
       ctx.restore();
     }
   });
@@ -958,11 +1006,10 @@ function loop(ts){
     // the host stays vivid on stage, beside the cards
     const h = homes[game.idx], r = residents[game.idx];
     const art = unicornArt(h.type);
-    const s = TILE*1.25;
     ctx.save();
     ctx.translate(game.hostPos.x, game.hostPos.y - TILE*0.05 + Math.sin(t*2)*3 - r.hop);
     ctx.rotate(r.tilt);
-    ctx.drawImage(art, -s/2, -s/2, s, s);
+    drawFit(ctx, art, 0, 0, TILE*1.35);
     ctx.restore();
     for (const c of game.cards) drawCard(c);
   }
@@ -986,7 +1033,9 @@ function bind(id, key){
 }
 bind('up','up'); bind('down','down'); bind('left','left'); bind('right','right');
 
-document.getElementById('startArt').getContext('2d').drawImage(unicornCanvas('pink'),0,0,512,512);
+{ const sc = document.getElementById('startArt').getContext('2d');
+  const paint = () => { sc.clearRect(0,0,512,512); drawFit(sc, ASSETS['uni-blossom'] || unicornCanvas('pink'), 256, 256, 500); };
+  paint(); setTimeout(paint, 800); }
 document.getElementById('start').addEventListener('click', () => {
   audio.unlock();
   document.getElementById('start').remove();
