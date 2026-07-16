@@ -1,5 +1,32 @@
 # TESTLOG.md
 
+## Cycle 8 (engine: fixed-timestep orchestrator)
+
+54/54 tests; 7/7 scenarios; screenshot clean (54/54 in-browser). Perf gate:
+~0.031ms/tick with 10 guards (budget 4ms). Smoke test is now a named,
+permanent gate. Subagent caught a real event-ordering bug mid-build: phase
+snapshots must be taken BEFORE guard updates (broadcastAlert fires inside
+guard.update), else phaseChange events are silently swallowed.
+
+**3 problems:**
+1. Vision staggering deferred honestly (guardAI owns its computeSight with no
+   skip hook). Perf says we don't need it yet; revisit if guard counts grow or
+   zones get wall-heavy. → backlog (engine+guardAI joint change).
+2. engine.events is cleared each tick — consumers must drain synchronously.
+   Fine for render/music reading post-tick; document loudly when those land.
+3. The infiltration sim scenario steers by hardcoded segments — brittle if the
+   Loading Dock layout changes. Acceptable (leg-clearance test protects the
+   route), but a tiny waypoint-follow helper for scenarios would cut future
+   scenario-authoring cost. → backlog (S, harness).
+
+**3 delights:**
+1. The whole game now runs through ONE sanctioned loop — sim scenarios, tests,
+   and the future render layer all drive the identical tick order.
+2. Determinism proven at the engine level: same seed + same input log →
+   byte-identical snapshot JSON after 600 ticks. Replays are now a fact.
+3. 0.031ms/tick means the perf budget has ~130x headroom before staggering or
+   optimization is even a conversation.
+
 ## Cycle 7 (bugfix: boot self-test parity)
 
 `node build.js && node test.js` 47/47; `node sim.js` 6/6; screenshot verified

@@ -410,6 +410,100 @@ scenarios.push({
   },
 });
 
+// ---- engine-driven scenario (cycle: Engine) --------------------------------
+// Same playtest-outcome style as the guardAI scenarios above, but driven
+// entirely through Game.createEngine()/engine.tick() instead of hand-wiring
+// world/vision/guard/squad — this is the "real" way the game will drive
+// itself from here on (see src/engine.js: "THIS IS THE ONLY SANCTIONED TICK
+// LOOP"). Steering is simple per-segment "walk toward this waypoint" input,
+// not pathfinding.
+
+scenarios.push({
+  name: "engine-driven infiltration: scripted route from spawn toward exit stays clean or recovers",
+  seed: 20260716006,
+  run: function (G) {
+    const zone = G.ZONES.loadingDock;
+    const engine = G.createEngine({ seed: this.seed, zoneData: zone });
+
+    // West flank route: south corridor -> north through the west-flank dark
+    // zone (x~4, sampled at x=3 to clear the SW crate cluster at x:4-7,
+    // y:21-24) -> NW corner near the guard hut -> dash east along y~2 into
+    // the exit gap (x:18-22, y:0-3).
+    const legs = [
+      { x: 3, y: 27, stance: "stand" }, // west along the open south corridor
+      { x: 3, y: 9, stance: "crouch" }, // north through the west-flank dark zone
+      { x: 3, y: 2, stance: "crouch" }, // NW corner, still sneaking near the guard hut
+      { x: zone.exit.x + zone.exit.w / 2, y: zone.exit.y + zone.exit.h / 2, stance: "stand" }, // dash for the exit gap
+    ];
+
+    const ARRIVE = 0.5;
+    const MAX_LEG_TICKS = Math.round(30 / DT); // 30s safety cap per leg
+    let anyAlertEverFired = false;
+
+    for (let legIdx = 0; legIdx < legs.length; legIdx++) {
+      const wp = legs[legIdx];
+      const isExitLeg = legIdx === legs.length - 1;
+      let arrived = false;
+
+      for (let i = 0; i < MAX_LEG_TICKS && !arrived; i++) {
+        if (isExitLeg && engine.world.inRegion(engine.player.x, engine.player.y, zone.exit)) {
+          arrived = true;
+          break;
+        }
+        const dx = wp.x - engine.player.x;
+        const dy = wp.y - engine.player.y;
+        const d = Math.hypot(dx, dy);
+        if (!isExitLeg && d <= ARRIVE) {
+          arrived = true;
+          break;
+        }
+        engine.tick({ moveX: d > 0 ? dx / d : 0, moveY: d > 0 ? dy / d : 0, run: false, stance: wp.stance });
+        if (engine.squad.alertCount > 0) anyAlertEverFired = true;
+      }
+
+      if (!arrived) {
+        throw new Error("scripted route stalled heading to leg " + legIdx + " " + JSON.stringify(wp));
+      }
+    }
+
+    // Reached the exit region — stand still and, if an alert ever fired
+    // along the way, give the squad ladder up to 120s more of game time to
+    // wind all the way back down to INFILTRATION on its own (no manual squad
+    // calls; the engine owns the loop).
+    const HOLD_TICKS = Math.round(120 / DT);
+    let backToInfiltration = engine.squad.phase === "INFILTRATION";
+    for (let i = 0; i < HOLD_TICKS && !backToInfiltration; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.alertCount > 0) anyAlertEverFired = true;
+      if (engine.squad.phase === "INFILTRATION") backToInfiltration = true;
+    }
+
+    if (anyAlertEverFired && !backToInfiltration) {
+      throw new Error(
+        "squad never returned to INFILTRATION within 120s of the player reaching the exit and standing still"
+      );
+    }
+
+    const snapshot = engine.snapshot();
+    let json;
+    try {
+      json = JSON.stringify(snapshot);
+    } catch (e) {
+      throw new Error("final snapshot() is not JSON-serializable: " + (e && e.message));
+    }
+    if (typeof json !== "string" || json.length === 0) {
+      throw new Error("final snapshot() serialized to an unexpected empty value");
+    }
+
+    const validStates = ["PATROL", "SUSPICIOUS", "INVESTIGATE", "ALERT", "EVASION", "CAUTION"];
+    for (const g of engine.guards) {
+      if (validStates.indexOf(g.state) === -1) {
+        throw new Error("guard " + g.id + " ended the run in an invalid state: " + g.state);
+      }
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

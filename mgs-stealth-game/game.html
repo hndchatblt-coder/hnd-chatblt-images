@@ -1491,6 +1491,257 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== src/engine.js ====
+// src/engine.js
+// PUBLIC API:
+//   Game.createEngine(opts?) -> engine, where opts = { zoneData?, seed?, guardConfigs? }
+//     zoneData     — a Game.ZONES.* zone (src/world.js). Default Game.ZONES.loadingDock.
+//     seed         — RNG seed (src/rng.js). Default 1.
+//     guardConfigs — [{ id, spawn, waypoints }, ...] passed straight through to
+//                    Game.createGuard (src/guardAI.js) for each guard, sharing
+//                    one squad. Default: a single guard,
+//                    [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }].
+//
+//   Construction wires up the full module stack in dependency order:
+//     rng    = Game.createRng(seed)
+//     world  = Game.createWorld(zoneData)
+//     vision = Game.createVision({ world: world })
+//     squad  = Game.createSquad()
+//     player = Game.createPlayer({ world: world })
+//     guards = guardConfigs.map(cfg => Game.createGuard({
+//                world: world, vision: vision, rng: rng, squad: squad,
+//                spawn: cfg.spawn, waypoints: cfg.waypoints, id: cfg.id,
+//              }))
+//
+//   engine — flat, readable props (mutated in place by tick()):
+//     world, player, guards (array), squad, vision, rng, zone — the wired
+//       instances/data above (zone === zoneData, the plain-object level data).
+//     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
+//                 advances the simulation by exactly this much regardless of
+//                 wall-clock time — the engine has NO notion of real time; the
+//                 caller (render loop, test, sim) decides when/how often to
+//                 call tick().
+//     tickCount — integer, number of tick() calls so far (starts at 0).
+//     time      — tickCount * DT, seconds of simulated time elapsed.
+//     events    — array of event objects emitted by the MOST RECENT tick()
+//                 only; cleared at the start of every tick() (i.e. it is NOT
+//                 a running log — read it right after calling tick() if you
+//                 want that tick's events). Current shapes:
+//                   { type: "phaseChange", from, to } — squad.phase changed
+//                     this tick (from/to are phase strings).
+//                   { type: "alert", x, y } — squad.alertCount increased this
+//                     tick (a NEW incident, per squad.broadcastAlert's
+//                     alertCount rule — see guardAI.js contract); x,y are
+//                     squad.lastKnown at the moment the alert fired.
+//                 More event types (item pickups, noise, damage, ...) will be
+//                 appended by later modules — treat `type` as an open set and
+//                 always branch on it, never assume this is the full list.
+//
+//   engine.tick(input?) — advances the simulation by exactly ONE fixed step
+//     (DT seconds). THIS IS THE ONLY SANCTIONED TICK LOOP: render/boot must
+//     drive the game by calling engine.tick() on a fixed-timestep accumulator
+//     (never by calling player.update/guard.update/squad.tick directly), and
+//     every test/sim harness that wants engine-level behavior should call it
+//     the same way. Canonical per-tick order (do not reorder):
+//       1. player.update(input, DT). `input` may be null/undefined, meaning
+//          "no movement": it is normalized to
+//          { moveX: 0, moveY: 0, run: false, stance: player.stance } so a
+//          missing/omitted stance holds whatever the player was already in
+//          (player.update's own "retain stance if omitted" rule handles this
+//          once moveX/moveY/run are defaulted — see src/player.js contract).
+//       2. Each guard, in array order: guard.update(DT, { player: player }).
+//          VISION STAGGERING (deferred — see below): every guard currently
+//          computes sight EVERY tick; there is no per-guard skip.
+//       3. squad.tick(DT, anyLOS) exactly once, where
+//          anyLOS = guards.some(function (g) { return g.hasLOS; }) — read
+//          directly off each guard's own guard.hasLOS (set every tick by
+//          guard.update's perception step, see guardAI.js contract: "guard.
+//          hasLOS ... This is what an external multi-guard driver reduces
+//          over every guard on a squad (guards.some(g => g.hasLOS)) to get
+//          the anyGuardHasLOS argument squad.tick() needs"). No separate
+//          vision.computeSight call is made here — that would double-tick
+//          each guard's meter (computeSight itself is pure/stateless, but
+//          calling it again here would be redundant work reading the exact
+//          same viewer/target this same tick; the sanctioned source of truth
+//          for "did this guard have LOS this tick" is guard.hasLOS, already
+//          computed once by guard.update per its own contract). This is
+//          exactly the reference wiring documented in guardAI.js's file
+//          header and exercised by sim.js's "full alert ladder" scenario:
+//          update every guard first, THEN squad.tick with the OR of every
+//          guard's hasLOS.
+//       4. Event collection: engine.events is cleared at the TOP of tick(),
+//          before step 1, and squad.phase/alertCount are snapshotted at that
+//          same moment (BEFORE step 2) — a guard's own broadcastAlert() call
+//          (fired from inside guard.update() the instant its meter confirms
+//          sight; see guardAI.js's SUSPICIOUS/INVESTIGATE/EVASION/CAUTION
+//          notes) can flip squad.phase/alertCount immediately, well before
+//          squad.tick() runs in step 3, so a snapshot taken any later would
+//          miss exactly that transition. After step 3, the snapshot is
+//          compared against the live squad.phase/alertCount: phaseChange
+//          when phase differs; alert when alertCount increased, using the
+//          NEW squad.lastKnown for x/y since an alertCount bump only happens
+//          alongside a broadcastAlert() call that just set lastKnown (see
+//          guardAI.js's squad contract).
+//       5. tickCount++ and time = tickCount * DT.
+//
+//   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
+//   is for guard i to refresh its expensive computeSight only on ticks where
+//   tickCount % N === i, holding the last factor between refreshes so the
+//   detection meter still integrates every tick. THIS IS NOT IMPLEMENTED.
+//   guardAI.update() calls vision.computeSight itself, internally, as an
+//   unconditional part of its own per-tick perception step (see guardAI.js
+//   step 2) — there is no hook for the engine to skip or substitute that call
+//   without modifying guardAI.js, which is out of scope for this module (its
+//   contract is fixed and consumed read-only). So today every guard computes
+//   full sight every tick, always. This is an honest gap, not a silent one:
+//   the perf test in tests/engine.test.js ("engine perf: 10 guards, full tick
+//   under 4ms budget") measures the CURRENT unstaggered cost and asserts it
+//   still holds the <4ms/tick budget without staggering. If a future zone
+//   with many more guards blows that budget, staggering (or a guardAI API
+//   change to support it) is the next thing to build — tracked here, not
+//   hacked in.
+//
+//   engine.snapshot() -> JSON-safe plain object (cheap: only primitives/plain
+//     objects/arrays, no functions, no circular refs — safe to
+//     JSON.stringify or hand to a future saveState module):
+//       {
+//         tickCount: number,
+//         player: { x, y, stance, facing },
+//         guards: [ { id, x, y, state, meter, facing }, ... ],  // same order as engine.guards
+//         squad: { phase, phaseTime, lastKnown, alertCount },
+//       }
+//
+// Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
+// IN THIS FILE (perf timing, where needed, is the caller's job — see the
+// portable-timing note in tests/engine.test.js). Runs headless in node.
+// Consumes rng/world/vision/guardAI/player only via their published
+// contracts; does not modify any of them.
+(function (Game) {
+  var DT = 1 / 60;
+
+  function normalizeInput(input, player) {
+    input = input || {};
+    return {
+      moveX: input.moveX || 0,
+      moveY: input.moveY || 0,
+      run: !!input.run,
+      stance: input.stance !== undefined ? input.stance : player.stance,
+    };
+  }
+
+  function defaultGuardConfigs(zone) {
+    return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
+  }
+
+  function createEngine(opts) {
+    opts = opts || {};
+    var zone = opts.zoneData || Game.ZONES.loadingDock;
+    var seed = opts.seed !== undefined ? opts.seed : 1;
+    var guardConfigs = opts.guardConfigs || defaultGuardConfigs(zone);
+
+    var rng = Game.createRng(seed);
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var squad = Game.createSquad();
+    var player = Game.createPlayer({ world: world });
+
+    var guards = guardConfigs.map(function (cfg) {
+      return Game.createGuard({
+        world: world,
+        vision: vision,
+        rng: rng,
+        squad: squad,
+        spawn: cfg.spawn,
+        waypoints: cfg.waypoints,
+        id: cfg.id,
+      });
+    });
+
+    var engine = {
+      world: world,
+      player: player,
+      guards: guards,
+      squad: squad,
+      vision: vision,
+      rng: rng,
+      zone: zone,
+      DT: DT,
+      tickCount: 0,
+      time: 0,
+      events: [],
+    };
+
+    function tick(input) {
+      engine.events = [];
+
+      // Captured BEFORE guards update: a guard's own broadcastAlert() call
+      // (fired from inside guard.update(), e.g. SUSPICIOUS/INVESTIGATE/
+      // EVASION/CAUTION confirming sight — see guardAI.js contract) can flip
+      // squad.phase/alertCount immediately, well before squad.tick() ever
+      // runs this tick. Diffing against a snapshot taken after the guard loop
+      // would miss exactly that transition, so the "before" snapshot must
+      // predate step 2 entirely.
+      var phaseBefore = squad.phase;
+      var alertCountBefore = squad.alertCount;
+
+      var normalized = normalizeInput(input, player);
+      player.update(normalized, DT);
+
+      for (var i = 0; i < guards.length; i++) {
+        guards[i].update(DT, { player: player });
+      }
+
+      var anyLOS = guards.some(function (g) {
+        return g.hasLOS;
+      });
+
+      squad.tick(DT, anyLOS);
+
+      if (squad.phase !== phaseBefore) {
+        engine.events.push({ type: "phaseChange", from: phaseBefore, to: squad.phase });
+      }
+      if (squad.alertCount > alertCountBefore) {
+        var lk = squad.lastKnown || { x: 0, y: 0 };
+        engine.events.push({ type: "alert", x: lk.x, y: lk.y });
+      }
+
+      engine.tickCount++;
+      engine.time = engine.tickCount * DT;
+    }
+
+    function snapshot() {
+      return {
+        tickCount: engine.tickCount,
+        player: {
+          x: player.x,
+          y: player.y,
+          stance: player.stance,
+          facing: player.facing,
+        },
+        guards: guards.map(function (g) {
+          return { id: g.id, x: g.x, y: g.y, state: g.state, meter: g.meter, facing: g.facing };
+        }),
+        squad: {
+          phase: squad.phase,
+          phaseTime: squad.phaseTime,
+          lastKnown: squad.lastKnown,
+          alertCount: squad.alertCount,
+        },
+      };
+    }
+
+    engine.tick = tick;
+    engine.snapshot = snapshot;
+
+    return engine;
+  }
+
+  Game.createEngine = createEngine;
+  if (typeof module !== "undefined") module.exports = { createEngine: createEngine };
+})(typeof window !== "undefined"
+  ? (window.Game = window.Game || {})
+  : (global.Game = global.Game || {}));
+
 // ==== src/tests.js ====
 // src/tests.js
 // PUBLIC API:
@@ -1548,6 +1799,291 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== tests/engine.test.js ====
+(function (global) {
+// tests/engine.test.js — headless assertions for src/engine.js.
+// Same registry pattern as tests/world.test.js: push onto the shared
+// Game.selfTests list; test.js runs every entry headless, and boot.js runs
+// the SAME list in-browser before the title screen — so every test here must
+// be environment-portable (no Date.now/Math.random reliance on node-only
+// APIs; timing uses the performance.now()-or-hrtime shim, same as the perf
+// test below).
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+var VALID_STATES = ["PATROL", "SUSPICIOUS", "INVESTIGATE", "ALERT", "EVASION", "CAUTION"];
+
+function scriptedInput(tick) {
+  return {
+    moveX: Math.sin(tick * 0.037),
+    moveY: Math.cos(tick * 0.051),
+    run: tick % 7 === 0,
+    stance: tick % 200 < 60 ? "crouch" : tick % 200 < 120 ? "crawl" : "stand",
+  };
+}
+
+// 1. SMOKE — the binding definition of "playable": boot, spawn, 60 ticks of
+// movement, zero errors.
+Game.selfTests.push({
+  name: "engine smoke: boot, spawn, 60 ticks of movement, zero errors",
+  fn: function () {
+    var engine = Game.createEngine();
+    var spawn = engine.zone.playerSpawn;
+    assert(engine.player.x === spawn.x && engine.player.y === spawn.y, "player should spawn at zone.playerSpawn");
+
+    for (var i = 0; i < 60; i++) {
+      engine.tick({ moveX: 0, moveY: -1, run: false, stance: "stand" });
+    }
+
+    assert(engine.tickCount === 60, "expected tickCount 60, got " + engine.tickCount);
+    assert(
+      Math.abs(engine.time - 60 * DT) < 1e-9,
+      "expected time to track tickCount*DT, got " + engine.time
+    );
+    // +y is down, so moveY:-1 walks north (decreasing y).
+    assert(
+      engine.player.y < spawn.y,
+      "expected player to move north (y decreasing) from spawn.y=" + spawn.y + ", got " + engine.player.y
+    );
+    engine.guards.forEach(function (g) {
+      assert(VALID_STATES.indexOf(g.state) !== -1, "guard " + g.id + " in invalid state: " + g.state);
+    });
+  },
+});
+
+// 2. Determinism: two engines, same seed, same scripted 600-tick input
+// sequence -> identical snapshot() JSON at the end.
+Game.selfTests.push({
+  name: "engine determinism: same seed + same scripted input -> identical final snapshot",
+  fn: function () {
+    var engineA = Game.createEngine({ seed: 555 });
+    var engineB = Game.createEngine({ seed: 555 });
+
+    for (var tick = 0; tick < 600; tick++) {
+      var input = scriptedInput(tick);
+      engineA.tick(input);
+      engineB.tick(input);
+    }
+
+    var snapA = JSON.stringify(engineA.snapshot());
+    var snapB = JSON.stringify(engineB.snapshot());
+    assert(snapA === snapB, "expected identical snapshots for identical seed+input, got:\n" + snapA + "\nvs\n" + snapB);
+  },
+});
+
+// 3. Different seeds -> traces may differ but both stay valid throughout.
+Game.selfTests.push({
+  name: "engine different seeds: both traces stay valid (states, in-bounds positions)",
+  fn: function () {
+    var engineA = Game.createEngine({ seed: 1 });
+    var engineB = Game.createEngine({ seed: 2 });
+    var bounds = engineA.zone.bounds;
+
+    function checkValid(engine, label) {
+      assert(
+        engine.player.x >= 0 && engine.player.x <= bounds.w && engine.player.y >= 0 && engine.player.y <= bounds.h,
+        label + ": player out of bounds " + JSON.stringify({ x: engine.player.x, y: engine.player.y })
+      );
+      engine.guards.forEach(function (g) {
+        assert(VALID_STATES.indexOf(g.state) !== -1, label + ": guard " + g.id + " invalid state " + g.state);
+        assert(
+          g.x >= 0 && g.x <= bounds.w && g.y >= 0 && g.y <= bounds.h,
+          label + ": guard " + g.id + " out of bounds " + JSON.stringify({ x: g.x, y: g.y })
+        );
+      });
+    }
+
+    for (var tick = 0; tick < 300; tick++) {
+      var input = scriptedInput(tick);
+      engineA.tick(input);
+      engineB.tick(input);
+      checkValid(engineA, "seed1");
+      checkValid(engineB, "seed2");
+    }
+  },
+});
+
+// 4. Null input ticks work: player stationary, guards patrol.
+Game.selfTests.push({
+  name: "engine null input: 60 ticks with no arg leaves player stationary, guards patrol",
+  fn: function () {
+    var engine = Game.createEngine();
+    var spawn = engine.zone.playerSpawn;
+
+    for (var i = 0; i < 60; i++) {
+      engine.tick();
+    }
+
+    assert(engine.tickCount === 60, "expected tickCount 60, got " + engine.tickCount);
+    assert(
+      engine.player.x === spawn.x && engine.player.y === spawn.y,
+      "expected player stationary with no input, got " + JSON.stringify({ x: engine.player.x, y: engine.player.y })
+    );
+    engine.guards.forEach(function (g) {
+      assert(VALID_STATES.indexOf(g.state) !== -1, "guard " + g.id + " in invalid state: " + g.state);
+    });
+  },
+});
+
+// 5. Event emission: teleport the player in front of a guard and hold it
+// there until ALERT fires — expect exactly one phaseChange
+// INFILTRATION->ALERT and exactly one alert event across the whole run.
+Game.selfTests.push({
+  name: "engine events: phaseChange INFILTRATION->ALERT and alert fire exactly once",
+  fn: function () {
+    // Straight, clear east-west corridor (same geometry sim.js's part-A/B
+    // scenarios rely on) so the guard's facing stays perfectly stable at 0
+    // while it "patrols" toward a target it will never reach in this window.
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "evt-g1", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    // engine.player.x/y are writable flat props (see src/player.js contract);
+    // teleport 2m directly ahead of the guard's facing (close range -> fast fill).
+    engine.player.x = 22;
+    engine.player.y = 5;
+
+    var phaseChangeToAlertCount = 0;
+    var alertEventCount = 0;
+    var TOTAL_TICKS = Math.round(6 / DT); // 6s: plenty vs. ~0.8s expected fill time
+
+    for (var tick = 0; tick < TOTAL_TICKS; tick++) {
+      engine.tick(); // null input: player must stay put via direct teleport, not movement
+      // Re-pin the player's position every tick since a null-input tick is a
+      // true no-op on player.x/y anyway (moveX/moveY are 0) — this just
+      // guards against any future default-input change breaking the setup.
+      engine.player.x = 22;
+      engine.player.y = 5;
+
+      engine.events.forEach(function (ev) {
+        if (ev.type === "phaseChange" && ev.from === "INFILTRATION" && ev.to === "ALERT") {
+          phaseChangeToAlertCount++;
+        }
+        if (ev.type === "alert") {
+          alertEventCount++;
+        }
+      });
+    }
+
+    assert(
+      phaseChangeToAlertCount === 1,
+      "expected exactly one INFILTRATION->ALERT phaseChange, got " + phaseChangeToAlertCount
+    );
+    assert(alertEventCount === 1, "expected exactly one alert event, got " + alertEventCount);
+    assert(engine.squad.phase === "ALERT", "expected squad to still be ALERT (player never left LOS), got " + engine.squad.phase);
+  },
+});
+
+// 6. Squad wiring: after ALERT, hide the player far away for long enough and
+// the phase ladder advances EVASION -> CAUTION -> INFILTRATION with no
+// manual squad calls — the engine owns the loop end to end.
+Game.selfTests.push({
+  name: "engine squad wiring: ALERT -> EVASION -> CAUTION -> INFILTRATION with no manual squad calls",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "ladder-g1", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    engine.player.x = 22;
+    engine.player.y = 5;
+
+    // Drive to ALERT first (reuse the same close-range setup as test 5).
+    var reachedAlert = false;
+    for (var t = 0; t < Math.round(6 / DT) && !reachedAlert; t++) {
+      engine.tick();
+      engine.player.x = 22;
+      engine.player.y = 5;
+      if (engine.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT");
+
+    // Hide the player for good and let the engine's own tick loop run the
+    // rest of the ladder — no direct squad.tick()/broadcastAlert() calls here.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    var evasionAt = null;
+    var cautionAt = null;
+    var infiltrationAt = null;
+    var TOTAL_TICKS = Math.round(100 / DT); // EVASION_S(30) + CAUTION_S(45) + buffer
+
+    for (var tick = 0; tick < TOTAL_TICKS; tick++) {
+      engine.tick();
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      if (evasionAt === null && engine.squad.phase === "EVASION") evasionAt = tick;
+      if (cautionAt === null && engine.squad.phase === "CAUTION") cautionAt = tick;
+      if (infiltrationAt === null && engine.squad.phase === "INFILTRATION") infiltrationAt = tick;
+    }
+
+    assert(evasionAt !== null, "squad never reached EVASION after losing the player");
+    assert(cautionAt !== null && cautionAt > evasionAt, "squad never reached CAUTION after EVASION");
+    assert(
+      infiltrationAt !== null && infiltrationAt > cautionAt,
+      "squad never returned to INFILTRATION after CAUTION"
+    );
+  },
+});
+
+// 7. PERF BUDGET — 10 guards, full tick under 4ms average.
+Game.selfTests.push({
+  name: "engine perf: 10 guards, full tick under 4ms budget",
+  fn: function () {
+    var now =
+      typeof performance !== "undefined" && performance.now
+        ? function () {
+            return performance.now();
+          }
+        : function () {
+            var t = process.hrtime.bigint();
+            return Number(t) / 1e6;
+          };
+
+    var zone = Game.ZONES.loadingDock;
+    var probeWorld = Game.createWorld(zone);
+
+    var guardConfigs = [];
+    for (var i = 0; i < 10; i++) {
+      var base = zone.waypoints[i % zone.waypoints.length];
+      var angle = (i / 10) * Math.PI * 2;
+      var dist = 1.2;
+      var x = base.x + Math.cos(angle) * dist;
+      var y = base.y + Math.sin(angle) * dist;
+      var tries = 0;
+      while (probeWorld.isBlockedCircle(x, y, 0.6) && tries < 30) {
+        dist += 0.3;
+        x = base.x + Math.cos(angle) * dist;
+        y = base.y + Math.sin(angle) * dist;
+        tries++;
+      }
+      assert(!probeWorld.isBlockedCircle(x, y, 0.6), "perf guard " + i + " spawn is blocked: " + JSON.stringify({ x: x, y: y }));
+      guardConfigs.push({ id: "perf-g" + i, spawn: { x: x, y: y }, waypoints: zone.waypoints });
+    }
+
+    var engine = Game.createEngine({ guardConfigs: guardConfigs });
+
+    var TOTAL_TICKS = 600;
+    var start = now();
+    for (var tick = 0; tick < TOTAL_TICKS; tick++) {
+      engine.tick({
+        moveX: Math.sin(tick * 0.04),
+        moveY: Math.cos(tick * 0.033),
+        run: tick % 5 === 0,
+        stance: "stand",
+      });
+    }
+    var elapsed = now() - start;
+    var avgMs = elapsed / TOTAL_TICKS;
+
+    assert(avgMs < 4, "expected average tick under 4ms with 10 guards, got " + avgMs.toFixed(3) + "ms");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/guardAI-partB.test.js ====
 (function (global) {
 // tests/guardAI-partB.test.js — headless assertions for FSM part B (ALERT/

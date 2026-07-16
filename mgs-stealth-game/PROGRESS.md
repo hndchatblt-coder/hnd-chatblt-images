@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.7 (cycle 7 — boot self-test parity)
+**Version:** v0.8 (cycle 8 — engine)
 
 ## Module status
 
@@ -15,7 +15,8 @@
 | soundEvents    | not started | emit radii, wall attenuation             |
 | items          | not started | box, tranq, CQC, lockers, chaff          |
 | director       | not started | reinforcements, radio check-ins          |
-| saveState      | not started |                                          |
+| engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
+| saveState      | not started | snapshot() groundwork exists in engine   |
 | radar          | not started | soliton radar                            |
 | hud            | not started |                                          |
 | codec          | not started |                                          |
@@ -24,14 +25,15 @@
 
 ## Known issues
 
-- squad.tick(dt, anyLOS) must be called after guard updates each tick — wiring
-  lives only in sim scenarios until the engine module owns the loop.
+- engine.events clears every tick — consumers must drain post-tick same-tick.
 - ALERT guards hold at 2m with no damage — player HP lands with items/HUD.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 8: engine — canonical fixed-timestep loop (player→guards→squad→events),
+  snapshot(), smoke + perf gates (54/54, 7/7, 0.031ms/tick @ 10 guards)
 - cycle 7: bugfix — full test suite (47) now bundled into game.html; in-browser
   boot gate runs the same suite as node (was 3/3, now 47/47)
 - cycle 6: guardAI part B — ALERT pursuit/arrest, EVASION staggered sweep,
