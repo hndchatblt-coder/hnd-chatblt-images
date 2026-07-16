@@ -1202,13 +1202,17 @@
       player.update(normalized, DT);
 
       // DRAG FOLLOW (see file header DRAG VERB) — AFTER player.update so it
-      // uses this tick's fresh position/facing. A plain position overwrite
-      // on the dragged (SLEEPING) guard, not a guard.update()-mediated move.
+      // uses this tick's fresh position/facing. Route the target position through
+      // world.moveCircle to prevent clipping into walls; the body slides along
+      // them instead.
       if (engine.dragging) {
         var draggedGuard = findGuardById(engine.dragging);
         if (draggedGuard) {
-          draggedGuard.x = player.x - Math.cos(player.facing) * DRAG_FOLLOW_DIST;
-          draggedGuard.y = player.y - Math.sin(player.facing) * DRAG_FOLLOW_DIST;
+          var targetX = player.x - Math.cos(player.facing) * DRAG_FOLLOW_DIST;
+          var targetY = player.y - Math.sin(player.facing) * DRAG_FOLLOW_DIST;
+          var res = world.moveCircle(draggedGuard.x, draggedGuard.y, targetX - draggedGuard.x, targetY - draggedGuard.y, draggedGuard.radius || 0.4);
+          draggedGuard.x = res.x;
+          draggedGuard.y = res.y;
         } else {
           // Defensive only (see file header's zone-scoped reset — this
           // shouldn't be reachable mid-zone): the dragged guard vanished

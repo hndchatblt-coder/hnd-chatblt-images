@@ -1,5 +1,17 @@
 # TESTLOG.md
 
+## Cycle 22 (bugfix batch: audit A6, A8, A10)
+
+137/137; 15/15; screens clean. A6: scenario renamed truthfully + new crawl
+scenario (confirmed: moving while boxed = 1.0 profile regardless of stance —
+design feature, now documented by test). A8: cross-check regression binds
+player noise radii to Game.SOUND.RADII without merging the mandated module-
+local constants. A10: dragged bodies now slide along walls via moveCircle +
+320-tick corner-drag regression.
+
+Audit scoreboard: A1, A6, A8, A10 closed. Remaining: A2-A5, A11, A12 (docs/
+polish tier), A7/A9 (watch items).
+
 ## Cycle 21 (bugfix: audit A1 — box gates fire/CQC)
 
 135/135; 14/14; screens clean. Fire and CQC now blocked while boxed (busy

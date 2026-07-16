@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.21 (cycle 21 — audit fix A1)
+**Version:** v0.22 (cycle 22 — audit fixes A6/A8/A10)
 
 ## Module status
 
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 22: bugfix batch — truthful box scenarios + crawl coverage (A6),
+  noise-radii cross-check (A8), wall-safe drag + regression (A10)
+  (137/137, 15/15)
 - cycle 21: bugfix A1 — box gates fire/CQC (busy event), matrix docs,
   regression test (135/135, 14/14)
 - cycle 20: AUDIT — 12 findings (box/fire gate gap tops the list), clean bill

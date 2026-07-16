@@ -1219,7 +1219,7 @@ scenarios.push({
 // seconds ("blown if seen moving"). Engine never throws.
 
 scenarios.push({
-  name: "box camp: boxed player ignored by passing patrol, blown when crawling in view",
+  name: "box camp: boxed player ignored by passing patrol, blown when moving in view",
   seed: 20260716021,
   run: function (G) {
     const warehouse = G.ZONES.warehouse;
@@ -1295,6 +1295,68 @@ scenarios.push({
     if (revealedAt === null) {
       throw new Error(
         "expected w1 to notice the boxed-but-moving player within 3s, final state=" + w1.state + " meter=" + w1.meter
+      );
+    }
+  },
+});
+
+// A6 extension: test that crawl+boxed+moving ALSO triggers detection
+// (movement while boxed = 1.0 profile regardless of stance, per engine.js's BOX PERCEPTION)
+scenarios.push({
+  name: "box blown when crawling in view too",
+  seed: 20260716022,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: warehouse,
+      guardConfigs: [{ id: "w1", spawn: warehouse.waypoints[0], waypoints: warehouse.waypoints }],
+    });
+    const w1 = engine.guards[0];
+
+    // Same position as above
+    engine.player.x = 20;
+    engine.player.y = 7;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crawl", box: true });
+    if (!engine.inventory.boxOn) {
+      throw new Error("setup failed: box never toggled on");
+    }
+
+    // Camp for 30s with crawl stance
+    let minDist = Infinity;
+    const CAMP_TICKS = Math.round(30 / DT);
+    for (let i = 0; i < CAMP_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crawl", box: true });
+      const d = Math.hypot(w1.x - engine.player.x, w1.y - engine.player.y);
+      if (d < minDist) minDist = d;
+      if (engine.squad.phase !== "INFILTRATION") {
+        throw new Error(
+          "w1 alerted at tick " + i + " despite the player being boxed and stationary in crawl (phase=" +
+            engine.squad.phase + ", minDist so far " + minDist.toFixed(2) + "m)"
+        );
+      }
+    }
+    if (minDist > 6) {
+      throw new Error("setup failed: w1 never passed within 6m of the camped crawling player, min dist " + minDist.toFixed(2));
+    }
+
+    // Reveal: crawl+move+box should ALSO trigger SUSPICIOUS/INVESTIGATE
+    let revealedAt = null;
+    const REVEAL_TICKS = Math.round(3 / DT);
+    for (let i = 0; i < REVEAL_TICKS; i++) {
+      const ahead = 2;
+      engine.player.x = w1.x + Math.cos(w1.facing) * ahead;
+      engine.player.y = w1.y + Math.sin(w1.facing) * ahead;
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "crawl", box: true });
+      if (w1.state === "SUSPICIOUS" || w1.state === "INVESTIGATE") {
+        revealedAt = i;
+        break;
+      }
+    }
+    if (revealedAt === null) {
+      throw new Error(
+        "expected w1 to notice the crawling-boxed-but-moving player within 3s, final state=" + w1.state + " meter=" + w1.meter
       );
     }
   },
