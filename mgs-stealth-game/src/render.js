@@ -41,6 +41,24 @@
 //   gap, not a silent one, same shape as this file's own zone-change/actor-
 //   rebuild contract notes elsewhere.
 //
+//   PLAYER HIDDEN (new — CQC/locker cycle, see src/engine.js's LOCKER VERB
+//   contract): while engine.playerHidden is true, the player's own body/nose
+//   meshes are dimmed and made to blink — opacity driven by a deterministic
+//   sine of engine.time (same "no Date.now" rule as every other animation in
+//   this file), oscillating roughly 0.25-0.6 alpha rather than snapping to a
+//   single fixed dim value, so it visibly reads as "blinking," not just
+//   "dimmer." Both materials are marked transparent:true once, at actor
+//   creation, so this per-frame opacity write is the only cost — no new
+//   geometry/material churn. RADAR NOTE: src/radar.js is NOT touched this
+//   cycle (out of scope for this file's own change set — see this cycle's
+//   design brief) — the radar view keeps drawing the player triangle at full
+//   brightness while hidden; only THIS (the 3D scene) reflects playerHidden.
+//   A dragged (SLEEPING) guard's actor needs no special-casing here at all:
+//   it already renders every frame from guard.x/guard.y via the normal
+//   SLEEPING pose path below, and src/engine.js's DRAG VERB overwrites those
+//   same x/y every tick to trail the player — so a dragged body is already
+//   drawn "following the player" for free, with zero render.js changes.
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -170,6 +188,11 @@
 
     var TRACER_DURATION_S = 0.25;
     var TRACER_Y = 0.6; // roughly muzzle height
+
+    // PLAYER HIDDEN dim/blink (see file header) — cycles/sec-ish for the
+    // opacity sine while engine.playerHidden is true.
+    var HIDDEN_BLINK_HZ = 1.4;
+    var TWO_PI_R = Math.PI * 2;
 
     // ---- renderer / scene / camera --------------------------------------------
 
@@ -711,9 +734,22 @@
 
       if (!playerActor) {
         playerActor = makeActor(PLAYER_COLOR, NOSE_COLOR);
+        // Marked transparent up front (see file header PLAYER HIDDEN note)
+        // so the per-frame opacity write below never has to toggle
+        // .transparent itself — a one-time cost, not per-frame churn.
+        playerActor.body.material.transparent = true;
+        playerActor.nose.material.transparent = true;
       }
       var player = engine.player;
       placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
+
+      // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
+      // engine.time, never Date.now. Full opacity (1) whenever not hidden.
+      var playerOpacity = engine.playerHidden
+        ? 0.42 + 0.18 * Math.sin(engine.time * HIDDEN_BLINK_HZ * TWO_PI_R)
+        : 1;
+      playerActor.body.material.opacity = playerOpacity;
+      playerActor.nose.material.opacity = playerOpacity;
 
       for (var i = 0; i < engine.guards.length; i++) {
         var guard = engine.guards[i];

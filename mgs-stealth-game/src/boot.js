@@ -64,6 +64,9 @@
     ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
     ShiftLeft: true, ShiftRight: true,
     KeyC: true, KeyZ: true, KeyE: true, KeyF: true,
+    // KeyQ/KeyG: NEW (CQC/body-drag/lockers cycle) — see src/engine.js's CQC
+    // VERB / DRAG VERB / LOCKER VERB contract for what each edge does.
+    KeyQ: true, KeyG: true,
     Enter: true,
   };
 
@@ -113,6 +116,14 @@
     var stance = "stand"; // toggled edge-triggered by C/Z
     var pendingKnock = false; // set true on an E keydown edge, consumed once
     var pendingFire = false; // set true on an F keydown edge, consumed once
+    // pendingCqc/pendingDrag: NEW (CQC/body-drag/lockers cycle) — same
+    // one-shot-per-keydown-edge shape as pendingKnock/pendingFire above; the
+    // engine itself does its OWN edge-detection on top of this (see
+    // src/engine.js's CQC VERB / DRAG VERB contract), so holding Q/G down
+    // only ever registers as a single press either way — this is just the
+    // DOM-keydown-repeat guard, same as every other verb here.
+    var pendingCqc = false; // set true on a Q keydown edge, consumed once
+    var pendingDrag = false; // set true on a G keydown edge, consumed once
 
     function onKeyDown(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
@@ -126,6 +137,10 @@
         pendingKnock = true;
       } else if (e.code === "KeyF") {
         pendingFire = true;
+      } else if (e.code === "KeyQ") {
+        pendingCqc = true;
+      } else if (e.code === "KeyG") {
+        pendingDrag = true;
       }
     }
 
@@ -157,6 +172,8 @@
         stance: stance,
         knock: pendingKnock,
         fire: pendingFire,
+        cqc: pendingCqc,
+        drag: pendingDrag,
       };
     }
 
@@ -180,6 +197,8 @@
         engine.tick(buildInput());
         pendingKnock = false; // consumed — only true for the tick right after the edge
         pendingFire = false; // consumed — only true for the tick right after the edge
+        pendingCqc = false; // consumed — only true for the tick right after the edge
+        pendingDrag = false; // consumed — only true for the tick right after the edge
         acc -= DT;
       }
 
@@ -258,7 +277,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

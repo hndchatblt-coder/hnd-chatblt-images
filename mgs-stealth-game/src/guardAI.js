@@ -196,6 +196,18 @@
 //                                reports into (own private one, or the shared
 //                                one passed to createGuard()). See squad
 //                                contract above.
+//     hidden                  — boolean, NEW (CQC/locker cycle): true only
+//                                while this guard's body has been STUFFED
+//                                INTO A LOCKER by the player (see
+//                                guard.stuffInLocker below) — false at every
+//                                other time, including while merely
+//                                SLEEPING-but-not-stuffed or being DRAGGED
+//                                (dragging is an ENGINE-side position
+//                                override, see src/engine.js's DRAG VERB —
+//                                it never touches this flag). A hidden body
+//                                is EXEMPT from COLLEAGUE DISCOVERY (see
+//                                below) — tucked out of sight, not just
+//                                lying in the open. Defaults false.
 //
 //   STATE <-> SQUAD.PHASE MAPPING (the invariant referenced throughout): the
 //   relationship is guard.state => squad.phase, NOT the reverse.
@@ -415,21 +427,37 @@
 //       GUARD.CAUTION_S (45s) of no re-sighting, at which point this guard's
 //       NEXT tick sync (step 1) forces it back to state PATROL at
 //       PATROL_SPEED with the normal (un-widened) cone.
-//     SLEEPING — entered ONLY via guard.tranq() (see below), never through
-//       the normal FSM dispatch/radio-call sync (a SLEEPING guard's update()
-//       short-circuits at step 0.5, before step 1's sync even runs — see
-//       above — so a squad-wide ALERT does not wake it). While SLEEPING:
-//       guard.meter is pinned at 0 (perception doesn't run at all — a
-//       sleeping guard notices nothing, including the player standing right
-//       in front of it), guard.hasLOS is forced false, no movement, no
-//       firing. A private sleep clock advances by dt every tick; once it
-//       reaches GUARD.SLEEP_S (60s) the guard wakes into INVESTIGATE with
-//       stimulus = its OWN current position (it just groggily "notices
-//       something's off" where it's lying, not any stale player-sighting
-//       info) — from there it's the ordinary INVESTIGATE search-then-resume
-//       machinery already documented above (searches GUARD.INVESTIGATE_SEARCH
-//       seconds, then resumes CAUTION or PATROL depending on squad.phase AT
-//       THAT MOMENT, same live-checked rule as every other INVESTIGATE exit).
+//     SLEEPING — entered ONLY via guard.tranq() or guard.cqc() (see below),
+//       never through the normal FSM dispatch/radio-call sync (a SLEEPING
+//       guard's update() short-circuits at step 0.5, before step 1's sync
+//       even runs — see above — so a squad-wide ALERT does not wake it).
+//       While SLEEPING: guard.meter is pinned at 0 (perception doesn't run at
+//       all — a sleeping guard notices nothing, including the player standing
+//       right in front of it), guard.hasLOS is forced false, no movement, no
+//       firing (its x/y ARE still externally mutable, though — see
+//       src/engine.js's DRAG VERB, which repositions a dragged SLEEPING
+//       guard's x/y directly every tick without going through this guard's
+//       own update() at all). A private sleep clock advances by dt every
+//       tick; once it reaches GUARD.SLEEP_S (60s) the guard wakes into
+//       INVESTIGATE with stimulus = its OWN current position (it just
+//       groggily "notices something's off" where it's lying, not any stale
+//       player-sighting info) — from there it's the ordinary INVESTIGATE
+//       search-then-resume machinery already documented above (searches
+//       GUARD.INVESTIGATE_SEARCH seconds, then resumes CAUTION or PATROL
+//       depending on squad.phase AT THAT MOMENT, same live-checked rule as
+//       every other INVESTIGATE exit).
+//       WAKING INSIDE A LOCKER (new — CQC/locker cycle): if guard.hidden is
+//       true at the moment the sleep clock expires (i.e. this guard was
+//       guard.stuffInLocker()'d and never manually let out — see that method
+//       above), the guard first steps 1m out of the locker along the
+//       REMEMBERED locker facing (via world.moveCircle, same collision-safe
+//       primitive every other guard movement in this file uses) before its
+//       INVESTIGATE stimulus is set to that stepped-out position — a groggy
+//       guard visibly exits the locker rather than materializing next to it.
+//       guard.hidden is cleared back to false at the same moment (it is, by
+//       definition, no longer stuffed anywhere once it's standing outside).
+//       A guard that was merely SLEEPING in the open (never stuffed —
+//       guard.hidden already false) wakes exactly as before, no stepping.
 //
 //   guard.tranq(headshot) — external stimulus API, called by the ENGINE (see
 //   src/items.js/src/engine.js) the instant a fired dart HITS this guard.
@@ -451,6 +479,32 @@
 //       the "tranq an alert, hostile guard" case: the dart still works, but
 //       an already-fighting guard doesn't just vanish mid-firefight — it
 //       staggers first, exactly like the real games' tranq animation delay.
+//
+//   guard.cqc() — external stimulus API (new — CQC/locker cycle), called by
+//   the ENGINE the instant a CQC takedown connects (see src/engine.js's CQC
+//   VERB — conditions like distance/behind-check/squad.phase are ALL decided
+//   by the engine before calling this; this method is the same one-shot
+//   "make it SLEEPING" effect as a headshot, nothing more). v1 semantics:
+//   CHOKE === SLEEP — reuses enterSleep() verbatim (same GUARD.SLEEP_S timer,
+//   same wake-into-INVESTIGATE path below). A lethal/throw variant (permanent
+//   removal, a body that never wakes) is explicitly NOT this cycle's job —
+//   tracked as a future BACKLOG item, not hacked in here. No-op (like
+//   tranq()) if this guard is already SLEEPING — a second takedown on a body
+//   that's already down does nothing.
+//
+//   guard.stuffInLocker(locker) — external stimulus API (new — CQC/locker
+//   cycle), called by the ENGINE when the player STUFFS an already-dragged,
+//   SLEEPING body into a locker (see src/engine.js's LOCKER VERB). `locker`
+//   is a plain { x, y, facing } from zone.lockers (src/world.js) — read-only,
+//   never mutated. No-op if this guard is not currently SLEEPING (a stuffed
+//   body is, by definition, one someone already knocked out and dragged
+//   there — same defensive shape as tranq()/cqc() above). On success:
+//   guard.x/guard.y are set to the locker's position, guard.hidden = true
+//   (see the hidden flat-prop note above and COLLEAGUE DISCOVERY below for
+//   what this exempts), and the locker's `facing` is privately remembered so
+//   this guard knows which way to step back OUT of the locker when it wakes
+//   (see SLEEPING's wake behavior below) — a groggy guard doesn't just
+//   materialize in the open, it visibly exits the locker it was stuffed in.
 //
 //   COLLEAGUE DISCOVERY (new — see update() step 2.5 above) — the flip side
 //   of guard.tranq(): an awake guard (state PATROL/SUSPICIOUS/INVESTIGATE/
@@ -476,6 +530,16 @@
 //   joins ALERT the next tick via the normal step 1 radio-call sync, same as
 //   any other alert — colleague discovery is just a different TRIGGER for
 //   the exact same squad-wide broadcastAlert machinery, not a parallel path.
+//   HIDDEN-BODY EXEMPTION (new — CQC/locker cycle): any ctx.sleepingGuards
+//   entry with .hidden === true (i.e. its guard.hidden flag, mirrored into
+//   the snapshot by src/engine.js the same way id/x/y already are) is skipped
+//   entirely by this check — a body stuffed into a locker is, per SPEC.md's
+//   stealth-toolkit design, no longer something a patrolling colleague can
+//   stumble across. This does NOT reset that body's bodySpotTimers entry
+//   (there is simply no entry to reset — the loop `continue`s before ever
+//   touching it), so a body un-hidden later (waking up and stepping out, see
+//   SLEEPING below) resumes normal spottability with a clean timer, same as
+//   any body this guard hasn't glanced at yet.
 //
 //   guard.hearNoise(x, y, strength) — external stimulus API. `strength` is
 //   "faint" or "strong" (soundEvents.js will call this later; tests/sim call
@@ -700,6 +764,7 @@
       waypointIndex: 0,
       hasLOS: false,
       squad: squad,
+      hidden: false,
     };
 
     // Internal sub-state, not part of the public contract (flat props listed
@@ -736,6 +801,13 @@
     var staggerActive = false;
     var staggerElapsed = 0;
     var bodySpotTimers = {};
+
+    // CQC / LOCKER state (new — see guard.cqc()/guard.stuffInLocker() in the
+    // file header). lockerFacing is the remembered facing of whatever locker
+    // this guard was last stuffed into — null whenever guard.hidden is false
+    // (not part of the public contract; internal bookkeeping only, same
+    // status as sleepTime/staggerActive above).
+    var lockerFacing = null;
 
     function setState(newState, stimulus) {
       guard.state = newState;
@@ -976,6 +1048,15 @@
       sleepTime = 0;
       guard.meter = 0;
       guard.hasLOS = false;
+      // Defensive invariant (see guard.tranq/cqc's own no-op-if-already-
+      // SLEEPING guard): this only ever runs from a non-SLEEPING state, and
+      // waking (tickSleeping below) always clears hidden/lockerFacing before
+      // a guard can be put down again — so these are already false/null here
+      // in practice. Reset explicitly anyway so "freshly asleep => never
+      // hidden until explicitly stuffed" holds even if that invariant ever
+      // drifts.
+      guard.hidden = false;
+      lockerFacing = null;
     }
 
     // Per-tick SLEEPING behavior (see update() step 0.5 and file header):
@@ -986,6 +1067,25 @@
       sleepTime += dt;
       if (sleepTime >= GUARD.SLEEP_S) {
         sleepTime = 0;
+        // WAKING INSIDE A LOCKER (see file header) — step 1m out along the
+        // remembered locker facing, collision-safe via world.moveCircle,
+        // BEFORE the INVESTIGATE stimulus is captured, so the guard
+        // "notices something's off" at the spot it just stepped out to, not
+        // at the locker's own position.
+        if (guard.hidden) {
+          var facing = lockerFacing !== null ? lockerFacing : guard.facing;
+          var res = world.moveCircle(
+            guard.x,
+            guard.y,
+            Math.cos(facing) * 1,
+            Math.sin(facing) * 1,
+            guard.radius
+          );
+          guard.x = res.x;
+          guard.y = res.y;
+          guard.hidden = false;
+          lockerFacing = null;
+        }
         setState("INVESTIGATE", { x: guard.x, y: guard.y });
       }
     }
@@ -1009,6 +1109,7 @@
       for (var i = 0; i < sleeping.length; i++) {
         var body = sleeping[i];
         if (body.id === guard.id) continue; // can't spot yourself
+        if (body.hidden) continue; // HIDDEN-BODY EXEMPTION -- see file header
 
         var key = String(body.id);
         var sight = vision.computeSight(viewer, body, { profile: 0.6 });
@@ -1201,9 +1302,28 @@
       }
     }
 
+    // guard.cqc() — see file header. v1: choke === sleep, reuses enterSleep()
+    // verbatim (same no-op-if-already-SLEEPING guard as tranq() above).
+    function cqc() {
+      if (guard.state === "SLEEPING") return;
+      enterSleep();
+    }
+
+    // guard.stuffInLocker(locker) — see file header. No-op unless this guard
+    // is currently SLEEPING (same defensive shape as tranq()/cqc()).
+    function stuffInLocker(locker) {
+      if (guard.state !== "SLEEPING") return;
+      guard.x = locker.x;
+      guard.y = locker.y;
+      guard.hidden = true;
+      lockerFacing = locker.facing;
+    }
+
     guard.update = update;
     guard.hearNoise = hearNoise;
     guard.tranq = tranq;
+    guard.cqc = cqc;
+    guard.stuffInLocker = stuffInLocker;
 
     // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
     // kept alive on the guard too in case future callers want it directly.

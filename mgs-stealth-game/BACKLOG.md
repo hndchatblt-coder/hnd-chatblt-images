@@ -25,7 +25,10 @@ content rotation) take over. L items must be split before selection.
 9b. Mute key + volume | polish | S | Readability | M toggles mute (suspend master gain); persists in-session; title legend updated.
 10. Remaining zones | content | L→split | Expression | ~~Warehouse~~ DONE cycle 15. Next: (a) Laboratory (cameras + laser sensors + keycards L1-L3 — needs camera entity in guard/vision system first), (b) Comms Tower (heavy patrols, finale).
 10b. Departed-zone state persistence | feature | M | Consequence | stash squad/guard state per zone on exit, restore on re-entry (alerted zones stay hot); replaces v1 discard semantics; determinism preserved.
-11. Items/CQC/tranq | feature | L→split | Expression | ~~(a) hp/combat~~ DONE c16. ~~(b) tranq~~ DONE c17. Remaining: (c) CQC grab→choke/throw + drag bodies + lockers (stuff/hide — bodies in lanes need counterplay NOW), (d) cardboard box + ration + chaff grenade.
+11. Items/CQC/tranq | feature | L→split | Expression | ~~(a) hp/combat~~ c16. ~~(b) tranq~~ c17. ~~(c) CQC/drag/lockers~~ c18. Remaining: (d) cardboard box + ration + chaff grenade.
+- Radar hidden/dragging states | polish | S | Readability | radarModel gains playerHidden/dragging; player triangle dims in locker (packet omission from c18).
+- Locker checks during EVASION | feature | S | Tension | hiding mid-EVASION is dominant; guards sweeping in EVASION open nearby lockers (discovery → ALERT).
+- CQC throw variant | feature | S | Expression | hold Q: throw (2m, 5s stun, 6m thud) vs tap choke — risk/reward choice.
 - Aim line while F held | polish | S | Readability | faint ray preview so ranged darts are judgeable.
 - Hit flash / damage feedback | polish | S | Readability | brief red flash or player flinch on playerHit event in render.js.
 - Death sting | polish | S | Tension | music one-shot on gameOver event.

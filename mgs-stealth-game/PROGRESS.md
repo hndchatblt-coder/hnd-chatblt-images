@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.17 (cycle 17 — tranq + sleeping guards)
+**Version:** v0.18 (cycle 18 — CQC/drag/lockers)
 
 ## Module status
 
@@ -13,7 +13,7 @@
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
 | soundEvents    | v1          | emit radii, analytic wall attenuation, knock verb |
-| items          | v1          | tranq (12 darts, headshot, stagger); CQC/box/chaff pending |
+| items          | v2          | tranq + CQC + drag + lockers; box/chaff/ration pending |
 | director       | not started | reinforcements, radio check-ins          |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | not started | snapshot() groundwork exists in engine   |
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 18: CQC from behind, body drag (0.55 speed, 0.9m trail), lockers
+  (stuff bodies — discovery-exempt; hide player via decoy gating), wake-and-
+  step-out (117/117, 13/13)
 - cycle 17: tranq — ray-clip aiming, headshot/stagger rules, 60s sleep +
   wake-search, colleague body-discovery ALERT at body position, dart-impact
   noise, TRANQ HUD (104/104, 12/12; one hud test replaced-stricter, see

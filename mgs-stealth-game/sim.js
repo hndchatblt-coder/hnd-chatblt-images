@@ -1079,6 +1079,137 @@ scenarios.push({
   },
 });
 
+// ---- CQC / drag / locker playtest scenario (cycle: CQC/body-drag/lockers) --
+// "Clean up after yourself": dart a guard, drag the body to a locker, stuff
+// it out of sight, then prove the cleanup actually worked — a squadmate's
+// normal patrol sweeps right past where the body USED to lie and never
+// alerts, and the engine never throws across the whole sequence. Uses the
+// Warehouse (2 guards, w1/w2 — see src/engine.js's ZONE_GUARDS table) since
+// the Loading Dock only has one guard and this needs a SECOND, independent
+// guard to demonstrate "the colleague never finds out."
+
+scenarios.push({
+  name: "clean up after yourself: tranq, drag, stuff, ghost",
+  seed: 20260716020,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({ seed: this.seed, zoneData: warehouse });
+
+    const w1 = engine.guards[0]; // outer perimeter loop (waypoints)
+    const w2 = engine.guards[1]; // center-aisle cross-sweep (waypoints2)
+    if (w1.id !== "w1" || w2.id !== "w2") {
+      throw new Error("setup failed: expected guards [w1, w2], got " + engine.guards.map((g) => g.id));
+    }
+
+    // ---- Dart w2 in the center aisle -----------------------------------
+    // w2 spawns at waypoints2[0] = (17,5), facing straight at waypoints2[1]
+    // = (22,5) i.e. due east (facing 0) — nothing has ticked yet, so this is
+    // exact. Same "teleport 3m ahead of facing, then face back" technique as
+    // the "tranq the dock guard" scenario above, reused verbatim for w2.
+    const ahead = 3;
+    engine.player.x = w2.x + Math.cos(w2.facing) * ahead;
+    engine.player.y = w2.y + Math.sin(w2.facing) * ahead;
+    engine.player.facing = w2.facing + Math.PI;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", fire: true });
+    const tranqEvents = engine.events.filter((e) => e.type === "tranqFired");
+    if (tranqEvents.length !== 1 || !tranqEvents[0].hit || !tranqEvents[0].headshot || tranqEvents[0].guardId !== "w2") {
+      throw new Error("setup failed: expected a clean unaware headshot on w2, got " + JSON.stringify(tranqEvents));
+    }
+    if (w2.state !== "SLEEPING") {
+      throw new Error("expected w2 SLEEPING immediately after the headshot, got " + w2.state);
+    }
+    const bodySpotX = w2.x;
+    const bodySpotY = w2.y; // "the former body position" — see the assertion at the end below.
+
+    // ---- Drag w2 to the nearest locker, then stuff it ------------------
+    // Nearest of warehouse.lockers to w2's position (17,5) is (11,6) —
+    // computed here (not hardcoded) so this stays correct if the level data
+    // ever shifts. w1 is still at its (3,2) spawn at this point (only a
+    // handful of ticks have elapsed) with NO LOS to either (17,5) or (11,6)
+    // — both are blocked by the row-1/row-2 shelving from that angle — so
+    // there's no risk of w1 spotting the not-yet-hidden drag in transit.
+    let locker = null;
+    let bestDist = Infinity;
+    for (const lk of warehouse.lockers) {
+      const d = Math.hypot(lk.x - w2.x, lk.y - w2.y);
+      if (d < bestDist) {
+        bestDist = d;
+        locker = lk;
+      }
+    }
+    if (!locker) throw new Error("setup failed: warehouse has no lockers");
+
+    // Attach: teleport the player adjacent to the sleeping w2, then a G edge.
+    engine.player.x = w2.x + 0.5;
+    engine.player.y = w2.y;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    if (engine.dragging !== "w2") {
+      throw new Error("setup failed: expected drag to attach to w2, got " + engine.dragging);
+    }
+
+    // Let go of the G key for one tick (drag omitted -> false) so the NEXT
+    // press is a fresh edge — input.drag is edge-triggered exactly like
+    // knock/fire/cqc (see src/engine.js contract), so two drag:true ticks
+    // back to back would only register as one held key, not attach-then-
+    // stuff. This tick's harmless DRAG FOLLOW just re-confirms w2 trailing
+    // the (stationary) player.
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+
+    // Teleport straight to the locker's doorstep (well within the 1.0m
+    // interact range) and stuff — a fresh G edge, this time with a locker in
+    // range while still dragging, so handleDragKey's priority takes the
+    // STUFF branch (see src/engine.js's DRAG VERB / LOCKER VERB contract).
+    engine.player.x = locker.x + (locker.x < w2.x ? 0.5 : -0.5);
+    engine.player.y = locker.y;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    if (engine.dragging !== null) {
+      throw new Error("expected drag released after stuffing, got " + engine.dragging);
+    }
+    if (!w2.hidden || w2.x !== locker.x || w2.y !== locker.y) {
+      throw new Error(
+        "expected w2 hidden at the locker (" + locker.x + "," + locker.y + "), got hidden=" + w2.hidden + " at (" + w2.x + "," + w2.y + ")"
+      );
+    }
+    if (engine.squad.alertCount !== 0 || engine.squad.phase !== "INFILTRATION") {
+      throw new Error(
+        "expected zero alerts from the whole dart+drag+stuff sequence, got phase=" + engine.squad.phase + " alertCount=" + engine.squad.alertCount
+      );
+    }
+
+    // ---- Ghost: park the player off-map, let w1 patrol normally --------
+    // w1's own patrol loop opens with the FULL y=2 perimeter leg (spawn
+    // (3,2) -> (37,2), see warehouse.waypoints), which passes directly over
+    // x=11..17 — right past bodySpotX/bodySpotY, the former body position —
+    // well within the first ~23s of this run (34m / PATROL_SPEED 1.5 m/s).
+    // The player is parked far off-map throughout so this scenario isolates
+    // ONE thing: does the ENVIRONMENT (an empty patch of floor where a body
+    // used to be, plus a locker with a body stuffed in it elsewhere) ever
+    // cause a spurious alert. Run comfortably under GUARD.SLEEP_S (60s) so
+    // w2 doesn't wake mid-scenario (that mechanic has its own dedicated
+    // coverage in tests/cqc.test.js) — this scenario is purely about w1.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    const GHOST_TICKS = Math.round(45 / DT);
+    for (let i = 0; i < GHOST_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.phase !== "INFILTRATION" || engine.squad.alertCount !== 0) {
+        throw new Error(
+          "w1 alerted at tick " + i + " despite the body being safely stuffed away (phase=" + engine.squad.phase + ", alertCount=" + engine.squad.alertCount + ", w1 at (" + w1.x.toFixed(2) + "," + w1.y.toFixed(2) + "), former body spot (" + bodySpotX.toFixed(2) + "," + bodySpotY.toFixed(2) + "))"
+        );
+      }
+    }
+
+    if (engine.squad.phase !== "INFILTRATION" || engine.squad.alertCount !== 0) {
+      throw new Error("expected INFILTRATION throughout with zero alerts at the end, got phase=" + engine.squad.phase + " alertCount=" + engine.squad.alertCount);
+    }
+    if (!w2.hidden) {
+      throw new Error("expected w2 to still read hidden at the end (well under SLEEP_S), got hidden=" + w2.hidden);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

@@ -1,5 +1,30 @@
 # TESTLOG.md
 
+## Cycle 18 (CQC, drag, lockers)
+
+117/117; 13/13; screens clean. CQC from behind (>100° off guard facing,
+blocked during ALERT) reuses the sleep path; drag scales move input 0.55 with
+the body trailing 0.9m; one G key drives attach/release/stuff/hide/exit via
+a priority function; stuffed bodies exempt from colleague discovery; hidden
+players gated by a decoy-position substitution (guardAI/vision untouched).
+Waking stuffed guards step out into INVESTIGATE.
+
+**3 problems:** (1) radar doesn't reflect hidden/dragging (radar.js wasn't in
+the task packet's allowed list — my packet omission, honestly skipped by the
+agent) → next polish cycle. (2) CQC throw variant deferred (choke==sleep v1)
+— fine, but Q has no risk/reward choice yet. (3) decoy-substitution hides the
+player from FIRING too — correct today (guards can't fire outside ALERT and
+you can't enter a locker during ALERT... verify: you CAN hide during EVASION;
+a guard regaining LOS on the locker spot sees nothing — intended, but EVASION
+hide-in-locker is now dominant; needs a discovery counter (guards checking
+lockers in EVASION) → backlog (Tension).
+
+**3 delights:** (1) the cleanup loop (dart → drag → stuff → other guard walks
+the lane obliviously) passes machine-checked — evidence management is real
+gameplay now. (2) one context key for the whole body pipeline feels right in
+hand. (3) decoy approach: two modules learned a feature existed without one
+line of their code changing.
+
 ## Cycle 17 (tranq pistol + sleeping guards)
 
 104/104; 12/12; screens clean (weapon box: TRANQ x12). Ray-clip aiming with

@@ -55,6 +55,24 @@
 //       item: { name: "---", count: null },
 //                               // PLACEHOLDER, same shape/rationale as weapon
 //                               // above but for the consumable-item slot.
+//                               // UNCHANGED this cycle (see `status` below —
+//                               // dragging/hiding are surfaced through a
+//                               // DIFFERENT field, deliberately, so every
+//                               // existing item-placeholder assertion in
+//                               // tests/hud.test.js keeps holding verbatim).
+//       status: "DRAGGING" | "HIDDEN" | null,
+//                               // NEW (CQC/locker cycle) — ADDITIVE field,
+//                               // separate from `item` above by design (see
+//                               // the note on `item` — this is what keeps
+//                               // this cycle backward compatible with
+//                               // tests/hud.test.js's untouched assertions).
+//                               // "HIDDEN" while engine.playerHidden, else
+//                               // "DRAGGING" while engine.dragging, else
+//                               // null. Falls back to null when engine
+//                               // exposes neither prop (e.g. a bespoke test
+//                               // engine-shaped object predating this
+//                               // cycle), same backward-compat rationale as
+//                               // the `weapon` placeholder fallback above.
 //       maxDetection: number 0..1,
 //                               // max over engine.guards[i].meter (0 if no
 //                               // guards). Drives the screen-edge detection
@@ -103,6 +121,11 @@
 //         out once darts hit 0; the original grayed "---" placeholder
 //         content only when engine.inventory is absent).
 //       - Bottom-right: item box, same shape, "ITEM" / "---".
+//       - Status tag (new — CQC/locker cycle): a small pill drawn just above
+//         the item box, reading "DRAGGING" (amber) or "HIDDEN" (blue) per
+//         model.status; drawn nothing at all when model.status is null. The
+//         item box itself is never touched by this (see hudModel's `status`
+//         field note above).
 //       - Zone-name card: shown center-left whenever model.zoneName differs
 //         from the LAST zoneName this view actually rendered (tracked in a
 //         closure var, seeded to null so the very first render() call always
@@ -148,6 +171,12 @@
     CAUTION: { fill: "rgba(239, 143, 0,", border: "#ffc04d", label: "CAUTION" },
   };
 
+  // New (CQC/locker cycle) — see hudModel's `status` field note above.
+  var STATUS_STYLE = {
+    DRAGGING: { fill: "rgba(239, 143, 0, 0.85)", border: "#ffc04d" },
+    HIDDEN: { fill: "rgba(70, 130, 180, 0.85)", border: "#9fd8ff" },
+  };
+
   // ---- pure model -------------------------------------------------------
 
   function hudModel(engine) {
@@ -179,6 +208,7 @@
         ? { name: "TRANQ", ammo: engine.inventory.darts }
         : { name: "---", ammo: null },
       item: { name: "---", count: null },
+      status: engine.playerHidden ? "HIDDEN" : engine.dragging ? "DRAGGING" : null,
       maxDetection: maxDetection,
     };
   }
@@ -312,6 +342,34 @@
     drawBox(ctx, x, y, "ITEM", content);
   }
 
+  // Status tag (new — CQC/locker cycle, see file header/hudModel note) — a
+  // small pill drawn just above the item box; drawn only while
+  // model.status is non-null. Never touches the item box itself.
+  function drawStatusTag(ctx, model, widthCss, heightCss) {
+    if (!model.status) return;
+    var style = STATUS_STYLE[model.status];
+    if (!style) return;
+
+    var tagH = 20;
+    var tagW = HUD.BOX_W;
+    var x = widthCss - HUD.BOX_W - HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN - tagH - 6;
+
+    ctx.fillStyle = style.fill;
+    ctx.fillRect(x, y, tagW, tagH);
+    ctx.strokeStyle = style.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, tagW - 1, tagH - 1);
+
+    ctx.fillStyle = "#0a0f0a";
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.status, x + tagW / 2, y + tagH / 2 + 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+  }
+
   function drawZoneCard(ctx, model, widthCss, heightCss, zoneState) {
     if (zoneState.shownAt === null) return;
     var elapsed = model.time - zoneState.shownAt;
@@ -398,6 +456,7 @@
       drawPhaseIndicator(ctx, model, widthCss);
       drawWeaponBox(ctx, model, widthCss, heightCss);
       drawItemBox(ctx, model, widthCss, heightCss);
+      drawStatusTag(ctx, model, widthCss, heightCss);
       drawZoneCard(ctx, model, widthCss, heightCss, zoneState);
     }
 

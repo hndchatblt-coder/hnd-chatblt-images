@@ -1222,6 +1222,18 @@
 //                                reports into (own private one, or the shared
 //                                one passed to createGuard()). See squad
 //                                contract above.
+//     hidden                  — boolean, NEW (CQC/locker cycle): true only
+//                                while this guard's body has been STUFFED
+//                                INTO A LOCKER by the player (see
+//                                guard.stuffInLocker below) — false at every
+//                                other time, including while merely
+//                                SLEEPING-but-not-stuffed or being DRAGGED
+//                                (dragging is an ENGINE-side position
+//                                override, see src/engine.js's DRAG VERB —
+//                                it never touches this flag). A hidden body
+//                                is EXEMPT from COLLEAGUE DISCOVERY (see
+//                                below) — tucked out of sight, not just
+//                                lying in the open. Defaults false.
 //
 //   STATE <-> SQUAD.PHASE MAPPING (the invariant referenced throughout): the
 //   relationship is guard.state => squad.phase, NOT the reverse.
@@ -1441,21 +1453,37 @@
 //       GUARD.CAUTION_S (45s) of no re-sighting, at which point this guard's
 //       NEXT tick sync (step 1) forces it back to state PATROL at
 //       PATROL_SPEED with the normal (un-widened) cone.
-//     SLEEPING — entered ONLY via guard.tranq() (see below), never through
-//       the normal FSM dispatch/radio-call sync (a SLEEPING guard's update()
-//       short-circuits at step 0.5, before step 1's sync even runs — see
-//       above — so a squad-wide ALERT does not wake it). While SLEEPING:
-//       guard.meter is pinned at 0 (perception doesn't run at all — a
-//       sleeping guard notices nothing, including the player standing right
-//       in front of it), guard.hasLOS is forced false, no movement, no
-//       firing. A private sleep clock advances by dt every tick; once it
-//       reaches GUARD.SLEEP_S (60s) the guard wakes into INVESTIGATE with
-//       stimulus = its OWN current position (it just groggily "notices
-//       something's off" where it's lying, not any stale player-sighting
-//       info) — from there it's the ordinary INVESTIGATE search-then-resume
-//       machinery already documented above (searches GUARD.INVESTIGATE_SEARCH
-//       seconds, then resumes CAUTION or PATROL depending on squad.phase AT
-//       THAT MOMENT, same live-checked rule as every other INVESTIGATE exit).
+//     SLEEPING — entered ONLY via guard.tranq() or guard.cqc() (see below),
+//       never through the normal FSM dispatch/radio-call sync (a SLEEPING
+//       guard's update() short-circuits at step 0.5, before step 1's sync
+//       even runs — see above — so a squad-wide ALERT does not wake it).
+//       While SLEEPING: guard.meter is pinned at 0 (perception doesn't run at
+//       all — a sleeping guard notices nothing, including the player standing
+//       right in front of it), guard.hasLOS is forced false, no movement, no
+//       firing (its x/y ARE still externally mutable, though — see
+//       src/engine.js's DRAG VERB, which repositions a dragged SLEEPING
+//       guard's x/y directly every tick without going through this guard's
+//       own update() at all). A private sleep clock advances by dt every
+//       tick; once it reaches GUARD.SLEEP_S (60s) the guard wakes into
+//       INVESTIGATE with stimulus = its OWN current position (it just
+//       groggily "notices something's off" where it's lying, not any stale
+//       player-sighting info) — from there it's the ordinary INVESTIGATE
+//       search-then-resume machinery already documented above (searches
+//       GUARD.INVESTIGATE_SEARCH seconds, then resumes CAUTION or PATROL
+//       depending on squad.phase AT THAT MOMENT, same live-checked rule as
+//       every other INVESTIGATE exit).
+//       WAKING INSIDE A LOCKER (new — CQC/locker cycle): if guard.hidden is
+//       true at the moment the sleep clock expires (i.e. this guard was
+//       guard.stuffInLocker()'d and never manually let out — see that method
+//       above), the guard first steps 1m out of the locker along the
+//       REMEMBERED locker facing (via world.moveCircle, same collision-safe
+//       primitive every other guard movement in this file uses) before its
+//       INVESTIGATE stimulus is set to that stepped-out position — a groggy
+//       guard visibly exits the locker rather than materializing next to it.
+//       guard.hidden is cleared back to false at the same moment (it is, by
+//       definition, no longer stuffed anywhere once it's standing outside).
+//       A guard that was merely SLEEPING in the open (never stuffed —
+//       guard.hidden already false) wakes exactly as before, no stepping.
 //
 //   guard.tranq(headshot) — external stimulus API, called by the ENGINE (see
 //   src/items.js/src/engine.js) the instant a fired dart HITS this guard.
@@ -1477,6 +1505,32 @@
 //       the "tranq an alert, hostile guard" case: the dart still works, but
 //       an already-fighting guard doesn't just vanish mid-firefight — it
 //       staggers first, exactly like the real games' tranq animation delay.
+//
+//   guard.cqc() — external stimulus API (new — CQC/locker cycle), called by
+//   the ENGINE the instant a CQC takedown connects (see src/engine.js's CQC
+//   VERB — conditions like distance/behind-check/squad.phase are ALL decided
+//   by the engine before calling this; this method is the same one-shot
+//   "make it SLEEPING" effect as a headshot, nothing more). v1 semantics:
+//   CHOKE === SLEEP — reuses enterSleep() verbatim (same GUARD.SLEEP_S timer,
+//   same wake-into-INVESTIGATE path below). A lethal/throw variant (permanent
+//   removal, a body that never wakes) is explicitly NOT this cycle's job —
+//   tracked as a future BACKLOG item, not hacked in here. No-op (like
+//   tranq()) if this guard is already SLEEPING — a second takedown on a body
+//   that's already down does nothing.
+//
+//   guard.stuffInLocker(locker) — external stimulus API (new — CQC/locker
+//   cycle), called by the ENGINE when the player STUFFS an already-dragged,
+//   SLEEPING body into a locker (see src/engine.js's LOCKER VERB). `locker`
+//   is a plain { x, y, facing } from zone.lockers (src/world.js) — read-only,
+//   never mutated. No-op if this guard is not currently SLEEPING (a stuffed
+//   body is, by definition, one someone already knocked out and dragged
+//   there — same defensive shape as tranq()/cqc() above). On success:
+//   guard.x/guard.y are set to the locker's position, guard.hidden = true
+//   (see the hidden flat-prop note above and COLLEAGUE DISCOVERY below for
+//   what this exempts), and the locker's `facing` is privately remembered so
+//   this guard knows which way to step back OUT of the locker when it wakes
+//   (see SLEEPING's wake behavior below) — a groggy guard doesn't just
+//   materialize in the open, it visibly exits the locker it was stuffed in.
 //
 //   COLLEAGUE DISCOVERY (new — see update() step 2.5 above) — the flip side
 //   of guard.tranq(): an awake guard (state PATROL/SUSPICIOUS/INVESTIGATE/
@@ -1502,6 +1556,16 @@
 //   joins ALERT the next tick via the normal step 1 radio-call sync, same as
 //   any other alert — colleague discovery is just a different TRIGGER for
 //   the exact same squad-wide broadcastAlert machinery, not a parallel path.
+//   HIDDEN-BODY EXEMPTION (new — CQC/locker cycle): any ctx.sleepingGuards
+//   entry with .hidden === true (i.e. its guard.hidden flag, mirrored into
+//   the snapshot by src/engine.js the same way id/x/y already are) is skipped
+//   entirely by this check — a body stuffed into a locker is, per SPEC.md's
+//   stealth-toolkit design, no longer something a patrolling colleague can
+//   stumble across. This does NOT reset that body's bodySpotTimers entry
+//   (there is simply no entry to reset — the loop `continue`s before ever
+//   touching it), so a body un-hidden later (waking up and stepping out, see
+//   SLEEPING below) resumes normal spottability with a clean timer, same as
+//   any body this guard hasn't glanced at yet.
 //
 //   guard.hearNoise(x, y, strength) — external stimulus API. `strength` is
 //   "faint" or "strong" (soundEvents.js will call this later; tests/sim call
@@ -1726,6 +1790,7 @@
       waypointIndex: 0,
       hasLOS: false,
       squad: squad,
+      hidden: false,
     };
 
     // Internal sub-state, not part of the public contract (flat props listed
@@ -1762,6 +1827,13 @@
     var staggerActive = false;
     var staggerElapsed = 0;
     var bodySpotTimers = {};
+
+    // CQC / LOCKER state (new — see guard.cqc()/guard.stuffInLocker() in the
+    // file header). lockerFacing is the remembered facing of whatever locker
+    // this guard was last stuffed into — null whenever guard.hidden is false
+    // (not part of the public contract; internal bookkeeping only, same
+    // status as sleepTime/staggerActive above).
+    var lockerFacing = null;
 
     function setState(newState, stimulus) {
       guard.state = newState;
@@ -2002,6 +2074,15 @@
       sleepTime = 0;
       guard.meter = 0;
       guard.hasLOS = false;
+      // Defensive invariant (see guard.tranq/cqc's own no-op-if-already-
+      // SLEEPING guard): this only ever runs from a non-SLEEPING state, and
+      // waking (tickSleeping below) always clears hidden/lockerFacing before
+      // a guard can be put down again — so these are already false/null here
+      // in practice. Reset explicitly anyway so "freshly asleep => never
+      // hidden until explicitly stuffed" holds even if that invariant ever
+      // drifts.
+      guard.hidden = false;
+      lockerFacing = null;
     }
 
     // Per-tick SLEEPING behavior (see update() step 0.5 and file header):
@@ -2012,6 +2093,25 @@
       sleepTime += dt;
       if (sleepTime >= GUARD.SLEEP_S) {
         sleepTime = 0;
+        // WAKING INSIDE A LOCKER (see file header) — step 1m out along the
+        // remembered locker facing, collision-safe via world.moveCircle,
+        // BEFORE the INVESTIGATE stimulus is captured, so the guard
+        // "notices something's off" at the spot it just stepped out to, not
+        // at the locker's own position.
+        if (guard.hidden) {
+          var facing = lockerFacing !== null ? lockerFacing : guard.facing;
+          var res = world.moveCircle(
+            guard.x,
+            guard.y,
+            Math.cos(facing) * 1,
+            Math.sin(facing) * 1,
+            guard.radius
+          );
+          guard.x = res.x;
+          guard.y = res.y;
+          guard.hidden = false;
+          lockerFacing = null;
+        }
         setState("INVESTIGATE", { x: guard.x, y: guard.y });
       }
     }
@@ -2035,6 +2135,7 @@
       for (var i = 0; i < sleeping.length; i++) {
         var body = sleeping[i];
         if (body.id === guard.id) continue; // can't spot yourself
+        if (body.hidden) continue; // HIDDEN-BODY EXEMPTION -- see file header
 
         var key = String(body.id);
         var sight = vision.computeSight(viewer, body, { profile: 0.6 });
@@ -2227,9 +2328,28 @@
       }
     }
 
+    // guard.cqc() — see file header. v1: choke === sleep, reuses enterSleep()
+    // verbatim (same no-op-if-already-SLEEPING guard as tranq() above).
+    function cqc() {
+      if (guard.state === "SLEEPING") return;
+      enterSleep();
+    }
+
+    // guard.stuffInLocker(locker) — see file header. No-op unless this guard
+    // is currently SLEEPING (same defensive shape as tranq()/cqc()).
+    function stuffInLocker(locker) {
+      if (guard.state !== "SLEEPING") return;
+      guard.x = locker.x;
+      guard.y = locker.y;
+      guard.hidden = true;
+      lockerFacing = locker.facing;
+    }
+
     guard.update = update;
     guard.hearNoise = hearNoise;
     guard.tranq = tranq;
+    guard.cqc = cqc;
+    guard.stuffInLocker = stuffInLocker;
 
     // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
     // kept alive on the guard too in case future callers want it directly.
@@ -2458,6 +2578,13 @@
 //                 call tick().
 //     tickCount — integer, number of tick() calls so far (starts at 0).
 //     time      — tickCount * DT, seconds of simulated time elapsed.
+//     dragging  — NEW (CQC/locker cycle): guardId | null. The id of the
+//                 guard currently being dragged (see DRAG VERB below), or
+//                 null when nothing is in tow. Reset to null on a zone
+//                 transition (see switchZone).
+//     playerHidden — NEW (CQC/locker cycle): boolean, true while the player
+//                 is tucked inside a locker (see LOCKER VERB below). Reset to
+//                 false on a zone transition (see switchZone).
 //     events    — array of event objects emitted by the MOST RECENT tick()
 //                 only; cleared at the start of every tick() (i.e. it is NOT
 //                 a running log — read it right after calling tick() if you
@@ -2513,6 +2640,17 @@
 //                     player.hp AFTER the damage (so consecutive playerHit
 //                     events across a firefight read as a strictly
 //                     decreasing sequence while the player survives).
+//                   { type: "cqc", guardId } — a CQC takedown connected this
+//                     tick (see CQC VERB above); the named guard is now
+//                     SLEEPING.
+//                   { type: "cqcMiss" } — a CQC edge fired but conditions
+//                     weren't met, AND some guard was within 2.5m of the
+//                     player (see CQC VERB above for the exact eligibility
+//                     rule and the reason for the 2.5m feedback-without-spam
+//                     gate).
+//                   { type: "busy" } — a fire edge occurred while
+//                     engine.dragging was set (see DRAG VERB above); no dart
+//                     spent, no tranqFired.
 //                   { type: "gameOver" } — player.hp reached 0 this tick (see
 //                     GAME OVER below). Fires exactly once, the tick hp hits
 //                     0; never again afterward (engine.gameOver latches, and
@@ -2520,6 +2658,123 @@
 //                 More event types (item pickups, ...) will be appended by
 //                 later modules — treat `type` as an open set and always
 //                 branch on it, never assume this is the full list.
+//
+//   CQC VERB — Q key, input.cqc (boolean), EDGE-TRIGGERED exactly like knock/
+//   fire (private prevCqc closure state, false->true only): on that edge,
+//   this module (not guardAI.js) decides eligibility by finding the
+//   NEAREST guard to the player satisfying ALL of:
+//     - distance(player, guard) <= 1.4m,
+//     - guard.state !== "SLEEPING" (an awake target — you can't CQC a body
+//       that's already down),
+//     - the guard is BEHIND: the absolute angular difference between
+//       guard.facing and the guard->player direction is > 100 degrees, and
+//     - squad.phase !== "ALERT" (can't grab someone actively shooting at
+//       you — see the file's own "no zone-changing mid-alert"-style design
+//       preference for gating stealth verbs behind squad state).
+//   A qualifying guard: calls guard.cqc() (see src/guardAI.js contract — v1
+//   is CHOKE === SLEEP, same enterSleep() path/timer as a headshot dart),
+//   pushes { type: "cqc", guardId }, and emits a SOFT ("faint") thud at the
+//   guard's own position: soundEvents.emitRadius(guard.x, guard.y, 3, false,
+//   guards) — deliberately NOT one of soundEvents.js's named RADII kinds (no
+//   "cqc" entry exists there), since 3m/faint is specific to this one verb;
+//   any listener that heard it pushes the usual
+//   { type: "noiseHeard", guardId, x, y, strength: "faint" }. No qualifying
+//   guard: pushes { type: "cqcMiss" } ONLY if some guard (any state, any
+//   angle) was within 2.5m of the player — feedback that the button press
+//   registered without spamming an event on every empty-handed Q press
+//   halfway across the zone. CQC is also silently inert (no cqc, no
+//   cqcMiss) while engine.playerHidden or engine.dragging — see LOCKER
+//   VERB / DRAG VERB below; both hands are full/occupied in either state,
+//   an intentional, documented restriction beyond the three conditions
+//   above.
+//
+//   DRAG VERB / LOCKER VERB — G key, input.drag (boolean), EDGE-TRIGGERED
+//   exactly like knock/fire/cqc (private prevDrag closure state). Unlike
+//   every other verb, a single G edge means a DIFFERENT thing depending on
+//   engine.playerHidden/engine.dragging/proximity-to-a-locker — see
+//   handleDragKey()'s own inline comments for the exact priority order (this
+//   header gives the shape; the code is the source of truth for edge cases):
+//     1. engine.playerHidden === true: this press always means EXIT the
+//        locker, regardless of anything else (see LOCKER below).
+//     2. Else, if the player is within LOCKER_INTERACT_DIST (1.0m) of ANY
+//        zone.lockers[] entry (nearest one wins): LOCKER context —
+//          - engine.dragging set (a body in tow): STUFF that guard into the
+//            locker (guard.stuffInLocker(locker) — see guardAI.js contract),
+//            clear engine.dragging.
+//          - engine.dragging not set: HIDE the player — engine.playerHidden
+//            = true, remembering the locker (private, for the exit step).
+//     3. Else (no locker in range): DRAG context —
+//          - engine.dragging set: RELEASE (engine.dragging = null; the
+//            guard is left exactly where its last drag-follow tick put it —
+//            see below).
+//          - engine.dragging not set: ATTACH to the NEAREST SLEEPING,
+//            not-already-hidden guard within DRAG_ATTACH_DIST (1.2m), if
+//            any (engine.dragging = that guard's id). A guard already
+//            guard.hidden (mid-locker-stuff — should never actually be
+//            reachable via the player, since a hidden body's position IS
+//            the locker's, but excluded defensively) is not a valid attach
+//            target.
+//   DRAG FOLLOW (every tick engine.dragging is set, AFTER player.update so
+//   it uses this tick's fresh position/facing): the dragged guard's x/y are
+//   set directly to 0.9m behind the player along the player's OWN facing
+//   (guard.x = player.x - cos(player.facing)*0.9, same for y) — a plain
+//   position overwrite, not a guard.update()-mediated move (the guard is
+//   SLEEPING throughout a drag; its own update() still runs every tick per
+//   the normal guard loop below, short-circuiting at guardAI.js's SLEEPING
+//   step 0.5 exactly as it would if nobody were dragging it — see
+//   guardAI.js's own note on x/y being externally mutable while SLEEPING).
+//   HONEST GAP: GUARD.SLEEP_S is 60s, so a sufficiently long drag (a real
+//   playthrough is very unlikely to hold a drag that long, but nothing
+//   PREVENTS it) can let the dragged guard's own sleep clock expire mid-drag
+//   — it would wake into INVESTIGATE at whatever position this tick's drag-
+//   follow last wrote, while engine.dragging remains set and continues
+//   overwriting that now-awake guard's position every subsequent tick. This
+//   is not handled specially this cycle (same "documented, not hacked in"
+//   posture as engine.js's own VISION STAGGERING gap below) — a future cycle
+//   could auto-release the drag the instant the dragged guard's state
+//   leaves SLEEPING.
+//   DRAG SPEED CAP: player.js has no speed-cap hook (see its own contract —
+//   speed is a pure function of stance/run), so rather than modify it, this
+//   module scales the ALREADY-normalized input.moveX/moveY by 0.55 whenever
+//   engine.dragging is set, BEFORE calling player.update() — the player
+//   still walks/runs/crouches through its own normal state machine, just
+//   covering 55% of the distance per tick it otherwise would.
+//   NO FIRING WHILE DRAGGING: a fire edge (see FIRE VERB below) that occurs
+//   while engine.dragging is set does not call inventory.fireTranq() at all
+//   — it pushes { type: "busy" } instead (both hands are full) and still
+//   consumes the edge (no event spam if the key is held).
+//   LOCKER — HIDE / EXIT: entering sets engine.playerHidden = true (frozen
+//   input while hidden — see FROZEN INPUT below) and remembers the locker
+//   privately; the matching EXIT (priority 1 above) steps the player 1m out
+//   along the LOCKER's own `facing` (via world.moveCircle, collision-safe)
+//   and restores normal input immediately, same tick. GUARD PERCEPTION GATE
+//   (this is the "least invasive" approach flagged as a design choice — see
+//   BACKLOG-adjacent notes in this cycle's design brief): rather than
+//   threading a visibility flag through guardAI.js/vision.js, this module
+//   simply hands every guard.update() call a DECOY player object (same
+//   shape as the real player — x, y, facing, visionProfile(), moving,
+//   stance — but parked at x=-9999,y=-9999, permanently out of any zone's
+//   vision RANGE) instead of the real `player`, for as long as
+//   engine.playerHidden is true. guardAI.js/vision.js are completely
+//   unaware this ever happens — from their side it's an ordinary target
+//   that's simply always out of range, which is exactly "invisible to guard
+//   vision" without a single line of change to either module. This also
+//   means a guard cannot fire on a hidden player (hasLOS on the decoy is
+//   always false) as a natural side effect, not a separately-coded rule.
+//   FROZEN INPUT while playerHidden: input.moveX/moveY/run are zeroed (so
+//   player.moving/noiseRadius() both read false/0 — a hidden player is
+//   silent and stationary) and the fire/cqc verbs are skipped entirely for
+//   that tick (checked AFTER this same tick's G-edge processing, so a G
+//   press that JUST exited the locker this tick restores full control
+//   immediately, same "acts immediately" convention as every other edge verb
+//   in this file). Only the G key itself (the exit path) ever reads while
+//   hidden.
+//   ZONE-SCOPED: engine.dragging/engine.playerHidden (and the private
+//   remembered locker) are reset on every switchZone() call, same v1
+//   semantics as the guard roster itself being discarded rather than
+//   carried across a transition — a dragged guard belongs to the departing
+//   zone's roster and a hidden-in-a-locker player has no locker to return to
+//   in the new zone.
 //
 //   FIRE VERB — tranq pistol (new this cycle): input.fire (boolean) is
 //   EDGE-TRIGGERED exactly like input.knock (see KNOCK VERB below) — engine
@@ -2826,8 +3081,48 @@
       // fire: same shape/rationale as knock, but for the tranq pistol (see
       // FIRE VERB in the file header / tick() step 2c). Defaults to false.
       fire: !!input.fire,
+      // cqc/drag: same edge-triggered shape as knock/fire, but for the CQC
+      // takedown and the context-dependent drag/locker verb (see CQC VERB /
+      // DRAG VERB / LOCKER VERB in the file header). Defaults to false.
+      cqc: !!input.cqc,
+      drag: !!input.drag,
     };
   }
+
+  // ---- CQC / DRAG / LOCKER local helpers (no dependency on other modules) --
+
+  function dist2d(x1, y1, x2, y2) {
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  var TWO_PI_E = Math.PI * 2;
+
+  // Smallest ABSOLUTE angular difference between two facings (radians),
+  // wrapped correctly across the +/-PI seam. Used only by the CQC "is the
+  // player behind this guard" check (see CQC VERB in the file header).
+  function absAngleDiff(a, b) {
+    var d = (a - b) % TWO_PI_E;
+    if (d > Math.PI) d -= TWO_PI_E;
+    if (d < -Math.PI) d += TWO_PI_E;
+    return Math.abs(d);
+  }
+
+  var CQC_RANGE = 1.4;
+  var CQC_MISS_FEEDBACK_RANGE = 2.5;
+  var CQC_BEHIND_DEG = 100;
+  var CQC_NOISE_RADIUS = 3;
+  var DRAG_ATTACH_DIST = 1.2;
+  var DRAG_FOLLOW_DIST = 0.9;
+  var DRAG_SPEED_MULT = 0.55;
+  var LOCKER_INTERACT_DIST = 1.0;
+  var LOCKER_STEP_DIST = 1.0;
+  // Decoy position handed to every guard.update() call while
+  // engine.playerHidden is true (see LOCKER VERB / GUARD PERCEPTION GATE in
+  // the file header) — far enough outside any zone's VISION.RANGE (14m, even
+  // CAUTION-widened) that inCone always fails regardless of guard position.
+  var HIDDEN_DECOY_POS = -9999;
 
   function defaultGuardConfigs(zone) {
     return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
@@ -2898,6 +3193,19 @@
     // 2c) — same shape/rationale as prevKnock above.
     var prevFire = false;
 
+    // Edge-trigger state for the CQC / drag-and-locker verbs (see file
+    // header CQC VERB / DRAG VERB / LOCKER VERB) — same shape/rationale as
+    // prevKnock/prevFire above.
+    var prevCqc = false;
+    var prevDrag = false;
+
+    // The locker (a plain {x,y,facing} from zone.lockers) the player is
+    // CURRENTLY hidden in, or null — private mirror of engine.playerHidden
+    // that remembers WHICH locker so the exit step (see LOCKER VERB) knows
+    // which facing to step out along. Reset alongside playerHidden on a zone
+    // transition (see switchZone).
+    var hiddenLocker = null;
+
     // Edge-trigger state for zoneBlocked (see file header, tick() step 6):
     // true while the player is standing inside an exit trigger whose `to`
     // doesn't resolve to a built zone, so the event fires once on entry, not
@@ -2922,7 +3230,153 @@
       time: 0,
       events: [],
       gameOver: false,
+      dragging: null,
+      playerHidden: false,
     };
+
+    // ---- CQC / DRAG / LOCKER helpers (see file header) ------------------------
+    // These close over `zone`/`world`/`player`/`guards` directly (not local
+    // copies), same convention as switchZone/tryZoneTransition below, so they
+    // stay correct across a zone transition's reassignment of those vars.
+
+    function findGuardById(id) {
+      for (var i = 0; i < guards.length; i++) {
+        if (guards[i].id === id) return guards[i];
+      }
+      return null;
+    }
+
+    // Nearest zone.lockers[] entry within maxDist of the player, or null.
+    function nearestLocker(maxDist) {
+      var lockers = zone.lockers || [];
+      var best = null;
+      var bestDist = Infinity;
+      for (var i = 0; i < lockers.length; i++) {
+        var d = dist2d(player.x, player.y, lockers[i].x, lockers[i].y);
+        if (d <= maxDist && d < bestDist) {
+          bestDist = d;
+          best = lockers[i];
+        }
+      }
+      return best;
+    }
+
+    // Nearest SLEEPING, not-already-hidden guard within maxDist of the
+    // player, or null (see DRAG VERB — a hidden/stuffed body is not a valid
+    // attach target).
+    function nearestSleepingGuard(maxDist) {
+      var best = null;
+      var bestDist = Infinity;
+      for (var i = 0; i < guards.length; i++) {
+        var g = guards[i];
+        if (g.state !== "SLEEPING" || g.hidden) continue;
+        var d = dist2d(player.x, player.y, g.x, g.y);
+        if (d <= maxDist && d < bestDist) {
+          bestDist = d;
+          best = g;
+        }
+      }
+      return best;
+    }
+
+    // Handles one G-key edge — see file header DRAG VERB / LOCKER VERB for
+    // the full priority write-up. Mutates engine.dragging/engine.playerHidden/
+    // hiddenLocker/player.x/y/facing/guard state as needed; pushes no events
+    // of its own (the drag/locker verbs are silent by design — the visible
+    // feedback is the state change itself, mirrored into hud/render).
+    function handleDragKey() {
+      if (engine.playerHidden) {
+        // EXIT LOCKER — always wins while hidden, regardless of anything
+        // else (see file header priority list, step 1).
+        var exitFacing = hiddenLocker ? hiddenLocker.facing : player.facing;
+        var stepped = world.moveCircle(
+          player.x,
+          player.y,
+          Math.cos(exitFacing) * LOCKER_STEP_DIST,
+          Math.sin(exitFacing) * LOCKER_STEP_DIST,
+          player.radius
+        );
+        player.x = stepped.x;
+        player.y = stepped.y;
+        player.facing = exitFacing;
+        engine.playerHidden = false;
+        hiddenLocker = null;
+        return;
+      }
+
+      var lockerHere = nearestLocker(LOCKER_INTERACT_DIST);
+
+      if (engine.dragging) {
+        if (lockerHere) {
+          // STUFF the dragged body into the locker.
+          var dragged = findGuardById(engine.dragging);
+          if (dragged) dragged.stuffInLocker(lockerHere);
+          engine.dragging = null;
+        } else {
+          // RELEASE — guard is left wherever the last drag-follow tick put it.
+          engine.dragging = null;
+        }
+        return;
+      }
+
+      if (lockerHere) {
+        // HIDE the player.
+        engine.playerHidden = true;
+        hiddenLocker = lockerHere;
+        return;
+      }
+
+      var sleeper = nearestSleepingGuard(DRAG_ATTACH_DIST);
+      if (sleeper) {
+        engine.dragging = sleeper.id;
+      }
+    }
+
+    // CQC — see file header CQC VERB. Called only on a cqc edge, and only
+    // while not playerHidden/dragging (both hands full otherwise — see file
+    // header). Pushes its own cqc/cqcMiss/noiseHeard events directly.
+    function tryCqc() {
+      var bestGuard = null;
+      var bestDist = Infinity;
+      var anyWithinMissRange = false;
+
+      for (var i = 0; i < guards.length; i++) {
+        var g = guards[i];
+        var d = dist2d(player.x, player.y, g.x, g.y);
+        if (d <= CQC_MISS_FEEDBACK_RANGE) anyWithinMissRange = true;
+
+        if (d > CQC_RANGE) continue;
+        if (g.state === "SLEEPING") continue;
+        if (squad.phase === "ALERT") continue;
+        var dirToPlayer = Math.atan2(player.y - g.y, player.x - g.x);
+        var behindDeg = (absAngleDiff(g.facing, dirToPlayer) * 180) / Math.PI;
+        if (behindDeg <= CQC_BEHIND_DEG) continue;
+
+        if (d < bestDist) {
+          bestDist = d;
+          bestGuard = g;
+        }
+      }
+
+      if (bestGuard) {
+        bestGuard.cqc();
+        engine.events.push({ type: "cqc", guardId: bestGuard.id });
+        var thudResults = soundEvents.emitRadius(bestGuard.x, bestGuard.y, CQC_NOISE_RADIUS, false, guards);
+        for (var ti = 0; ti < thudResults.length; ti++) {
+          if (thudResults[ti].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: thudResults[ti].listenerId,
+              x: bestGuard.x,
+              y: bestGuard.y,
+              strength: thudResults[ti].strength,
+            });
+          }
+        }
+      } else if (anyWithinMissRange) {
+        engine.events.push({ type: "cqcMiss" });
+      }
+    }
 
     // COMBAT (see file header) — passed as ctx.onGuardFire to every
     // guard.update() call in the tick() guard loop below. References the
@@ -2997,6 +3451,15 @@
       player = newPlayer;
       inBlockedExitRegion = false;
 
+      // ZONE-SCOPED drag/locker state (see file header CQC VERB / DRAG VERB /
+      // LOCKER VERB) — a dragged guard belongs to the departing zone's now-
+      // discarded roster, and a hidden-in-a-locker player has no locker to
+      // return to in the new zone, so both reset on every transition, same
+      // v1 semantics as the guard roster itself not persisting.
+      engine.dragging = null;
+      engine.playerHidden = false;
+      hiddenLocker = null;
+
       engine.zone = zone;
       engine.world = world;
       engine.soundEvents = soundEvents;
@@ -3060,7 +3523,58 @@
       var alertCountBefore = squad.alertCount;
 
       var normalized = normalizeInput(input, player);
+
+      // ---- CQC / DRAG / LOCKER VERBS (new — see file header) — processed
+      // BEFORE player.update so (a) a G-edge that exits a locker THIS tick
+      // restores full movement/perception immediately (same tick), and
+      // (b) the FROZEN INPUT / DRAG SPEED CAP adjustments below land in
+      // `normalized` before it's ever handed to player.update.
+      var dragEdge = normalized.drag && !prevDrag;
+      prevDrag = normalized.drag;
+      if (dragEdge) {
+        handleDragKey();
+      }
+
+      var cqcEdge = normalized.cqc && !prevCqc;
+      prevCqc = normalized.cqc;
+      if (cqcEdge && !engine.playerHidden && !engine.dragging) {
+        tryCqc();
+      }
+
+      // FROZEN INPUT while hidden (see file header LOCKER VERB) — movement
+      // is zeroed so player.moving/noiseRadius() both read false/0; fire/cqc
+      // are gated at their own call sites below via engine.playerHidden.
+      if (engine.playerHidden) {
+        normalized.moveX = 0;
+        normalized.moveY = 0;
+        normalized.run = false;
+      }
+
+      // DRAG SPEED CAP (see file header DRAG VERB) — player.js has no
+      // speed-cap hook, so the ALREADY-normalized input vector is scaled
+      // here, before player.update ever sees it.
+      if (engine.dragging) {
+        normalized.moveX *= DRAG_SPEED_MULT;
+        normalized.moveY *= DRAG_SPEED_MULT;
+      }
+
       player.update(normalized, DT);
+
+      // DRAG FOLLOW (see file header DRAG VERB) — AFTER player.update so it
+      // uses this tick's fresh position/facing. A plain position overwrite
+      // on the dragged (SLEEPING) guard, not a guard.update()-mediated move.
+      if (engine.dragging) {
+        var draggedGuard = findGuardById(engine.dragging);
+        if (draggedGuard) {
+          draggedGuard.x = player.x - Math.cos(player.facing) * DRAG_FOLLOW_DIST;
+          draggedGuard.y = player.y - Math.sin(player.facing) * DRAG_FOLLOW_DIST;
+        } else {
+          // Defensive only (see file header's zone-scoped reset — this
+          // shouldn't be reachable mid-zone): the dragged guard vanished
+          // out from under us, so drop the dangling reference.
+          engine.dragging = null;
+        }
+      }
 
       // ---- NOISE STEP (see file header, tick() step 2) — AFTER
       // player.update, BEFORE any guard.update, so a sound made this tick is
@@ -3107,7 +3621,15 @@
       // decides hit/miss/impact from the player's position/facing.
       var fireEdge = normalized.fire && !prevFire;
       prevFire = normalized.fire;
-      if (fireEdge) {
+      if (fireEdge && engine.playerHidden) {
+        // Frozen input while hidden (see file header LOCKER VERB) — the
+        // button press is silently swallowed, same as movement.
+      } else if (fireEdge && engine.dragging) {
+        // NO FIRING WHILE DRAGGING (see file header DRAG VERB) — both hands
+        // are full; the edge is consumed (no repeat spam while held) but
+        // no dart is spent.
+        engine.events.push({ type: "busy" });
+      } else if (fireEdge) {
         var fireResult = inventory.fireTranq(engine);
         if (fireResult.fired) {
           engine.events.push({
@@ -3145,17 +3667,42 @@
 
       // sleepingGuards snapshot (see file header, tick() step 3) — computed
       // once per tick, from the CURRENT guards array (already reflecting any
-      // guard.tranq() call the fire verb above just made this same tick),
-      // and handed unchanged to every guard's update() call below.
+      // guard.tranq()/guard.cqc() call above just made this same tick, and
+      // any guard.stuffInLocker() a same-tick G-edge just made), and handed
+      // unchanged to every guard's update() call below. `hidden` (new — see
+      // guardAI.js's HIDDEN-BODY EXEMPTION) mirrors guard.hidden verbatim so
+      // checkColleagueDiscovery can skip stuffed bodies.
       var sleepingGuards = [];
       for (var sgi = 0; sgi < guards.length; sgi++) {
         if (guards[sgi].state === "SLEEPING") {
-          sleepingGuards.push({ id: guards[sgi].id, x: guards[sgi].x, y: guards[sgi].y });
+          sleepingGuards.push({
+            id: guards[sgi].id,
+            x: guards[sgi].x,
+            y: guards[sgi].y,
+            hidden: !!guards[sgi].hidden,
+          });
         }
       }
 
+      // GUARD PERCEPTION GATE while playerHidden (see file header LOCKER
+      // VERB) — every guard.update() call this tick gets a DECOY player
+      // object, permanently out of vision range, instead of the real
+      // `player`. guardAI.js/vision.js are unaware this substitution ever
+      // happens; onGuardFire/damage (below) still close over the REAL
+      // `player`, unaffected by this local var.
+      var perceivedPlayer = engine.playerHidden
+        ? {
+            x: HIDDEN_DECOY_POS,
+            y: HIDDEN_DECOY_POS,
+            facing: player.facing,
+            visionProfile: player.visionProfile,
+            moving: false,
+            stance: player.stance,
+          }
+        : player;
+
       for (var i = 0; i < guards.length; i++) {
-        guards[i].update(DT, { player: player, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
+        guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
       }
 
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
@@ -4236,6 +4783,24 @@
 //       item: { name: "---", count: null },
 //                               // PLACEHOLDER, same shape/rationale as weapon
 //                               // above but for the consumable-item slot.
+//                               // UNCHANGED this cycle (see `status` below —
+//                               // dragging/hiding are surfaced through a
+//                               // DIFFERENT field, deliberately, so every
+//                               // existing item-placeholder assertion in
+//                               // tests/hud.test.js keeps holding verbatim).
+//       status: "DRAGGING" | "HIDDEN" | null,
+//                               // NEW (CQC/locker cycle) — ADDITIVE field,
+//                               // separate from `item` above by design (see
+//                               // the note on `item` — this is what keeps
+//                               // this cycle backward compatible with
+//                               // tests/hud.test.js's untouched assertions).
+//                               // "HIDDEN" while engine.playerHidden, else
+//                               // "DRAGGING" while engine.dragging, else
+//                               // null. Falls back to null when engine
+//                               // exposes neither prop (e.g. a bespoke test
+//                               // engine-shaped object predating this
+//                               // cycle), same backward-compat rationale as
+//                               // the `weapon` placeholder fallback above.
 //       maxDetection: number 0..1,
 //                               // max over engine.guards[i].meter (0 if no
 //                               // guards). Drives the screen-edge detection
@@ -4284,6 +4849,11 @@
 //         out once darts hit 0; the original grayed "---" placeholder
 //         content only when engine.inventory is absent).
 //       - Bottom-right: item box, same shape, "ITEM" / "---".
+//       - Status tag (new — CQC/locker cycle): a small pill drawn just above
+//         the item box, reading "DRAGGING" (amber) or "HIDDEN" (blue) per
+//         model.status; drawn nothing at all when model.status is null. The
+//         item box itself is never touched by this (see hudModel's `status`
+//         field note above).
 //       - Zone-name card: shown center-left whenever model.zoneName differs
 //         from the LAST zoneName this view actually rendered (tracked in a
 //         closure var, seeded to null so the very first render() call always
@@ -4329,6 +4899,12 @@
     CAUTION: { fill: "rgba(239, 143, 0,", border: "#ffc04d", label: "CAUTION" },
   };
 
+  // New (CQC/locker cycle) — see hudModel's `status` field note above.
+  var STATUS_STYLE = {
+    DRAGGING: { fill: "rgba(239, 143, 0, 0.85)", border: "#ffc04d" },
+    HIDDEN: { fill: "rgba(70, 130, 180, 0.85)", border: "#9fd8ff" },
+  };
+
   // ---- pure model -------------------------------------------------------
 
   function hudModel(engine) {
@@ -4360,6 +4936,7 @@
         ? { name: "TRANQ", ammo: engine.inventory.darts }
         : { name: "---", ammo: null },
       item: { name: "---", count: null },
+      status: engine.playerHidden ? "HIDDEN" : engine.dragging ? "DRAGGING" : null,
       maxDetection: maxDetection,
     };
   }
@@ -4493,6 +5070,34 @@
     drawBox(ctx, x, y, "ITEM", content);
   }
 
+  // Status tag (new — CQC/locker cycle, see file header/hudModel note) — a
+  // small pill drawn just above the item box; drawn only while
+  // model.status is non-null. Never touches the item box itself.
+  function drawStatusTag(ctx, model, widthCss, heightCss) {
+    if (!model.status) return;
+    var style = STATUS_STYLE[model.status];
+    if (!style) return;
+
+    var tagH = 20;
+    var tagW = HUD.BOX_W;
+    var x = widthCss - HUD.BOX_W - HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN - tagH - 6;
+
+    ctx.fillStyle = style.fill;
+    ctx.fillRect(x, y, tagW, tagH);
+    ctx.strokeStyle = style.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, tagW - 1, tagH - 1);
+
+    ctx.fillStyle = "#0a0f0a";
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.status, x + tagW / 2, y + tagH / 2 + 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+  }
+
   function drawZoneCard(ctx, model, widthCss, heightCss, zoneState) {
     if (zoneState.shownAt === null) return;
     var elapsed = model.time - zoneState.shownAt;
@@ -4579,6 +5184,7 @@
       drawPhaseIndicator(ctx, model, widthCss);
       drawWeaponBox(ctx, model, widthCss, heightCss);
       drawItemBox(ctx, model, widthCss, heightCss);
+      drawStatusTag(ctx, model, widthCss, heightCss);
       drawZoneCard(ctx, model, widthCss, heightCss, zoneState);
     }
 
@@ -4637,6 +5243,24 @@
 //   an extreme frame hitch) could miss a tracer spawn; an honest, documented
 //   gap, not a silent one, same shape as this file's own zone-change/actor-
 //   rebuild contract notes elsewhere.
+//
+//   PLAYER HIDDEN (new — CQC/locker cycle, see src/engine.js's LOCKER VERB
+//   contract): while engine.playerHidden is true, the player's own body/nose
+//   meshes are dimmed and made to blink — opacity driven by a deterministic
+//   sine of engine.time (same "no Date.now" rule as every other animation in
+//   this file), oscillating roughly 0.25-0.6 alpha rather than snapping to a
+//   single fixed dim value, so it visibly reads as "blinking," not just
+//   "dimmer." Both materials are marked transparent:true once, at actor
+//   creation, so this per-frame opacity write is the only cost — no new
+//   geometry/material churn. RADAR NOTE: src/radar.js is NOT touched this
+//   cycle (out of scope for this file's own change set — see this cycle's
+//   design brief) — the radar view keeps drawing the player triangle at full
+//   brightness while hidden; only THIS (the 3D scene) reflects playerHidden.
+//   A dragged (SLEEPING) guard's actor needs no special-casing here at all:
+//   it already renders every frame from guard.x/guard.y via the normal
+//   SLEEPING pose path below, and src/engine.js's DRAG VERB overwrites those
+//   same x/y every tick to trail the player — so a dragged body is already
+//   drawn "following the player" for free, with zero render.js changes.
 //
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
@@ -4767,6 +5391,11 @@
 
     var TRACER_DURATION_S = 0.25;
     var TRACER_Y = 0.6; // roughly muzzle height
+
+    // PLAYER HIDDEN dim/blink (see file header) — cycles/sec-ish for the
+    // opacity sine while engine.playerHidden is true.
+    var HIDDEN_BLINK_HZ = 1.4;
+    var TWO_PI_R = Math.PI * 2;
 
     // ---- renderer / scene / camera --------------------------------------------
 
@@ -5308,9 +5937,22 @@
 
       if (!playerActor) {
         playerActor = makeActor(PLAYER_COLOR, NOSE_COLOR);
+        // Marked transparent up front (see file header PLAYER HIDDEN note)
+        // so the per-frame opacity write below never has to toggle
+        // .transparent itself — a one-time cost, not per-frame churn.
+        playerActor.body.material.transparent = true;
+        playerActor.nose.material.transparent = true;
       }
       var player = engine.player;
       placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
+
+      // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
+      // engine.time, never Date.now. Full opacity (1) whenever not hidden.
+      var playerOpacity = engine.playerHidden
+        ? 0.42 + 0.18 * Math.sin(engine.time * HIDDEN_BLINK_HZ * TWO_PI_R)
+        : 1;
+      playerActor.body.material.opacity = playerOpacity;
+      playerActor.nose.material.opacity = playerOpacity;
 
       for (var i = 0; i < engine.guards.length; i++) {
         var guard = engine.guards[i];
@@ -5744,6 +6386,475 @@ Game.selfTests.push({
     assert(Math.abs(model.life - 0.7) < 1e-9, "expected hudModel.life 0.7 after 0.3 damage, got " + model.life);
   },
 });
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/cqc.test.js ====
+(function (global) {
+// tests/cqc.test.js — headless assertions for CQC takedowns, body-dragging,
+// and lockers: the CQC/DRAG/LOCKER verbs wired into src/engine.js, the new
+// guard.cqc()/guard.stuffInLocker()/guard.hidden surface in src/guardAI.js,
+// and the additive hudModel.status field in src/hud.js. Same registry
+// pattern as every other tests/*.js file: push onto the shared
+// Game.selfTests list; test.js runs every entry and reports ok/FAIL with
+// real exit codes. Follows tests/tranq.test.js's own conventions (real
+// engines, the same teleport-a-guard/teleport-the-player tricks, and the
+// same guard-level harness for scenarios too fiddly to script through a
+// full engine).
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+function dist(x1, y1, x2, y2) {
+  var dx = x2 - x1;
+  var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function farPlayer() {
+  return { x: -1000, y: -1000, visionProfile: function () { return 1.0; } };
+}
+
+// ---- 1. CQC from behind sleeps the guard + emits a faint thud noise -------
+
+Game.selfTests.push({
+  name: "cqc: a takedown from behind sleeps the guard immediately and emits a faint thud a bystander hears",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [
+        { id: "tg-cqc", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }, // facing due east (0)
+        { id: "bystander-cqc", spawn: { x: 22, y: 6 }, waypoints: [{ x: 1022, y: 6 }] },
+      ],
+    });
+    // 1.2m due WEST of the guard -- directly behind its east-facing cone.
+    engine.player.x = 18.8;
+    engine.player.y = 5;
+    engine.player.facing = 0;
+
+    assert(engine.squad.phase === "INFILTRATION", "setup: squad should still be INFILTRATION");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", cqc: true });
+
+    var cqcEvents = engine.events.filter(function (e) { return e.type === "cqc"; });
+    assert(cqcEvents.length === 1, "expected exactly one cqc event, got " + JSON.stringify(engine.events));
+    assert(cqcEvents[0].guardId === "tg-cqc", "expected guardId 'tg-cqc', got " + cqcEvents[0].guardId);
+    assert(engine.guards[0].state === "SLEEPING", "expected the CQC'd guard to be SLEEPING immediately, got " + engine.guards[0].state);
+
+    var heardFaint = engine.events.some(function (e) {
+      return e.type === "noiseHeard" && e.guardId === "bystander-cqc" && e.strength === "faint";
+    });
+    assert(heardFaint, "expected the bystander to have heard the CQC thud as a faint noise, got " + JSON.stringify(engine.events));
+  },
+});
+
+// ---- 2. CQC from the front fails: cqcMiss, guard stays awake --------------
+
+Game.selfTests.push({
+  name: "cqc: attempting a takedown from the front (not behind) misses -- cqcMiss, guard stays awake",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "tg-front", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+    // 1.2m due EAST of the guard -- squarely in front of its east-facing cone.
+    engine.player.x = 21.2;
+    engine.player.y = 5;
+    engine.player.facing = Math.PI;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", cqc: true });
+
+    var cqcEvents = engine.events.filter(function (e) { return e.type === "cqc"; });
+    assert(cqcEvents.length === 0, "expected no cqc event from the front, got " + JSON.stringify(engine.events));
+    var missEvents = engine.events.filter(function (e) { return e.type === "cqcMiss"; });
+    assert(missEvents.length === 1, "expected exactly one cqcMiss event, got " + JSON.stringify(engine.events));
+    assert(engine.guards[0].state !== "SLEEPING", "expected the guard to remain awake, got " + engine.guards[0].state);
+  },
+});
+
+// ---- 3. CQC is blocked entirely while squad.phase is ALERT ----------------
+
+Game.selfTests.push({
+  name: "cqc: blocked outright while squad.phase is ALERT, even at point-blank range",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "tg-alert-cqc", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    var reachedAlert = false;
+    for (var i = 0; i < 240 && !reachedAlert; i++) {
+      engine.player.x = 22;
+      engine.player.y = 5;
+      engine.tick();
+      if (engine.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT");
+
+    // Let the guard close the distance toward ARREST_DIST (well inside the
+    // 2.5m cqcMiss feedback range) before attempting the takedown.
+    for (var j = 0; j < 120; j++) {
+      engine.tick();
+      engine.player.x = 22;
+      engine.player.y = 5;
+    }
+    assert(engine.squad.phase === "ALERT", "setup failed: squad fell out of ALERT before the attempt");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", cqc: true });
+
+    var cqcEvents = engine.events.filter(function (e) { return e.type === "cqc"; });
+    assert(cqcEvents.length === 0, "expected CQC to be blocked during ALERT, got " + JSON.stringify(engine.events));
+    assert(engine.guards[0].state !== "SLEEPING", "expected the guard to remain unaffected, got " + engine.guards[0].state);
+  },
+});
+
+// ---- 4. CQC is silent (no event at all) when no guard is within range -----
+
+Game.selfTests.push({
+  name: "cqc: silent (no cqc, no cqcMiss) when no guard is within the 2.5m feedback range",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "tg-far", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+    engine.player.x = -500;
+    engine.player.y = -500;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", cqc: true });
+
+    var relevant = engine.events.filter(function (e) { return e.type === "cqc" || e.type === "cqcMiss"; });
+    assert(relevant.length === 0, "expected zero cqc/cqcMiss events when far from every guard, got " + JSON.stringify(engine.events));
+  },
+});
+
+// ---- 5. Drag attach: guard follows ~0.9m behind the player ----------------
+
+Game.selfTests.push({
+  name: "drag: attaching to a sleeping guard makes it follow ~0.9m behind the player every tick",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-drag", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    engine.guards[0].tranq(true); // headshot -> instantly SLEEPING
+    assert(engine.guards[0].state === "SLEEPING", "setup failed: guard should be SLEEPING");
+
+    engine.player.x = 20;
+    engine.player.y = 25;
+    engine.player.facing = 0;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.dragging === "sleeper-drag", "expected engine.dragging === 'sleeper-drag', got " + engine.dragging);
+
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+      var expectedX = engine.player.x - Math.cos(engine.player.facing) * 0.9;
+      var expectedY = engine.player.y - Math.sin(engine.player.facing) * 0.9;
+      assert(
+        Math.abs(engine.guards[0].x - expectedX) < 1e-6 && Math.abs(engine.guards[0].y - expectedY) < 1e-6,
+        "tick " + i + ": expected dragged guard at (" + expectedX + "," + expectedY + "), got (" + engine.guards[0].x + "," + engine.guards[0].y + ")"
+      );
+      var followDist = dist(engine.player.x, engine.player.y, engine.guards[0].x, engine.guards[0].y);
+      assert(Math.abs(followDist - 0.9) < 1e-6, "expected follow distance ~0.9m, got " + followDist);
+    }
+  },
+});
+
+// ---- 6. Drag halves (0.55x) player speed ----------------------------------
+
+Game.selfTests.push({
+  name: "drag: reduces player speed to ~0.55x, measured over 60 ticks against an undragged baseline",
+  fn: function () {
+    var dragEngine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-speed", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    dragEngine.guards[0].tranq(true);
+    dragEngine.player.x = 20;
+    dragEngine.player.y = 25;
+    dragEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(dragEngine.dragging === "sleeper-speed", "setup failed: drag never attached");
+
+    var startX = dragEngine.player.x;
+    for (var i = 0; i < 60; i++) {
+      dragEngine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+    }
+    var draggedDisplacement = dragEngine.player.x - startX;
+
+    var baselineEngine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-speed-b", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    baselineEngine.player.x = 20;
+    baselineEngine.player.y = 25;
+    var startXb = baselineEngine.player.x;
+    for (var j = 0; j < 60; j++) {
+      baselineEngine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+    }
+    var baselineDisplacement = baselineEngine.player.x - startXb;
+
+    assert(baselineDisplacement > 0, "setup failed: baseline player never moved");
+    var ratio = draggedDisplacement / baselineDisplacement;
+    assert(
+      Math.abs(ratio - 0.55) < 0.02,
+      "expected dragged/baseline displacement ratio ~0.55, got " + ratio.toFixed(4) +
+        " (dragged=" + draggedDisplacement.toFixed(3) + ", baseline=" + baselineDisplacement.toFixed(3) + ")"
+    );
+  },
+});
+
+// ---- 7. Release drops the guard where it was --------------------------
+
+Game.selfTests.push({
+  name: "drag: pressing G again away from a locker releases -- the guard stays exactly where it was dropped",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-release", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    engine.guards[0].tranq(true);
+    engine.player.x = 20;
+    engine.player.y = 25;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.dragging === "sleeper-release", "setup failed: drag never attached");
+
+    for (var i = 0; i < 20; i++) {
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+    }
+
+    // Release: another G edge, well clear of any locker (loadingDock's
+    // lockers sit at x~2, far from this eastward walk).
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.dragging === null, "expected engine.dragging cleared to null after release, got " + engine.dragging);
+
+    var droppedX = engine.guards[0].x;
+    var droppedY = engine.guards[0].y;
+
+    for (var j = 0; j < 30; j++) {
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+    }
+
+    assert(
+      engine.guards[0].x === droppedX && engine.guards[0].y === droppedY,
+      "expected the released guard to stay put at (" + droppedX + "," + droppedY + "), got (" + engine.guards[0].x + "," + engine.guards[0].y + ")"
+    );
+  },
+});
+
+// ---- 8. Firing while dragging is blocked (busy event, no dart spent) ------
+
+Game.selfTests.push({
+  name: "drag: firing while dragging is blocked -- busy event, no dart spent, drag unaffected",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-busy", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    engine.guards[0].tranq(true);
+    engine.player.x = 20;
+    engine.player.y = 25;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.dragging === "sleeper-busy", "setup failed: drag never attached");
+
+    var dartsBefore = engine.inventory.darts;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", fire: true });
+
+    var busyEvents = engine.events.filter(function (e) { return e.type === "busy"; });
+    assert(busyEvents.length === 1, "expected exactly one busy event, got " + JSON.stringify(engine.events));
+    var tranqEvents = engine.events.filter(function (e) { return e.type === "tranqFired"; });
+    assert(tranqEvents.length === 0, "expected no tranqFired event while dragging, got " + JSON.stringify(engine.events));
+    assert(engine.inventory.darts === dartsBefore, "expected no dart spent while dragging, got " + engine.inventory.darts);
+    assert(engine.dragging === "sleeper-busy", "expected drag to remain attached, got " + engine.dragging);
+  },
+});
+
+// ---- 9. Stuffing a body into a locker sets hidden -- exempt from colleague
+//         discovery even under a watching guard's clear, sustained sight ---
+
+Game.selfTests.push({
+  name: "locker: a stuffed body is hidden=true and exempt from colleague-discovery even under direct sustained sight",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(1);
+    var squad = Game.createSquad();
+
+    var sleeper = Game.createGuard({
+      world: world, vision: vision, rng: rng,
+      spawn: { x: 20, y: 28 }, waypoints: [{ x: 1020, y: 28 }],
+      id: "body-locker-1", squad: squad,
+    });
+    sleeper.tranq(true);
+    assert(sleeper.state === "SLEEPING", "setup failed: sleeper should be SLEEPING");
+
+    var locker = { x: 14, y: 28, facing: 0 };
+    sleeper.stuffInLocker(locker);
+    assert(sleeper.hidden === true, "expected sleeper.hidden true after stuffInLocker");
+    assert(sleeper.x === locker.x && sleeper.y === locker.y, "expected sleeper repositioned to the locker");
+
+    var watcher = Game.createGuard({
+      world: world, vision: vision, rng: rng,
+      spawn: { x: 10, y: 28 }, waypoints: [{ x: 1010, y: 28 }],
+      id: "watcher-locker-1", squad: squad,
+    }); // facing 0 (+x): the locker sits 4m dead ahead, well inside BODY_SPOT_RANGE
+
+    var player = farPlayer();
+    var MAX_TICKS = Math.round(5 / DT); // well past BODY_SPOT_CONFIRM_S (0.5s)
+    for (var i = 0; i < MAX_TICKS; i++) {
+      var sleepingList = [{ id: sleeper.id, x: sleeper.x, y: sleeper.y, hidden: sleeper.hidden }];
+      watcher.update(DT, { player: player, sleepingGuards: sleepingList });
+      sleeper.update(DT, { player: player, sleepingGuards: sleepingList });
+      squad.tick(DT, watcher.hasLOS || sleeper.hasLOS);
+      assert(squad.alertCount === 0, "expected zero alerts (hidden exemption) at tick " + i);
+      assert(watcher.state !== "ALERT", "expected watcher to never enter ALERT while the body is hidden, tick " + i);
+    }
+  },
+});
+
+// ---- 10. Hiding the player in a locker gates guard perception -------------
+
+Game.selfTests.push({
+  name: "locker: hiding the player gates guard perception -- meter stays 0 despite a guard with clear LOS",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var locker = zone.lockers[0]; // {x:2, y:9, facing:0}
+    var engine = Game.createEngine({
+      zoneData: zone,
+      guardConfigs: [{ id: "watcher-hide", spawn: { x: 6, y: 9 }, waypoints: [{ x: 6, y: 9 }] }],
+    });
+    engine.guards[0].facing = Math.PI; // facing due west, straight down the line to the locker
+
+    engine.player.x = locker.x;
+    engine.player.y = locker.y;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true }); // G near a locker, not dragging -> HIDE
+    assert(engine.playerHidden === true, "expected playerHidden true after hiding, got " + engine.playerHidden);
+
+    for (var i = 0; i < 300; i++) { // 5s
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      assert(engine.guards[0].meter === 0, "expected meter pinned at 0 while hidden, tick " + i + " got " + engine.guards[0].meter);
+      assert(engine.guards[0].hasLOS === false, "expected hasLOS false against the decoy while hidden, tick " + i);
+    }
+  },
+});
+
+// ---- 11. Exiting the locker restores normal perception --------------------
+
+Game.selfTests.push({
+  name: "locker: exiting restores normal perception -- a nearby guard can detect the player again",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var locker = zone.lockers[0]; // {x:2, y:9, facing:0}
+    var engine = Game.createEngine({
+      zoneData: zone,
+      guardConfigs: [{ id: "watcher-exit", spawn: { x: 6, y: 9 }, waypoints: [{ x: 6, y: 9 }] }],
+    });
+    engine.guards[0].facing = Math.PI;
+
+    engine.player.x = locker.x;
+    engine.player.y = locker.y;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true }); // HIDE
+    assert(engine.playerHidden === true, "setup failed: player never hid");
+
+    // A few ticks hidden, to prove the gate was actually engaged.
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+    }
+    assert(engine.guards[0].meter === 0, "setup failed: meter should still read 0 while hidden");
+
+    // Exit: another G edge while playerHidden always means EXIT.
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.playerHidden === false, "expected playerHidden false after exiting, got " + engine.playerHidden);
+    // Stepped out 1m east along the locker's facing (0).
+    assert(
+      Math.abs(engine.player.x - (locker.x + 1)) < 0.2 && Math.abs(engine.player.y - locker.y) < 0.2,
+      "expected the player to step out ~1m along the locker's facing, got (" + engine.player.x + "," + engine.player.y + ")"
+    );
+
+    // Now stand close in front of the guard's own facing and confirm
+    // detection resumes (meter rises above 0 again).
+    var meterRose = false;
+    for (var j = 0; j < 180 && !meterRose; j++) {
+      var g = engine.guards[0];
+      engine.player.x = g.x + Math.cos(g.facing) * 2;
+      engine.player.y = g.y + Math.sin(g.facing) * 2;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.guards[0].meter > 0) meterRose = true;
+    }
+    assert(meterRose, "expected the guard's meter to rise above 0 once perception was restored");
+  },
+});
+
+// ---- 12. Waking a hidden (stuffed) guard steps it out of the locker -------
+
+Game.selfTests.push({
+  name: "locker: a hidden guard wakes after SLEEP_S, steps out of the locker, and resumes as INVESTIGATE",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(1);
+    var guard = Game.createGuard({
+      world: world, vision: vision, rng: rng,
+      spawn: { x: 20, y: 5 }, waypoints: zone.waypoints,
+      id: "sleeper-locker-wake",
+    });
+
+    guard.tranq(true);
+    var locker = { x: 20, y: 5, facing: 0 };
+    guard.stuffInLocker(locker);
+    assert(guard.hidden === true, "setup failed: guard should be hidden after stuffInLocker");
+
+    var player = farPlayer();
+    var wokeAtTick = null;
+    var TOTAL_TICKS = Math.round((Game.GUARD.SLEEP_S + 5) / DT);
+    for (var i = 0; i < TOTAL_TICKS && wokeAtTick === null; i++) {
+      guard.update(DT, { player: player });
+      if (guard.state === "INVESTIGATE") wokeAtTick = i;
+    }
+
+    assert(wokeAtTick !== null, "guard never woke into INVESTIGATE");
+    assert(guard.hidden === false, "expected guard.hidden false after waking, got " + guard.hidden);
+    var steppedDist = dist(guard.x, guard.y, locker.x, locker.y);
+    assert(steppedDist > 0.5, "expected the guard to have stepped clear of the locker, only moved " + steppedDist + "m");
+    assert(steppedDist < 1.5, "expected the step to be roughly 1m, got " + steppedDist + "m");
+    // Stepped east (locker.facing === 0).
+    assert(guard.x > locker.x, "expected the guard to step out east of the locker, got x=" + guard.x);
+  },
+});
+
+// ---- 13. hudModel.status is additive -- item placeholder untouched --------
+
+Game.selfTests.push({
+  name: "hud: status reflects DRAGGING/HIDDEN additively -- the item placeholder is untouched",
+  fn: function () {
+    if (typeof require !== "undefined") require("../src/hud.js");
+
+    var freshEngine = Game.createEngine();
+    var freshModel = Game.hudModel(freshEngine);
+    assert(freshModel.status === null, "expected status null on a fresh engine, got " + freshModel.status);
+    assert(freshModel.item.name === "---" && freshModel.item.count === null, "expected item placeholder untouched");
+
+    var dragEngine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-hud", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
+    });
+    dragEngine.guards[0].tranq(true);
+    dragEngine.player.x = 20;
+    dragEngine.player.y = 25;
+    dragEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(dragEngine.dragging === "sleeper-hud", "setup failed: drag never attached");
+    var dragModel = Game.hudModel(dragEngine);
+    assert(dragModel.status === "DRAGGING", "expected status 'DRAGGING', got " + dragModel.status);
+    assert(dragModel.item.name === "---" && dragModel.item.count === null, "expected item placeholder untouched while dragging");
+
+    var zone = Game.ZONES.loadingDock;
+    var locker = zone.lockers[0];
+    var hideEngine = Game.createEngine({ zoneData: zone });
+    hideEngine.player.x = locker.x;
+    hideEngine.player.y = locker.y;
+    hideEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(hideEngine.playerHidden === true, "setup failed: player never hid");
+    var hideModel = Game.hudModel(hideEngine);
+    assert(hideModel.status === "HIDDEN", "expected status 'HIDDEN', got " + hideModel.status);
+    assert(hideModel.item.name === "---" && hideModel.item.count === null, "expected item placeholder untouched while hidden");
+  },
+});
+
+if (typeof module !== "undefined") module.exports = {};
 
 })(typeof window !== "undefined" ? window : global);
 // ==== tests/engine.test.js ====
@@ -9411,6 +10522,9 @@ Game.selfTests.push({
     ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
     ShiftLeft: true, ShiftRight: true,
     KeyC: true, KeyZ: true, KeyE: true, KeyF: true,
+    // KeyQ/KeyG: NEW (CQC/body-drag/lockers cycle) — see src/engine.js's CQC
+    // VERB / DRAG VERB / LOCKER VERB contract for what each edge does.
+    KeyQ: true, KeyG: true,
     Enter: true,
   };
 
@@ -9460,6 +10574,14 @@ Game.selfTests.push({
     var stance = "stand"; // toggled edge-triggered by C/Z
     var pendingKnock = false; // set true on an E keydown edge, consumed once
     var pendingFire = false; // set true on an F keydown edge, consumed once
+    // pendingCqc/pendingDrag: NEW (CQC/body-drag/lockers cycle) — same
+    // one-shot-per-keydown-edge shape as pendingKnock/pendingFire above; the
+    // engine itself does its OWN edge-detection on top of this (see
+    // src/engine.js's CQC VERB / DRAG VERB contract), so holding Q/G down
+    // only ever registers as a single press either way — this is just the
+    // DOM-keydown-repeat guard, same as every other verb here.
+    var pendingCqc = false; // set true on a Q keydown edge, consumed once
+    var pendingDrag = false; // set true on a G keydown edge, consumed once
 
     function onKeyDown(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
@@ -9473,6 +10595,10 @@ Game.selfTests.push({
         pendingKnock = true;
       } else if (e.code === "KeyF") {
         pendingFire = true;
+      } else if (e.code === "KeyQ") {
+        pendingCqc = true;
+      } else if (e.code === "KeyG") {
+        pendingDrag = true;
       }
     }
 
@@ -9504,6 +10630,8 @@ Game.selfTests.push({
         stance: stance,
         knock: pendingKnock,
         fire: pendingFire,
+        cqc: pendingCqc,
+        drag: pendingDrag,
       };
     }
 
@@ -9527,6 +10655,8 @@ Game.selfTests.push({
         engine.tick(buildInput());
         pendingKnock = false; // consumed — only true for the tick right after the edge
         pendingFire = false; // consumed — only true for the tick right after the edge
+        pendingCqc = false; // consumed — only true for the tick right after the edge
+        pendingDrag = false; // consumed — only true for the tick right after the edge
         acc -= DT;
       }
 
@@ -9605,7 +10735,7 @@ Game.selfTests.push({
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {
