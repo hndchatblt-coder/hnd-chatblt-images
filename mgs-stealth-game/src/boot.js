@@ -44,6 +44,7 @@
     var engine = Game.createEngine();
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
     var radar = Game.createRadar({ container: rootEl });
+    var hud = Game.createHud({ container: rootEl });
 
     // Debug/screenshot hook ONLY — not read by any gameplay code. screenshot.js
     // uses this to teleport the player and inspect guard state for its scenes.
@@ -116,6 +117,7 @@
 
       renderer.render(engine);
       radar.render(engine);
+      hud.render(engine);
       requestAnimationFrame(frame);
     }
 

@@ -2433,6 +2433,405 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== src/hud.js ====
+// src/hud.js
+// PUBLIC API:
+//   Game.HUD — tunable constants:
+//     {
+//       MARGIN: 16,             // css px, gap from screen edges for every corner element
+//       LIFE_BAR_W: 160,        // css px, LIFE segmented bar width
+//       LIFE_BAR_H: 14,         // css px, LIFE segmented bar height
+//       LIFE_SEGMENTS: 10,      // number of discrete segments in the LIFE bar
+//       BOX_W: 150,             // css px, weapon/item box width
+//       BOX_H: 64,              // css px, weapon/item box height
+//       ZONE_CARD_FADE_S: 3,    // seconds the zone-name card takes to fade to 0 alpha
+//       PHASE_PULSE_PERIOD_S: 1.2, // seconds per ALERT box brightness pulse cycle
+//       VIGNETTE_HEIGHT: 160,   // css px, depth of the top detection-vignette gradient
+//       VIGNETTE_MAX_ALPHA: 0.25, // max alpha of the vignette at maxDetection === 1
+//     }
+//
+//   Game.hudModel(engine) -> plain, JSON-safe object (no functions, no
+//   undefined fields anywhere in the tree — every field is a primitive or a
+//   plain object):
+//     {
+//       life: number 0..1,      // engine.player.hp if it exists (FORWARD HOOK —
+//                               // no health/damage system exists yet, see
+//                               // items/director TODOs) else 1.0 (full health
+//                               // assumed). The instant a future module adds
+//                               // player.hp, this line picks it up with no
+//                               // hud.js change required.
+//       phase: string,          // engine.squad.phase, one of "INFILTRATION" |
+//                               // "ALERT" | "EVASION" | "CAUTION" (mirrors
+//                               // guardAI.js's squad.phase verbatim)
+//       phaseTime: number,      // engine.squad.phaseTime, seconds in phase
+//       phaseRemaining: number|null,
+//                               // Game.GUARD.EVASION_S - phaseTime while phase
+//                               // is EVASION, Game.GUARD.CAUTION_S - phaseTime
+//                               // while CAUTION, else null (INFILTRATION/ALERT
+//                               // have no countdown — ALERT persists exactly
+//                               // as long as any guard has LOS, no timer; see
+//                               // guardAI.js's squad.tick contract)
+//       alertCount: number,      // engine.squad.alertCount, copied
+//       zoneName: string,        // engine.zone.name
+//       time: number,            // engine.time, the mission clock (seconds)
+//       weapon: { name: "---", ammo: null },
+//                               // PLACEHOLDER — no weapon/ammo system exists
+//                               // yet. Shape is fixed now so a future items
+//                               // cycle only has to populate real values, not
+//                               // add a new field/reshape the HUD view. name
+//                               // is a display string ("---" = none equipped);
+//                               // ammo is a count or null (infinite/N-A).
+//       item: { name: "---", count: null },
+//                               // PLACEHOLDER, same shape/rationale as weapon
+//                               // above but for the consumable-item slot.
+//       maxDetection: number 0..1,
+//                               // max over engine.guards[i].meter (0 if no
+//                               // guards). Drives the screen-edge detection
+//                               // vignette — a guard in ALERT has meter
+//                               // pinned at 1 (see guardAI.js's ALERT
+//                               // contract), so maxDetection reads 1.0 for the
+//                               // full duration of an active chase.
+//     }
+//   Pure function of engine state, no DOM/THREE/Date/Math.random — runs
+//   headless in node (tests/hud.test.js exercises this half only).
+//
+//   Game.createHud({ container }) -> hud (BROWSER ONLY — uses document/canvas
+//   2D; never call from node)
+//     container: DOM element the HUD's own <canvas> is appended into. This
+//       module creates exactly one canvas, absolutely positioned to cover the
+//       full container (inset:0), pointer-events:none (never intercepts
+//       input — matches src/radar.js's own canvas, which the HUD shares
+//       screen space with), transparent background (only draws its own
+//       panels/text, never a full-screen fill). devicePixelRatio-aware sizing
+//       so text/lines stay crisp, resized every render() call against
+//       window.innerWidth/innerHeight (cheap no-op comparison when unchanged
+//       — no separate resize listener needed, matching how src/radar.js keys
+//       its own resize off zone dims every render() call instead of wiring
+//       its own "resize" listener).
+//     radar.js occupies the TOP-RIGHT corner (Game.RADAR.WIDTH=220 css px +
+//       Game.RADAR.MARGIN=14 css px margin from each edge — see src/radar.js).
+//       This view NEVER draws in that region: top-left (LIFE/clock/alert
+//       counter), top-center (phase indicator), bottom-left (weapon box),
+//       bottom-right (item box), center-left (zone card) — all clear of the
+//       radar's top-right footprint by construction.
+//     hud.render(engine) — computes Game.hudModel(engine) and draws it to the
+//       canvas. MGS1-flavored palette: dark translucent (#041008cc) bordered
+//       panels, bright-green (#39ff6a) accents/borders matching src/radar.js,
+//       monospace text, crisp 1px borders.
+//       - Top-left: "LIFE" label + segmented bar (green->amber->red by value),
+//         mission clock (mm:ss) below it, "ALERT xN" counter beneath that when
+//         alertCount > 0.
+//       - Top-center: nothing while INFILTRATION; a red pulsing box reading
+//         "ALERT" while ALERT (pulse driven by engine.time, deterministic —
+//         no Date/Math.random, matching src/radar.js's exit-pulse technique);
+//         a purple box reading "EVASION" + a whole-second countdown from
+//         phaseRemaining while EVASION; an amber box reading "CAUTION" + the
+//         same style countdown while CAUTION.
+//       - Bottom-left: weapon box, bordered rounded rect ~150x64, "WEAPON"
+//         label + grayed "---" placeholder content.
+//       - Bottom-right: item box, same shape, "ITEM" / "---".
+//       - Zone-name card: shown center-left whenever model.zoneName differs
+//         from the LAST zoneName this view actually rendered (tracked in a
+//         closure var, seeded to null so the very first render() call always
+//         counts as "different" and shows the card) — big monospace zone name
+//         with a thin underline, fading out over Game.HUD.ZONE_CARD_FADE_S
+//         seconds of engine.time elapsed SINCE THE TICK THE CHANGE WAS
+//         DETECTED (a stored engine.time, not wall-clock Date.now() — so the
+//         fade is exactly as deterministic/replay-safe as everything else in
+//         this codebase).
+//       - Detection vignette: while model.maxDetection > 0, a faint
+//         white-to-transparent gradient hugging the top edge, alpha scaling
+//         linearly with maxDetection up to Game.HUD.VIGNETTE_MAX_ALPHA (0.25)
+//         at maxDetection === 1.
+//     THREE is never referenced anywhere in this file (canvas 2D only).
+//
+// Pure logic (hudModel) + browser view (createHud) in one file, split so the
+// model half is fully node-testable (see tests/hud.test.js's own header,
+// which self-requires this module the same way tests/radar.test.js does since
+// test.js's LOGIC_ORDER is fixed and does not list hud.js); the view half is
+// browser-only and untested headless by design — screenshot.js is what
+// verifies the rendered canvas actually looks right (open
+// shots/02-ingame-patrol.png and shots/03-alert.png and look).
+(function (Game) {
+  var HUD = {
+    MARGIN: 16,
+    LIFE_BAR_W: 160,
+    LIFE_BAR_H: 14,
+    LIFE_SEGMENTS: 10,
+    BOX_W: 150,
+    BOX_H: 64,
+    ZONE_CARD_FADE_S: 3,
+    PHASE_PULSE_PERIOD_S: 1.2,
+    VIGNETTE_HEIGHT: 160,
+    VIGNETTE_MAX_ALPHA: 0.25,
+  };
+
+  var PANEL_BG = "rgba(4, 16, 8, 0.80)";
+  var BORDER = "#39ff6a";
+
+  var PHASE_STYLE = {
+    ALERT: { fill: "rgba(198, 40, 40,", border: "#ff5a4a", label: "ALERT" },
+    EVASION: { fill: "rgba(106, 27, 154,", border: "#c07bff", label: "EVASION" },
+    CAUTION: { fill: "rgba(239, 143, 0,", border: "#ffc04d", label: "CAUTION" },
+  };
+
+  // ---- pure model -------------------------------------------------------
+
+  function hudModel(engine) {
+    var squad = engine.squad;
+    var phase = squad.phase;
+    var phaseTime = squad.phaseTime;
+
+    var phaseRemaining = null;
+    if (phase === "EVASION") {
+      phaseRemaining = Game.GUARD.EVASION_S - phaseTime;
+    } else if (phase === "CAUTION") {
+      phaseRemaining = Game.GUARD.CAUTION_S - phaseTime;
+    }
+
+    var maxDetection = 0;
+    for (var i = 0; i < engine.guards.length; i++) {
+      if (engine.guards[i].meter > maxDetection) maxDetection = engine.guards[i].meter;
+    }
+
+    return {
+      life: engine.player.hp !== undefined ? engine.player.hp : 1.0,
+      phase: phase,
+      phaseTime: phaseTime,
+      phaseRemaining: phaseRemaining,
+      alertCount: squad.alertCount,
+      zoneName: engine.zone.name,
+      time: engine.time,
+      weapon: { name: "---", ammo: null },
+      item: { name: "---", count: null },
+      maxDetection: maxDetection,
+    };
+  }
+
+  // ---- browser view -------------------------------------------------------
+
+  function lifeColor(t) {
+    // t in 0..1: green (>0.5) -> amber (0.25..0.5) -> red (<0.25).
+    if (t > 0.5) return "#39ff6a";
+    if (t > 0.25) return "#ffc04d";
+    return "#ff4a4a";
+  }
+
+  function formatClock(seconds) {
+    var s = Math.max(0, Math.floor(seconds));
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return (mm < 10 ? "0" + mm : "" + mm) + ":" + (ss < 10 ? "0" + ss : "" + ss);
+  }
+
+  function drawPanel(ctx, x, y, w, h) {
+    ctx.fillStyle = PANEL_BG;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = BORDER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+
+  function drawLifeAndClock(ctx, model, m) {
+    var w = HUD.LIFE_BAR_W;
+    var h = HUD.LIFE_BAR_H;
+    var panelH = 24 + h + 20 + (model.alertCount > 0 ? 18 : 0);
+    drawPanel(ctx, m, m, w + 16, panelH);
+
+    ctx.fillStyle = "#9fffb8";
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("LIFE", m + 8, m + 6);
+
+    var barX = m + 8;
+    var barY = m + 22;
+    ctx.strokeStyle = BORDER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, w - 1, h - 1);
+
+    var segN = HUD.LIFE_SEGMENTS;
+    var filled = Math.round(model.life * segN);
+    var gap = 2;
+    var segW = (w - gap * (segN - 1)) / segN;
+    var color = lifeColor(model.life);
+    for (var i = 0; i < segN; i++) {
+      if (i >= filled) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(barX + i * (segW + gap), barY, segW, h);
+    }
+
+    ctx.fillStyle = "#d8ffe4";
+    ctx.font = "12px monospace";
+    ctx.fillText(formatClock(model.time), m + 8, barY + h + 6);
+
+    if (model.alertCount > 0) {
+      ctx.fillStyle = "#ff5a4a";
+      ctx.font = "bold 11px monospace";
+      ctx.fillText("ALERT x" + model.alertCount, m + 8, barY + h + 24);
+    }
+  }
+
+  function drawPhaseIndicator(ctx, model, widthCss) {
+    if (model.phase === "INFILTRATION") return;
+    var style = PHASE_STYLE[model.phase];
+    if (!style) return;
+
+    var text = style.label;
+    if (model.phaseRemaining !== null) {
+      text += "  " + Math.ceil(model.phaseRemaining) + "s";
+    }
+
+    var boxW = 150;
+    var boxH = 34;
+    var x = (widthCss - boxW) / 2;
+    var y = HUD.MARGIN;
+
+    var pulse = 0.55 + 0.35 * Math.sin((model.time / HUD.PHASE_PULSE_PERIOD_S) * Math.PI * 2);
+    ctx.fillStyle = style.fill + pulse.toFixed(3) + ")";
+    ctx.fillRect(x, y, boxW, boxH);
+    ctx.strokeStyle = style.border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, boxW - 1, boxH - 1);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 15px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x + boxW / 2, y + boxH / 2 + 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+  }
+
+  function drawBox(ctx, x, y, label, content) {
+    var w = HUD.BOX_W;
+    var h = HUD.BOX_H;
+    drawPanel(ctx, x, y, w, h);
+
+    ctx.fillStyle = "#9fffb8";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText(label, x + 8, y + 6);
+
+    ctx.fillStyle = "rgba(216, 255, 228, 0.45)";
+    ctx.font = "bold 18px monospace";
+    ctx.fillText(content, x + 8, y + 26);
+  }
+
+  function drawWeaponBox(ctx, model, widthCss, heightCss) {
+    var x = HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN;
+    var content = model.weapon.name + (model.weapon.ammo !== null ? "  x" + model.weapon.ammo : "");
+    drawBox(ctx, x, y, "WEAPON", content);
+  }
+
+  function drawItemBox(ctx, model, widthCss, heightCss) {
+    var x = widthCss - HUD.BOX_W - HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN;
+    var content = model.item.name + (model.item.count !== null ? "  x" + model.item.count : "");
+    drawBox(ctx, x, y, "ITEM", content);
+  }
+
+  function drawZoneCard(ctx, model, widthCss, heightCss, zoneState) {
+    if (zoneState.shownAt === null) return;
+    var elapsed = model.time - zoneState.shownAt;
+    var alpha = 1 - elapsed / HUD.ZONE_CARD_FADE_S;
+    if (alpha <= 0) return;
+    if (alpha > 1) alpha = 1;
+
+    var text = model.zoneName;
+    ctx.font = "bold 28px monospace";
+    var textW = ctx.measureText(text).width;
+    var cardW = textW + 48;
+    var cardH = 64;
+    var x = 0;
+    var y = (heightCss - cardH) / 2;
+
+    ctx.fillStyle = "rgba(4, 16, 8," + (0.78 * alpha).toFixed(3) + ")";
+    ctx.fillRect(x, y, cardW, cardH);
+    ctx.fillStyle = "rgba(57, 255, 106," + alpha.toFixed(3) + ")";
+    ctx.fillRect(x, y + cardH - 3, cardW, 2);
+
+    ctx.fillStyle = "rgba(216, 255, 228," + alpha.toFixed(3) + ")";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(text, x + 24, y + cardH / 2 + 10);
+    ctx.textBaseline = "top";
+  }
+
+  function drawDetectionVignette(ctx, model, widthCss, heightCss) {
+    if (model.maxDetection <= 0) return;
+    var alpha = HUD.VIGNETTE_MAX_ALPHA * model.maxDetection;
+    var grad = ctx.createLinearGradient(0, 0, 0, HUD.VIGNETTE_HEIGHT);
+    grad.addColorStop(0, "rgba(255,255,255," + alpha.toFixed(3) + ")");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, widthCss, HUD.VIGNETTE_HEIGHT);
+  }
+
+  function createHud(opts) {
+    opts = opts || {};
+    var container = opts.container;
+
+    var canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:25;";
+    container.appendChild(canvas);
+    var ctx = canvas.getContext("2d");
+
+    var widthCss = 0;
+    var heightCss = 0;
+
+    function ensureSize() {
+      var w = (typeof window !== "undefined" && window.innerWidth) || widthCss;
+      var h = (typeof window !== "undefined" && window.innerHeight) || heightCss;
+      if (w === widthCss && h === heightCss) return;
+      widthCss = w;
+      heightCss = h;
+      var dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+      canvas.width = Math.round(widthCss * dpr);
+      canvas.height = Math.round(heightCss * dpr);
+      canvas.style.width = widthCss + "px";
+      canvas.style.height = heightCss + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Zone-card fade tracking — private to this view instance (see file
+    // header): lastZoneName seeded null so the first render() call always
+    // counts as "different" and shows the card; shownAt is the engine.time at
+    // the render() call the change was detected, driving a deterministic
+    // engine-time fade (never wall-clock).
+    var zoneState = { lastZoneName: null, shownAt: null };
+
+    function render(engine) {
+      var model = Game.hudModel(engine);
+      ensureSize();
+
+      if (model.zoneName !== zoneState.lastZoneName) {
+        zoneState.lastZoneName = model.zoneName;
+        zoneState.shownAt = model.time;
+      }
+
+      ctx.clearRect(0, 0, widthCss, heightCss);
+
+      drawDetectionVignette(ctx, model, widthCss, heightCss);
+      drawLifeAndClock(ctx, model, HUD.MARGIN);
+      drawPhaseIndicator(ctx, model, widthCss);
+      drawWeaponBox(ctx, model, widthCss, heightCss);
+      drawItemBox(ctx, model, widthCss, heightCss);
+      drawZoneCard(ctx, model, widthCss, heightCss, zoneState);
+    }
+
+    return { render: render, canvas: canvas };
+  }
+
+  Game.HUD = HUD;
+  Game.hudModel = hudModel;
+  Game.createHud = createHud;
+  if (typeof module !== "undefined")
+    module.exports = { hudModel: hudModel, createHud: createHud, HUD: HUD };
+})(typeof window !== "undefined"
+  ? (window.Game = window.Game || {})
+  : (global.Game = global.Game || {}));
+
 // ==== src/render.js ====
 // src/render.js
 // PUBLIC API:
@@ -4037,6 +4436,290 @@ Game.selfTests.push({
 });
 
 })(typeof window !== "undefined" ? window : global);
+// ==== tests/hud.test.js ====
+(function (global) {
+// tests/hud.test.js -- headless assertions for src/hud.js's pure MODEL half
+// (Game.hudModel). The canvas/view half (Game.createHud) is BROWSER ONLY by
+// design (see src/hud.js's file header) and is deliberately NOT exercised
+// here -- screenshot.js is what verifies the rendered canvas actually looks
+// right (open shots/02-ingame-patrol.png and shots/03-alert.png and look).
+//
+// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
+// not yet list src/hud.js, so this file loads it itself, the same require
+// test.js uses for every other src module -- safe in node (require exists as
+// a free variable in every CommonJS module) and a complete no-op in the
+// browser build (build.js's game.html already concatenates src/hud.js, in
+// dependency order, before any tests/*.js content runs -- see build.js's
+// ORDER array, which lists hud.js ahead of the test-file collection step).
+// Mirrors tests/radar.test.js's own self-require guard trick exactly.
+if (typeof require !== "undefined") {
+  require("../src/hud.js");
+}
+
+const Game = global.Game;
+const DT = 1 / 60;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object") return a === b;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  var keysA = Object.keys(a);
+  var keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (var i = 0; i < keysA.length; i++) {
+    var k = keysA[i];
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+// Recursively asserts a value tree contains no function and no `undefined`
+// property anywhere. JSON.stringify silently DROPS both, so a naive
+// round-trip-equality check alone could miss a leaked function/undefined --
+// this walks the ORIGINAL model, before it ever touches JSON.
+function assertNoFunctionsOrUndefined(value, path) {
+  path = path || "root";
+  if (value === undefined) throw new Error("found undefined at " + path);
+  if (typeof value === "function") throw new Error("found a function at " + path);
+  if (value === null || typeof value !== "object") return;
+  Object.keys(value).forEach(function (k) {
+    assertNoFunctionsOrUndefined(value[k], path + "." + k);
+  });
+}
+
+// Recursively asserts every number in the tree is finite (not NaN/Infinity).
+function assertAllFinite(value, path) {
+  path = path || "root";
+  if (typeof value === "number") {
+    if (!isFinite(value)) throw new Error("found non-finite number at " + path + ": " + value);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  Object.keys(value).forEach(function (k) {
+    assertAllFinite(value[k], path + "." + k);
+  });
+}
+
+function freshEngine() {
+  return Game.createEngine();
+}
+
+// Ticks `engine`, each tick re-teleporting the player to a fixed distance
+// directly in front of guards[0]'s CURRENT facing (recomputed live every
+// tick, since a patrolling/sweeping guard's facing keeps changing) -- close
+// enough (2m, inside VISION.FILL_NEAR_DIST) and dead-center in its cone so
+// the meter fills to ALERT_AT quickly. Mirrors tests/radar.test.js's
+// driveToAlert helper exactly. Returns the tick index ALERT was reached at,
+// or null.
+function driveToAlert(engine, maxTicks) {
+  for (var i = 0; i < maxTicks; i++) {
+    var g = engine.guards[0];
+    var ahead = 2;
+    engine.player.x = g.x + Math.cos(g.facing) * ahead;
+    engine.player.y = g.y + Math.sin(g.facing) * ahead;
+    engine.tick();
+    if (engine.squad.phase === "ALERT") return i;
+  }
+  return null;
+}
+
+// Ticks `engine` with the player hidden far off in open space (no guard can
+// possibly retain LOS) until `predicate(engine)` is true or maxTicks elapse.
+// Returns the tick index it became true at, or null. Mirrors
+// tests/radar.test.js's tickHiddenUntil helper exactly.
+function tickHiddenUntil(engine, predicate, maxTicks) {
+  for (var i = 0; i < maxTicks; i++) {
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.tick();
+    if (predicate(engine)) return i;
+  }
+  return null;
+}
+
+// ---- 1. Fresh engine baseline ----------------------------------------------
+
+Game.selfTests.push({
+  name: "hud: fresh engine model -- life 1.0, INFILTRATION, zone name, placeholders, no detection",
+  fn: function () {
+    var engine = freshEngine();
+    var model = Game.hudModel(engine);
+
+    assert(model.life === 1.0, "expected life 1.0 (no player.hp yet), got " + model.life);
+    assert(model.phase === "INFILTRATION", "expected phase INFILTRATION, got " + model.phase);
+    assert(model.phaseRemaining === null, "expected phaseRemaining null in INFILTRATION");
+    assert(model.alertCount === 0, "expected alertCount 0 at boot, got " + model.alertCount);
+    assert(model.zoneName === "LOADING DOCK", "expected zoneName 'LOADING DOCK', got " + model.zoneName);
+    assert(model.time === engine.time, "expected time to mirror engine.time");
+
+    assert(model.weapon.name === "---" && model.weapon.ammo === null, "expected weapon placeholder shape");
+    assert(model.item.name === "---" && model.item.count === null, "expected item placeholder shape");
+
+    assert(model.maxDetection === 0, "expected maxDetection 0 at boot, got " + model.maxDetection);
+  },
+});
+
+// ---- 2. Drive to ALERT -----------------------------------------------------
+
+Game.selfTests.push({
+  name: "hud: driving to ALERT reflects phase ALERT, alertCount 1, maxDetection pinned at 1",
+  fn: function () {
+    var engine = freshEngine();
+    var reachedAt = driveToAlert(engine, Math.round(10 / DT));
+    assert(reachedAt !== null, "setup failed: squad never reached ALERT within 10s");
+
+    var model = Game.hudModel(engine);
+    assert(model.phase === "ALERT", "expected phase ALERT, got " + model.phase);
+    assert(model.alertCount === 1, "expected alertCount 1 after first alert, got " + model.alertCount);
+    assert(model.phaseRemaining === null, "expected phaseRemaining null during ALERT (no timer)");
+    assert(
+      model.maxDetection === 1,
+      "expected maxDetection pinned at 1 during ALERT (guard meter pinned), got " + model.maxDetection
+    );
+  },
+});
+
+// ---- 3. EVASION countdown ---------------------------------------------------
+
+Game.selfTests.push({
+  name: "hud: EVASION phaseRemaining tracks EVASION_S - phaseTime and decreases across ticks",
+  fn: function () {
+    var engine = freshEngine();
+    var reachedAlertAt = driveToAlert(engine, Math.round(10 / DT));
+    assert(reachedAlertAt !== null, "setup failed: squad never reached ALERT within 10s");
+
+    var reachedEvasionAt = tickHiddenUntil(
+      engine,
+      function (e) {
+        return e.squad.phase === "EVASION";
+      },
+      60
+    );
+    assert(reachedEvasionAt !== null, "setup failed: squad never reached EVASION after losing contact");
+
+    var modelA = Game.hudModel(engine);
+    assert(modelA.phase === "EVASION", "expected phase EVASION, got " + modelA.phase);
+    assert(
+      Math.abs(modelA.phaseRemaining - (Game.GUARD.EVASION_S - engine.squad.phaseTime)) < 1e-9,
+      "expected phaseRemaining EVASION_S - phaseTime, got " + modelA.phaseRemaining
+    );
+
+    // Tick further (still hidden) and confirm the countdown actually
+    // decreases, not just matches the formula once.
+    for (var i = 0; i < 30; i++) {
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      engine.tick();
+      if (engine.squad.phase !== "EVASION") break; // don't run past EVASION's own window
+    }
+    if (engine.squad.phase === "EVASION") {
+      var modelB = Game.hudModel(engine);
+      assert(
+        modelB.phaseRemaining < modelA.phaseRemaining,
+        "expected phaseRemaining to decrease across ticks, got " +
+          modelA.phaseRemaining +
+          " -> " +
+          modelB.phaseRemaining
+      );
+      assert(
+        Math.abs(modelB.phaseRemaining - (Game.GUARD.EVASION_S - engine.squad.phaseTime)) < 1e-9,
+        "expected phaseRemaining formula to still hold after further ticks"
+      );
+    }
+  },
+});
+
+// ---- 4. CAUTION countdown, then back to INFILTRATION -----------------------
+
+Game.selfTests.push({
+  name: "hud: CAUTION phaseRemaining tracks CAUTION_S window; INFILTRATION restores phaseRemaining null",
+  fn: function () {
+    var engine = freshEngine();
+    var reachedAlertAt = driveToAlert(engine, Math.round(10 / DT));
+    assert(reachedAlertAt !== null, "setup failed: squad never reached ALERT within 10s");
+
+    var reachedEvasionAt = tickHiddenUntil(
+      engine,
+      function (e) {
+        return e.squad.phase === "EVASION";
+      },
+      60
+    );
+    assert(reachedEvasionAt !== null, "setup failed: squad never reached EVASION");
+
+    var maxToCaution = Math.round(Game.GUARD.EVASION_S / DT) + 120; // EVASION_S plus a 2s buffer
+    var reachedCautionAt = tickHiddenUntil(
+      engine,
+      function (e) {
+        return e.squad.phase === "CAUTION";
+      },
+      maxToCaution
+    );
+    assert(reachedCautionAt !== null, "setup failed: squad never reached CAUTION within EVASION_S + buffer");
+
+    var cautionModel = Game.hudModel(engine);
+    assert(cautionModel.phase === "CAUTION", "expected phase CAUTION, got " + cautionModel.phase);
+    assert(
+      Math.abs(cautionModel.phaseRemaining - (Game.GUARD.CAUTION_S - engine.squad.phaseTime)) < 1e-9,
+      "expected phaseRemaining CAUTION_S - phaseTime, got " + cautionModel.phaseRemaining
+    );
+
+    var maxToInfiltration = Math.round(Game.GUARD.CAUTION_S / DT) + 120; // CAUTION_S plus a 2s buffer
+    var reachedInfiltrationAt = tickHiddenUntil(
+      engine,
+      function (e) {
+        return e.squad.phase === "INFILTRATION";
+      },
+      maxToInfiltration
+    );
+    assert(
+      reachedInfiltrationAt !== null,
+      "setup failed: squad never returned to INFILTRATION within CAUTION_S + buffer"
+    );
+
+    var infiltrationModel = Game.hudModel(engine);
+    assert(
+      infiltrationModel.phase === "INFILTRATION",
+      "expected phase INFILTRATION, got " + infiltrationModel.phase
+    );
+    assert(
+      infiltrationModel.phaseRemaining === null,
+      "expected phaseRemaining null back in INFILTRATION, got " + infiltrationModel.phaseRemaining
+    );
+  },
+});
+
+// ---- 5. JSON-serializability + all-finite ----------------------------------
+
+Game.selfTests.push({
+  name: "hud: model is JSON-serializable, no functions/undefined, all numbers finite",
+  fn: function () {
+    var engine = freshEngine();
+    // Tick a handful of times with real movement input so time/player-derived
+    // fields are non-default before snapshotting, not just t=0 spawn state.
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 0.3, moveY: -0.4, run: false, stance: "crouch" });
+    }
+
+    var model = Game.hudModel(engine);
+    assertNoFunctionsOrUndefined(model);
+    assertAllFinite(model);
+
+    var roundTripped = JSON.parse(JSON.stringify(model));
+    assert(deepEqual(model, roundTripped), "model must deep-equal its own JSON round-trip");
+  },
+});
+
+if (typeof module !== "undefined") module.exports = {};
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/player.test.js ====
 (function (global) {
 // tests/player.test.js — headless assertions for src/player.js.
@@ -5342,6 +6025,7 @@ Game.selfTests.push({
     var engine = Game.createEngine();
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
     var radar = Game.createRadar({ container: rootEl });
+    var hud = Game.createHud({ container: rootEl });
 
     // Debug/screenshot hook ONLY — not read by any gameplay code. screenshot.js
     // uses this to teleport the player and inspect guard state for its scenes.
@@ -5414,6 +6098,7 @@ Game.selfTests.push({
 
       renderer.render(engine);
       radar.render(engine);
+      hud.render(engine);
       requestAnimationFrame(frame);
     }
 

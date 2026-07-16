@@ -19,7 +19,7 @@ content rotation) take over. L items must be split before selection.
 6b. ~~Render layer~~ DONE cycle 10 (v0.10 released).
 6c. Cone/marker readability pass | polish | S | Readability | PATROL cone brighter (alpha/edge line); "?"/"!" and detection meter scaled to frustum (readable at 720p); screenshot diff verified by eye.
 7. ~~Radar~~ DONE cycle 11 (chaff jam hook documented, wired when chaff lands).
-8. HUD | feature | S | Readability | life top-left, item box bottom-right, weapon box bottom-left, alert-phase indicator, zone name cards.
+8. ~~HUD~~ DONE cycle 12.
 9. Music | feature | M | Tension | WebAudio state machine sneak→sting→combat→evasion→caution→resolve, crossfades only, failure-isolated no-op wrapper.
 10. Remaining zones (Warehouse, Laboratory, Comms Tower) | content | L→split | Expression | one zone per cycle; zone transitions; cameras + lasers + keycards in Lab; heavy patrols in Tower.
 11. Items/CQC/tranq | feature | L→split | Expression | box, tranq pistol (12 darts, sleep 60s, headshot instant), CQC grab→choke/throw, drag bodies, lockers (stuff + hide), ration, chaff; split per verb-group.

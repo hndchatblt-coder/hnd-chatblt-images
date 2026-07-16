@@ -1,5 +1,28 @@
 # TESTLOG.md
 
+## Cycle 12 (HUD)
+
+74/74; 9/9; shots eyeballed — HUD complete (life/clock/alert count, phase
+banner with countdowns, weapon/item boxes, zone card, detection vignette),
+no radar collision, jam static now visually explained by the ALERT banner.
+
+**3 problems:**
+1. LIFE is a lie until player.hp exists — the bar always reads full. Items/
+   combat cycle must land hp + damage (guards do nothing at arrest range).
+2. Weapon/item boxes are placeholders — fine, but the layout grid is now
+   informal knowledge across radar.js and hud.js margins. Audit should
+   extract an overlay-layout constants block.
+3. Zone card + phase banner both occupy top-center space — simultaneous
+   display (zone entry during CAUTION) would overlap. Rare until multi-zone;
+   fix with the zones cycle.
+
+**3 delights:**
+1. EVASION/CAUTION countdowns surfaced from squad timers — the de-escalation
+   clock is now player-visible knowledge (Readability & Tension both).
+2. hudModel forward-hooks (hp, weapon, item) mean items/combat cycles fill
+   real data with zero HUD rework.
+3. Detection vignette gives peripheral awareness without looking at the bar.
+
 ## Cycle 11 (soliton radar)
 
 69/69; 9/9; 3/3 shots eyeballed — radar crisp in patrol, full static + blinking

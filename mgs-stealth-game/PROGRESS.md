@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.11 (cycle 11 — soliton radar)
+**Version:** v0.12 (cycle 12 — HUD)
 
 ## Module status
 
@@ -18,7 +18,7 @@
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | not started | snapshot() groundwork exists in engine   |
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
-| hud            | not started |                                          |
+| hud            | v1          | life/clock/phase/boxes/zone card/vignette; hp+items hooked |
 | codec          | not started |                                          |
 | music          | not started | WebAudio, failure-isolated               |
 | render         | v1          | iso scene, state-colored wall-clipped cones, meters |
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 12: HUD — MGS1-style overlay (life, clock, alert counter, phase banner
+  with EVASION/CAUTION countdowns, weapon/item boxes, zone card, detection
+  vignette) (74/74, 9/9)
 - cycle 11: soliton radar — pure radarModel + canvas view, guard cones with
   CAUTION widening, deterministic jam static, no position leaks (69/69, 9/9)
 - cycle 10: render — playable! iso view, state-colored wall-clipped vision
