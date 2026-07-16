@@ -1,5 +1,33 @@
 # TESTLOG.md
 
+## Cycle 3 (vision: cone, LOS, detect meter)
+
+`node build.js && node test.js` 28/28; `node sim.js` 1/1. 9 new vision tests.
+
+Playtest (paper trace: stood a hypothetical guard at waypoint NW facing the
+container alley, walked the three routes against computeSight by hand):
+
+**3 problems:**
+1. DRAIN_PER_SEC 0.5 means a meter that hit 0.9 takes ~1.8s to clear — but
+   there's no partial-decay "memory": ducking behind a crate for 0.5s and
+   re-emerging restarts fill from ~0.65, which feels right, but the GUARD
+   forgets nothing/knows nothing — the ?/! reaction belongs to the FSM cycle
+   and must consume SUSPICIOUS_AT crossings as EVENTS, not levels. → FSM brief.
+2. Proximity scale bottoms at 0.3 at 14m: full detection at max range takes
+   ~2.7s standing — possibly too forgiving for the finale zone's heavy patrols.
+   Revisit with a per-guard fill multiplier when Comms Tower lands. → backlog.
+3. Peripheral vision is a hard cone edge: a target at 36° is invisible, 34° is
+   full-rate. MGS uses this readability but a narrow "peripheral band" (half
+   rate, 70–90°) would reward brushing the edge. → backlog candidate (Tension).
+
+**3 delights:**
+1. Stateless computeSight/tickMeter — the FSM cycle gets exact, replayable
+   perception with zero hidden coupling.
+2. Crawling through the dark alley at 2m from a guard's line: 0.3×0.5 = 15%
+   fill rate → ~5.3s to confirm. The crawl-under-the-cone fantasy works.
+3. The ±PI seam test means no "guard is blind when facing west" class of bug —
+   that one always ships otherwise.
+
 ## Cycle 2 (player movement set)
 
 `node build.js && node test.js` 19/19; `node sim.js` 1/1. 8 new player tests.

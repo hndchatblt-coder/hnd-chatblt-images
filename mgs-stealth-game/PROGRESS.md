@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.2 (cycle 2 — player)
+**Version:** v0.3 (cycle 3 — vision)
 
 ## Module status
 
@@ -10,7 +10,7 @@
 | boot           | stub        | game loop shell + boot self-test hook    |
 | world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
-| vision         | not started | cones, detect meter, raycast             |
+| vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | not started | full FSM                                 |
 | soundEvents    | not started | emit radii, wall attenuation             |
 | items          | not started | box, tranq, CQC, lockers, chaff          |
@@ -29,6 +29,8 @@
 
 ## Changelog (last 5)
 
+- cycle 3: vision — 70°/14m cone, exact LOS, fill meter (0.8s confirm at 2m),
+  stance/darkness/extraMult modifiers, 9 tests (28/28)
 - cycle 2: player — walk/run/crouch/crawl (6/3/1.6/0.8 m/s), facing, collision
   via world.moveCircle, visionProfile + noiseRadius hooks, 8 tests (19/19)
 - cycle 1: world — Loading Dock as data (8 interior obstacles, 3 routes, dark
