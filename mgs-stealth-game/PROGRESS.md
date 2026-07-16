@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.0 (cycle 0 — scaffold)
+**Version:** v0.1 (cycle 1 — world)
 
 ## Module status
 
@@ -8,7 +8,7 @@
 |----------------|-------------|------------------------------------------|
 | rng            | stub        | seeded RNG single source                 |
 | boot           | stub        | game loop shell + boot self-test hook    |
-| world          | not started | zones as data, walls, collision          |
+| world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
 | player         | not started | movement set                             |
 | vision         | not started | cones, detect meter, raycast             |
 | guardAI        | not started | full FSM                                 |
@@ -24,8 +24,11 @@
 
 ## Known issues
 
-- None yet.
+- moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
+  1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 1: world — Loading Dock as data (8 interior obstacles, 3 routes, dark
+  zones), exact slab raycast, sliding circle collision, 8 tests (11/11)
 - cycle 0: scaffold — repo layout, ledgers, build/test/sim harness skeletons, loop.sh
