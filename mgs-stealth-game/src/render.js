@@ -77,6 +77,16 @@
 //   src/engine.js's BOX VERB contract for the actual perception-discount
 //   mechanics this has no bearing on.
 //
+//   SECURITY CAMERAS (new — director cycle, see src/director.js contract):
+//   each engine.director.cameraStates() entry gets a small dark wall-mounted
+//   housing (never re-posed — cameras are fixed hardware) plus a pivoting
+//   cone fan, same raycast-clipped-fan technique as a guard's own vision
+//   cone (see updateCameraCone below), recolored every frame: pale cyan
+//   normally, red once meter >= Game.VISION.SUSPICIOUS_AT, grey/dim while
+//   camState.disabled (chaff) — see cameraStyleKey. Rebuilt/disposed on a
+//   zone change exactly like guard actors (disposeCameraActors, called
+//   alongside disposeGuardActors — see ZONE CHANGES below).
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -195,6 +205,31 @@
       ALERT: { color: 0xff8a80, opacity: 1.0 },
       EVASION: { color: 0xce93d8, opacity: 0.85 },
       CAUTION: { color: 0xffd180, opacity: 0.85 },
+    };
+
+    // CAMERAS (new — director cycle, see src/director.js contract): small
+    // dark wall-mounted housing + a pivoting cone fan, same raycast-clipped
+    // fan TECHNIQUE as the guard cones above (see buildCameraConeFan below)
+    // but its own geometry/materials — cameras are a distinct entity type,
+    // not guards, so they get their own actor bookkeeping (see
+    // ensureCameraActor/disposeCameraActors below).
+    var CAMERA_HOUSING_COLOR = 0x20262b; // small dark box, reads as hardware not a guard
+    var CAMERA_HOUSING_W = 0.35;
+    var CAMERA_HOUSING_H = 0.28;
+    var CAMERA_MOUNT_Y = 2.0; // world units — wall-mounted height, above head height
+    // Palette per SPEC: pale cyan normally, red once meter >= SUSPICIOUS_AT,
+    // grey/off while disabled (chaff) — three states, keyed by a small
+    // camState string this file derives per-camera each frame (see
+    // cameraStyleKey below), NOT guard.state (cameras have no FSM).
+    var CAMERA_CONE_STYLE = {
+      NORMAL: { color: 0x80deea, opacity: 0.26 },
+      ALERT: { color: 0xff5252, opacity: 0.42 },
+      DISABLED: { color: 0x666666, opacity: 0.1 },
+    };
+    var CAMERA_EDGE_STYLE = {
+      NORMAL: { color: 0xb2ebf2, opacity: 0.8 },
+      ALERT: { color: 0xff8a80, opacity: 0.95 },
+      DISABLED: { color: 0x888888, opacity: 0.35 },
     };
 
     var METER_MAX_W = 2.0;
@@ -336,6 +371,34 @@
     Object.keys(EDGE_STYLE).forEach(function (state) {
       var s = EDGE_STYLE[state];
       EDGE_MATERIALS[state] = new THREE.LineBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: s.opacity,
+        depthWrite: false,
+      });
+    });
+
+    // CAMERA cone/edge materials (see file header CAMERAS note) — same
+    // additive-blend / crisp-outline recipe as CONE_MATERIALS/EDGE_MATERIALS
+    // above, keyed by CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's NORMAL/ALERT/
+    // DISABLED states instead of a guard's FSM state.
+    var CAMERA_CONE_MATERIALS = {};
+    Object.keys(CAMERA_CONE_STYLE).forEach(function (key) {
+      var s = CAMERA_CONE_STYLE[key];
+      CAMERA_CONE_MATERIALS[key] = new THREE.MeshBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: s.opacity,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+    });
+
+    var CAMERA_EDGE_MATERIALS = {};
+    Object.keys(CAMERA_EDGE_STYLE).forEach(function (key) {
+      var s = CAMERA_EDGE_STYLE[key];
+      CAMERA_EDGE_MATERIALS[key] = new THREE.LineBasicMaterial({
         color: s.color,
         transparent: true,
         opacity: s.opacity,
@@ -612,6 +675,130 @@
       actor.marker.position.set(guard.x, h + 1.5, guard.y);
     }
 
+    // ---- security cameras (see file header CAMERAS note) -----------------------
+    // Static wall-mounted housing (position/facing fixed at construction,
+    // matching src/director.js's schema — cameras never move) + a pivoting
+    // cone fan that DOES change every frame (panAngle sweeps, color reacts to
+    // meter/disabled). One actor per index into engine.director.cameraStates()
+    // — cameras have no persistent id the way guards do, so index IS the key
+    // (stable for a zone's lifetime; a zone change discards the whole roster
+    // and rebuilds fresh, same as disposeGuardActors below).
+
+    var cameraActors = {}; // index -> { housing, cone, coneEdge }
+
+    function ensureCameraActor(index, cam) {
+      var existing = cameraActors[index];
+      if (existing) return existing;
+
+      var housingGeo = new THREE.BoxGeometry(CAMERA_HOUSING_W, CAMERA_HOUSING_H, CAMERA_HOUSING_W);
+      var housingMat = new THREE.MeshLambertMaterial({ color: CAMERA_HOUSING_COLOR });
+      var housing = new THREE.Mesh(housingGeo, housingMat);
+      // The housing itself never re-poses after this (cameras are fixed,
+      // wall-mounted hardware, unlike a guard's body) — position/orientation
+      // set once here, at the camera's own static x/y and its FIRST-FRAME
+      // panAngle (director.cameraStates() exposes panAngle, not the static
+      // `facing` center — close enough for a cosmetic housing that only
+      // needs to look roughly aimed the right way; the cone fan below is
+      // what actually tracks the live pan every frame).
+      housing.position.set(cam.x, CAMERA_MOUNT_Y, cam.y);
+      housing.rotation.y = -cam.panAngle;
+      scene.add(housing);
+
+      var coneMesh = new THREE.Mesh(new THREE.BufferGeometry(), CAMERA_CONE_MATERIALS.NORMAL);
+      scene.add(coneMesh);
+
+      var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), CAMERA_EDGE_MATERIALS.NORMAL);
+      scene.add(coneEdge);
+
+      var actor = { housing: housing, cone: coneMesh, coneEdge: coneEdge };
+      cameraActors[index] = actor;
+      return actor;
+    }
+
+    // Removes + disposes every live camera actor (see ZONE CHANGES in the
+    // file header) — same rationale as disposeGuardActors above: a zone
+    // change means a different (possibly empty) camera roster, so nothing
+    // from the old zone should linger. Housing geometry/material and cone/
+    // coneEdge geometry are each owned exclusively by their actor; cone/
+    // coneEdge MATERIALS come from the shared CAMERA_CONE_MATERIALS/
+    // CAMERA_EDGE_MATERIALS maps (reused across every camera/zone) and must
+    // NOT be disposed here.
+    function disposeCameraActors() {
+      Object.keys(cameraActors).forEach(function (index) {
+        var actor = cameraActors[index];
+        scene.remove(actor.housing, actor.cone, actor.coneEdge);
+        actor.housing.geometry.dispose();
+        actor.housing.material.dispose();
+        actor.cone.geometry.dispose();
+        actor.coneEdge.geometry.dispose();
+      });
+      cameraActors = {};
+    }
+
+    // Which of CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's three keys a camera
+    // reads as this frame — SPEC palette: pale cyan normally, red once the
+    // meter reaches SUSPICIOUS_AT (an early "it's noticing you" cue, not
+    // just at full ALERT), grey/off while disabled (chaff) — disabled wins
+    // over everything else (a jammed camera reads as dead hardware
+    // regardless of whatever stale meter value it's frozen at).
+    function cameraStyleKey(camState) {
+      if (camState.disabled) return "DISABLED";
+      if (camState.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
+      return "NORMAL";
+    }
+
+    // Rebuilds a camera's vision-cone geometry this frame, same
+    // raycast-clipped-fan TECHNIQUE as updateVisionCone above (apex at the
+    // camera's fixed position, arc points clipped to the first wall each ray
+    // hits) but reading the camera's own CURRENT panAngle/fovDeg/range from
+    // director.cameraStates() instead of a guard's live facing/CAUTION
+    // widening.
+    function updateCameraCone(actor, camState, world) {
+      var key = cameraStyleKey(camState);
+      actor.cone.material = CAMERA_CONE_MATERIALS[key];
+      actor.coneEdge.material = CAMERA_EDGE_MATERIALS[key];
+
+      var halfFov = (camState.fovDeg * Math.PI) / 180 / 2;
+      var range = camState.range;
+
+      var segments = CONE_SEGMENTS;
+      var positions = new Float32Array((segments + 2) * 3);
+      positions[0] = camState.x;
+      positions[1] = CONE_Y;
+      positions[2] = camState.y;
+
+      for (var i = 0; i <= segments; i++) {
+        var angle = camState.panAngle - halfFov + (i * (2 * halfFov)) / segments;
+        var farX = camState.x + Math.cos(angle) * range;
+        var farY = camState.y + Math.sin(angle) * range;
+        var hit = world.raycast(camState.x, camState.y, farX, farY);
+        var px = hit ? hit.x : farX;
+        var py = hit ? hit.y : farY;
+        var idx = (i + 1) * 3;
+        positions[idx] = px;
+        positions[idx + 1] = CONE_Y;
+        positions[idx + 2] = py;
+      }
+
+      var indices = [];
+      for (var k = 0; k < segments; k++) {
+        indices.push(0, k + 1, k + 2);
+      }
+
+      actor.cone.geometry.dispose();
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      actor.cone.geometry = geo;
+
+      actor.coneEdge.geometry.dispose();
+      var edgePositions = positions.slice();
+      for (var e = 1; e < edgePositions.length; e += 3) edgePositions[e] = CONE_Y + 0.005;
+      var edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute("position", new THREE.BufferAttribute(edgePositions, 3));
+      actor.coneEdge.geometry = edgeGeo;
+    }
+
     // ---- detection meter (two quads above the player) --------------------------
 
     var meterBg = null;
@@ -740,6 +927,7 @@
         if (built) {
           disposeStatic();
           disposeGuardActors();
+          disposeCameraActors();
           built = false;
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
@@ -811,6 +999,18 @@
           updateVisionCone(actor, guard, engine.world, engine.squad);
           updateGuardMarker(actor, guard);
         }
+      }
+
+      // SECURITY CAMERAS (see file header CAMERAS note) — pure snapshot read
+      // off engine.director.cameraStates() (see src/director.js contract);
+      // engine.director is empty-safe (undefined check only matters for a
+      // bespoke pre-cycle test engine that predates this module — every real
+      // engine always has one, even on a zone with zero cameras).
+      var cameraStates = (engine.director && engine.director.cameraStates()) || [];
+      for (var ci = 0; ci < cameraStates.length; ci++) {
+        var camState = cameraStates[ci];
+        var camActor = ensureCameraActor(ci, camState);
+        updateCameraCone(camActor, camState, engine.world);
       }
 
       updateTracers(engine);

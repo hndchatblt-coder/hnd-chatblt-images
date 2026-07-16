@@ -1,5 +1,30 @@
 # TESTLOG.md
 
+## Cycle 23 (security cameras + director module born)
+
+144/144; 16/16; screens clean. Sweeping wall-mounted cameras (sinusoidal pan
+off engine.time), same vision math as guards, same perception-wrapped player
+(box/locker rules apply identically — director never sees the wrapping),
+chaff freezes them, radar + render show live cones. Key wiring: cameras
+never feed anyLOS — they tip the squad (broadcastAlert + live lastKnown
+refresh) but guards must physically come confirm; ALERT decays to EVASION on
+schedule even under a watching camera. Pure MGS.
+
+**3 problems:** (1) camera meters aren't visible to the player — you can't
+tell how close a camera is to spotting you (guards have the over-head meter);
+add camera meter arc on the radar/cone color ramp → backlog. (2) live camera
+keeps refreshing lastKnown during EVASION — sweep converges on your ACTUAL
+hiding spot if you hide in a watched aisle; brutal but maybe too punishing
+without a visible cue; watch in playtests. (3) warehouse now has 2 guards + 2
+cameras — dock→warehouse difficulty step is steep; consider 1 camera at the
+dock (tutorializes cameras) → backlog (content).
+
+**3 delights:** (1) the chaff-window crossing scenario is a real puzzle
+speedrun — 15s to cross two watched intersections. (2) cameras reusing the
+guard perception wrapper meant box/locker Just Worked with zero new gating
+code. (3) director.js is born with a clean contract for reinforcements +
+check-ins to move into.
+
 ## Cycle 22 (bugfix batch: audit A6, A8, A10)
 
 137/137; 15/15; screens clean. A6: scenario renamed truthfully + new crawl

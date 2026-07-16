@@ -92,6 +92,30 @@
 //                                          // these functional hiding spots). `facing`
 //                                          // radians, same atan2 convention as
 //                                          // player.facing/guard.facing (0 = +x).
+//       cameras: [ { x, y, facing, sweepDeg, sweepPeriodS, fovDeg, range }, ... ], // NEW —
+//                                          // wall-mounted security cameras, consumed by
+//                                          // src/director.js (see its own contract for the
+//                                          // full field-by-field breakdown). OPTIONAL/empty
+//                                          // on zones with no camera coverage (loadingDock
+//                                          // ships zero — see below); this cycle's pilot
+//                                          // installation is 2 cameras in the warehouse,
+//                                          // each mounted flush against a shelving-row wall
+//                                          // face, covering one of the two aisle
+//                                          // intersections along the y:14-16 cross-aisle
+//                                          // band that NEITHER patrolling guard's route ever
+//                                          // touches (w1 sticks to the outer perimeter ring,
+//                                          // w2 to the narrow x:17-22 center-aisle spine —
+//                                          // see waypoints/waypoints2 below) — the exact
+//                                          // "aisle intersection the guards don't watch"
+//                                          // the director/render/radar cycle's brief called
+//                                          // for. Each camera's range (10m) deliberately
+//                                          // falls short of covering the FULL length of its
+//                                          // aisle and each is confined to a narrow 50deg
+//                                          // FOV panning across only 60deg total, so a
+//                                          // crouched player has a real route past on the
+//                                          // far side of each camera's reach (see the
+//                                          // per-camera comments below for the specific
+//                                          // uncovered stretch).
 //     }
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
@@ -298,6 +322,10 @@
       { x: 2, y: 9, facing: 0 },
       { x: 2, y: 20, facing: 0 },
     ],
+    // No camera coverage this cycle (see schema note above) — the pilot
+    // installation lives in the warehouse; the loading dock stays
+    // guard-only until a future cycle expands coverage.
+    cameras: [],
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -392,6 +420,34 @@
       { x: 30, y: 22, facing: 0 },
       { x: 37, y: 22, facing: Math.PI },
       { x: 2, y: 24, facing: 0 },
+    ],
+    // PILOT CAMERA INSTALLATION (see schema note above) — 2 cameras, both
+    // wall-mounted flush against a shelving-row face (0.1m clearance so they
+    // sit on open floor, not inside the wall AABB — isBlocked/isBlockedCircle
+    // treat wall containment as closed, so exactly-on-the-face would itself
+    // register as blocked), both aimed across the y:14-16 cross-aisle band
+    // that runs the FULL width of the map (every shelving row leaves the
+    // same 2m gap there) and that neither w1 (outer perimeter ring, y~2/
+    // y~27/x~3/x~37) nor w2 (confined to the narrow x:17-22 center-aisle
+    // spine) ever watches, outside w2's own narrow slice of it.
+    cameras: [
+      // Camera 0 — mounted on shelving row 2's west face (that block spans
+      // x:14-15.5), facing WEST (PI) into the row1/row2 aisle (x:9.5-14),
+      // watching the row1/row2 <-> cross-aisle intersection. Range (10m)
+      // reaches the near/mid aisle but falls ~3m short of the aisle's south
+      // end (y~26) and the crate cluster there — a crouched player hugging
+      // the south stretch of that aisle passes outside this camera's reach
+      // entirely.
+      { x: 13.9, y: 13.5, facing: Math.PI, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+      // Camera 1 — mounted on shelving row 3's east face (that block spans
+      // x:28-29.5), facing EAST (0) into the far-east aisle (x:29.5-39),
+      // watching the row3 <-> cross-aisle intersection. Sits right beside
+      // the far-east darkZone (x:31-37, y:20-26, see darkZones above): a
+      // crouched player who ducks south into that shadow is both outside
+      // this camera's narrow 60deg total swing (it only pans east-ish) and
+      // gets vision.js's DARKNESS_MULT halving on top — a genuine route past
+      // it, not just a nominal one.
+      { x: 29.6, y: 13.5, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
     ],
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
@@ -2637,6 +2693,289 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== src/director.js ====
+// src/director.js
+// PUBLIC API:
+//   ZONE SECURITY SYSTEMS + ESCALATION DIRECTION: this module currently owns
+//   wall-mounted security CAMERAS (see CAMERA SCHEMA below). It is named
+//   "director," not "cameras," because a future cycle is expected to extend
+//   it with reinforcement call-ins / guard check-in timers under the same
+//   umbrella — a director decides how the FACILITY escalates as a whole,
+//   distinct from guardAI.js (how one individual guard perceives/reacts) and
+//   squad (the shared alert-phase state machine both guards and cameras
+//   report into, owned by src/guardAI.js's Game.createSquad).
+//
+//   CAMERA SCHEMA (zone data — src/world.js's zone.cameras[], OPTIONAL, absent
+//   or empty on zones with no camera coverage, e.g. loadingDock):
+//     { x, y, facing, sweepDeg, sweepPeriodS, fovDeg, range }
+//       x, y         — world meters, the wall-mounted camera's FIXED position
+//                      (never moves — this is a security camera, not a guard).
+//       facing       — radians (atan2 convention: 0 = +x, +y down, same as
+//                      player.facing/guard.facing), the CENTER of the
+//                      camera's sweep, not its current (time-varying) pan
+//                      angle.
+//       sweepDeg     — full arc, in degrees, the camera pans across, centered
+//                      on `facing` (current pan angle swings +/- sweepDeg/2).
+//       sweepPeriodS — seconds for one full sinusoidal sweep cycle (pan
+//                      angle = facing at t=0, sweeps to +sweepDeg/2 at a
+//                      quarter period, back through facing at a half period,
+//                      to -sweepDeg/2 at three-quarters, back to facing at a
+//                      full period — see tickCameras below).
+//       fovDeg, range — the camera's OWN vision cone width/reach, handed to
+//                      vision.computeSight as viewer.fovDeg/viewer.range —
+//                      same opt-override mechanism guardAI's CAUTION-widened
+//                      cone already uses (see src/vision.js's viewer contract
+//                      and src/guardAI.js's own CAUTION note).
+//
+//   Game.createDirector({ world, vision, squad }) -> director
+//     world  — a Game.createWorld(zoneData) instance. director reads
+//              world.zone.cameras (defaulting to [] when absent/undefined)
+//              EXACTLY ONCE, at construction — a fixed roster for this
+//              director's lifetime, same "rebuild on zone change" contract
+//              guards/squad already have (see src/engine.js's switchZone —
+//              a zone transition is expected to construct a FRESH director
+//              for the target zone, same as it builds fresh guards/squad,
+//              never mutate/reuse an old one).
+//     vision — a Game.createVision({ world: <the SAME world above> })
+//              instance. Consumed read-only via vision.computeSight and
+//              vision.tickMeter — the EXACT SAME two calls guardAI.js makes
+//              for its own guards (see src/vision.js's contract for both);
+//              a camera is "just another viewer" from vision.js's point of
+//              view, sharing the identical fill/drain/darkness/proximity
+//              math every guard already uses.
+//     squad  — the Game.createSquad() instance shared with this zone's
+//              guards. director calls squad.broadcastAlert(x, y) directly
+//              on a confirmed camera sighting (see tickCameras below) — the
+//              EXACT SAME call a guard makes on ITS OWN confirmed sighting
+//              (src/guardAI.js's ALERT escalation). A camera alert is
+//              indistinguishable to squad/guards from a guard's own
+//              sighting: same phase flip, same alertCount rule, same
+//              lastKnown update — see guardAI.js's squad contract.
+//
+//   director.tickCameras(dt, ctx) -> [ { type, cameraIndex }, ... ]
+//     ctx = { time, chaffUntil, player } — a SLIM per-tick context THE ENGINE
+//     builds and hands in every tick (director never reaches into a live
+//     `engine` instance itself — kept decoupled/unit-testable exactly like
+//     guardAI's own ctx.player convention):
+//       time       — engine.time (seconds of sim time so far), READ ONLY —
+//                    director holds NO clock of its own. The pan-angle
+//                    formula below is a pure function of this single value,
+//                    so two engines fed identical time sequences (which a
+//                    fixed 60Hz tick loop always produces) compute IDENTICAL
+//                    camera pan angles and, given identical dt/player
+//                    sequences, identical meters — see DETERMINISM below.
+//       chaffUntil — engine.chaffUntil (an absolute sim-time deadline; see
+//                    src/engine.js's CHAFF VERB / src/items.js's CHAFF_S).
+//                    A camera is DISABLED for this tick iff
+//                    chaffUntil > time — the EXACT SAME condition
+//                    src/radar.js's own chaffActive already checks (not a
+//                    second parallel timer — honoring src/items.js's own
+//                    "CAMERA HOOK" note that a future camera should gate off
+//                    this SAME signal).
+//       player     — THE PERCEPTION TARGET, already wrapped by THE ENGINE for
+//                    box/locker gating EXACTLY the same way it wraps the
+//                    target handed to every guard.update() call this same
+//                    tick (see src/engine.js's GUARD PERCEPTION GATE / BOX
+//                    PERCEPTION notes: a hidden player becomes the
+//                    -9999,-9999 decoy; a boxed player keeps its real x/y
+//                    but a visionProfile() discounted to Game.ITEMS.BOX_FACTOR
+//                    while stationary, a flat 1.0 the instant it moves).
+//                    director is DELIBERATELY IGNORANT of which wrapping (if
+//                    any) is in effect — it calls
+//                    vision.computeSight(viewer, ctx.player) exactly like
+//                    guardAI.js calls vision.computeSight(viewer, ctx.player)
+//                    with its own ctx.player, and the ENGINE is the ONLY
+//                    place that ever decides what object that is. This is
+//                    what "reuse the same wrapped target" means in practice:
+//                    ONE wrapping decision per tick, shared by every viewer
+//                    (every guard AND every camera) in the zone.
+//
+//     Per camera i (in world.zone.cameras order):
+//       panAngle = camera.facing +
+//         sin(2*PI*ctx.time / camera.sweepPeriodS) * (camera.sweepDeg in
+//         radians)/2
+//       — deterministic given ctx.time; bounded to EXACTLY
+//         [facing - sweepDeg/2 (in rad), facing + sweepDeg/2 (in rad)] over a
+//         full period, since sin ranges over [-1, 1].
+//
+//       disabled = ctx.chaffUntil > ctx.time. While disabled: NO perception
+//         happens this tick for this camera — the stored meter is FROZEN
+//         (neither vision.tickMeter's fill NOR its drain runs; whatever the
+//         meter was on the last non-disabled tick is left EXACTLY as-is) and
+//         no cameraSuspicious/cameraAlert can fire, no matter where the
+//         player stands or moves this tick. cameraStates() still reports the
+//         freshly-computed panAngle (the housing keeps "moving" cosmetically
+//         even while blind — only its ability to SEE is cut) and
+//         disabled: true, for src/render.js/src/radar.js's dark/off styling.
+//
+//       Otherwise (not disabled): viewer = { x: camera.x, y: camera.y,
+//         facing: panAngle, fovDeg: camera.fovDeg, range: camera.range };
+//         sight = vision.computeSight(viewer, ctx.player); this camera's
+//         meter = vision.tickMeter(<its previous meter>, sight.factor, dt) —
+//         IDENTICAL integration shape to guardAI's own per-guard meter (see
+//         src/vision.js's tickMeter contract) — just with the camera itself
+//         standing in as the viewer instead of a patrolling guard.
+//
+//         Two escalation checks run against the FRESH meter value, in this
+//         order:
+//           - SUSPICIOUS (EDGE-TRIGGERED — "once per crossing," never once
+//             per tick spent above the line): if meter >= Game.VISION.
+//             SUSPICIOUS_AT AND it was BELOW that line on this camera's
+//             PREVIOUS non-disabled tick, pushes
+//             { type: "cameraSuspicious", cameraIndex: i } onto the returned
+//             array. Fires again on a LATER re-crossing (meter drains back
+//             below SUSPICIOUS_AT once the player breaks the cone, then
+//             refills past it again) — each rising edge is its own event,
+//             this is not a one-shot-per-camera-ever latch.
+//           - ALERT (LEVEL-TRIGGERED — fires EVERY non-disabled tick the
+//             meter reads >= Game.VISION.ALERT_AT, not just on the initial
+//             crossing): calls squad.broadcastAlert(ctx.player.x,
+//             ctx.player.y) and pushes { type: "cameraAlert",
+//             cameraIndex: i } onto the returned array. Deliberately NOT
+//             edge-only — a camera with a continuous, unbroken view of the
+//             player is a live security feed, not a single tattling ping: it
+//             keeps refreshing squad.lastKnown to the player's CURRENT
+//             position for as long as it holds sight, the same way a guard's
+//             own continuous hasLOS (via engine.js's anyLOS reduction) keeps
+//             squad.phase pinned in ALERT. Repeated calls are harmless to
+//             squad state beyond that refresh: broadcastAlert is a
+//             documented no-op on squad.phase/alertCount once already ALERT
+//             (see guardAI.js's squad contract) — it only overwrites
+//             lastKnown, never double-counts alertCount. CAMERAS DO NOT
+//             SUSTAIN ALERT BY THEMSELVES, though: src/engine.js's own
+//             anyLOS (the sole input to squad.tick()'s ALERT -> EVASION
+//             timer) is computed ONLY from guards.some(g => g.hasLOS) — see
+//             its contract — cameras are DELIBERATELY EXCLUDED from that
+//             reduction (see src/engine.js's file header, "cameras
+//             contribute to anyLOS? DECISION: no"). So even a camera with
+//             an unbroken view will not stop the squad's ALERT phase timer
+//             from expiring into EVASION after GUARD.EVASION_S if no GUARD
+//             ever gets its own LOS — camera coverage starts the manhunt and
+//             keeps intel fresh while it lasts, it does not substitute for a
+//             guard's own eyes in sustaining ALERT. This is intentional MGS
+//             behavior, not a gap: "the camera spotted you, guards come
+//             looking" (see src/engine.js's own note, same wording).
+//
+//     Returns the array of { type, cameraIndex } objects fired THIS CALL
+//     (possibly empty) — director never touches an `events` array itself (it
+//     doesn't own one). THE ENGINE is what pushes these onto its own
+//     engine.events, exactly as it already does for every other event this
+//     codebase's sibling modules report (same "returns facts, engine
+//     narrates" split as src/items.js's fireTranq/useRation/useChaff).
+//
+//   director.cameraStates() -> [ { x, y, panAngle, disabled, meter, fovDeg,
+//     range }, ... ], one entry per world.zone.cameras, same order. PURE
+//     SNAPSHOT — reads back exactly what the MOST RECENT tickCameras(dt, ctx)
+//     call computed (x/y/fovDeg/range are the camera's own static schema
+//     fields, copied through unchanged every call; panAngle/disabled/meter
+//     are the per-tick state tickCameras just wrote). Calling this before
+//     tickCameras has ever run reports each camera at its construction-time
+//     default (panAngle === camera.facing, disabled false, meter 0). Used by
+//     src/render.js (3D cone fans + housing) and src/radar.js (2D wedge +
+//     dot) — see both files' own contracts for how they consume this.
+//
+// DETERMINISM: no Math.random, no Date.now, no internal clock — every
+// camera's pan angle is a pure function of ctx.time; every meter update a
+// pure function of dt/ctx.player fed through vision.js's own pure functions.
+// Two engines ticked with identical seeds/inputs produce byte-identical
+// camera meters tick-for-tick (see tests/cameras.test.js's determinism test)
+// — the same guarantee the rest of the engine already provides for
+// guards/squad/player.
+//
+// Pure JS logic — no THREE, no DOM, no Math.random/Date — runs headless in
+// node exactly like vision.js/guardAI.js. Consumes world/vision/squad only
+// via their own published contracts; never mutates any of them (squad is the
+// one exception, via its own published broadcastAlert() method — the same
+// thing every guard already does to it).
+(function (Game) {
+  function createDirector(deps) {
+    deps = deps || {};
+    var world = deps.world;
+    var vision = deps.vision;
+    var squad = deps.squad;
+
+    var cameras = (world && world.zone && world.zone.cameras) || [];
+
+    // Per-camera mutable state, parallel array to `cameras` (same index).
+    // wasSuspicious is the only edge-tracking flag needed — the ALERT check
+    // is deliberately LEVEL-triggered (see file header), so it needs no
+    // "was already alert" flag to compare against.
+    var camStates = cameras.map(function (cam) {
+      return {
+        panAngle: cam.facing,
+        disabled: false,
+        meter: 0,
+        wasSuspicious: false,
+      };
+    });
+
+    var TWO_PI = Math.PI * 2;
+
+    function tickCameras(dt, ctx) {
+      var fired = [];
+
+      for (var i = 0; i < cameras.length; i++) {
+        var cam = cameras[i];
+        var st = camStates[i];
+
+        var halfSweepRad = (cam.sweepDeg * Math.PI) / 180 / 2;
+        st.panAngle = cam.facing + Math.sin((TWO_PI * ctx.time) / cam.sweepPeriodS) * halfSweepRad;
+
+        var disabled = ctx.chaffUntil > ctx.time;
+        st.disabled = disabled;
+
+        // DISABLED (see file header) — the pan keeps moving cosmetically
+        // (already updated above), but perception is fully cut: no
+        // tickMeter call at all, so the meter is left EXACTLY where it was
+        // on the last non-disabled tick (frozen, not drained to 0).
+        if (disabled) continue;
+
+        var viewer = { x: cam.x, y: cam.y, facing: st.panAngle, fovDeg: cam.fovDeg, range: cam.range };
+        var sight = vision.computeSight(viewer, ctx.player);
+        st.meter = vision.tickMeter(st.meter, sight.factor, dt);
+
+        var isSuspicious = st.meter >= Game.VISION.SUSPICIOUS_AT;
+        if (isSuspicious && !st.wasSuspicious) {
+          fired.push({ type: "cameraSuspicious", cameraIndex: i });
+        }
+        st.wasSuspicious = isSuspicious;
+
+        if (st.meter >= Game.VISION.ALERT_AT) {
+          squad.broadcastAlert(ctx.player.x, ctx.player.y);
+          fired.push({ type: "cameraAlert", cameraIndex: i });
+        }
+      }
+
+      return fired;
+    }
+
+    function cameraStates() {
+      return cameras.map(function (cam, i) {
+        var st = camStates[i];
+        return {
+          x: cam.x,
+          y: cam.y,
+          panAngle: st.panAngle,
+          disabled: st.disabled,
+          meter: st.meter,
+          fovDeg: cam.fovDeg,
+          range: cam.range,
+        };
+      });
+    }
+
+    return {
+      tickCameras: tickCameras,
+      cameraStates: cameraStates,
+    };
+  }
+
+  Game.createDirector = createDirector;
+  if (typeof module !== "undefined") module.exports = { createDirector: createDirector };
+})(typeof window !== "undefined"
+  ? (window.Game = window.Game || {})
+  : (global.Game = global.Game || {}));
+
 // ==== src/engine.js ====
 // src/engine.js
 // PUBLIC API:
@@ -2671,12 +3010,21 @@
 //                world: world, vision: vision, rng: rng, squad: squad,
 //                spawn: cfg.spawn, waypoints: cfg.waypoints, id: cfg.id,
 //              }))
+//     director    = Game.createDirector({ world: world, vision: vision, squad: squad })
+//              — NEW (see src/director.js's own contract for the full
+//              write-up). Owns this zone's wall-mounted security cameras
+//              (zone.cameras, empty-safe — a zone with no camera data just
+//              gets a director with an empty roster); rebuilt fresh on every
+//              zone transition exactly like world/vision/squad/guards above
+//              (see switchZone below).
 //
 //   engine — flat, readable props (mutated in place by tick()):
-//     world, player, guards (array), squad, vision, rng, soundEvents, zone —
-//       the wired instances/data above (zone === zoneData, the plain-object
-//       level data; soundEvents is the Game.createSoundEvents({world})
-//       instance — see src/soundEvents.js contract).
+//     world, player, guards (array), squad, vision, director, rng,
+//       soundEvents, zone — the wired instances/data above (zone === zoneData,
+//       the plain-object level data; soundEvents is the
+//       Game.createSoundEvents({world}) instance — see src/soundEvents.js
+//       contract; director is the Game.createDirector({...}) instance above —
+//       see src/director.js contract).
 //     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
 //                 advances the simulation by exactly this much regardless of
 //                 wall-clock time — the engine has NO notion of real time; the
@@ -2761,6 +3109,18 @@
 //                     GAME OVER below). Fires exactly once, the tick hp hits
 //                     0; never again afterward (engine.gameOver latches, and
 //                     a latched engine stops ticking altogether — see below).
+//                   { type: "cameraSuspicious", cameraIndex } — one of
+//                     director.tickCameras' cameras crossed
+//                     Game.VISION.SUSPICIOUS_AT from below THIS tick (see
+//                     src/director.js contract) — edge-triggered, fires again
+//                     on a later re-crossing, never spams every tick spent
+//                     above the line.
+//                   { type: "cameraAlert", cameraIndex } — one of
+//                     director.tickCameras' cameras reads >= Game.VISION.
+//                     ALERT_AT THIS tick (see src/director.js contract) —
+//                     LEVEL-triggered (fires every such tick, not just the
+//                     first), same tick director itself already called
+//                     squad.broadcastAlert.
 //                 More event types (item pickups, ...) will be appended by
 //                 later modules — treat `type` as an open set and always
 //                 branch on it, never assume this is the full list.
@@ -3030,13 +3390,13 @@
 //   CHAFF HOOK comment, written for exactly this) and exposes which kind of
 //   jam is live so the view can render chaff static differently (a bluish
 //   tint + "CHAFF" label) from a phase-driven ALERT/EVASION blackout (red
-//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK (honest gap,
-//   not a silent one — same posture as this file's own VISION STAGGERING
-//   note below): the Laboratory zone's cameras don't exist yet (SPEC.md's
-//   own zone list has them arriving with keycards later), so "cameras die
-//   under chaff" has nothing to wire up to this cycle; whenever a camera
-//   entity exists, it is expected to gate its own perception off this same
-//   engine.chaffUntil > engine.time signal, not a second parallel timer.
+//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK — FULFILLED this
+//   cycle (was an honest gap in earlier cycles: "whenever a camera entity
+//   exists, it is expected to gate its own perception off this same
+//   engine.chaffUntil > engine.time signal, not a second parallel timer").
+//   src/director.js's cameras now do exactly that — see its own tickCameras
+//   contract's `disabled` check, and DIRECTOR / CAMERAS below for where this
+//   file hands chaffUntil in every tick.
 //   Runs in the same NOISE STEP position as fire/knock (step 2), same
 //   same-tick-visible-to-guards rationale as the fire verb above.
 //
@@ -3169,6 +3529,21 @@
 //          verb runs in step 2, before this loop).
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
+//       3.5. DIRECTOR / CAMERAS (new — see src/director.js contract):
+//          director.tickCameras(DT, { time: engine.time, chaffUntil: engine.
+//          chaffUntil, player: perceivedPlayer }) — AFTER every guard's own
+//          update() (step 3), BEFORE squad.tick() (step 5), reusing the
+//          EXACT SAME perceivedPlayer wrapper step 3 just used (one wrapping
+//          decision per tick, shared by every viewer — see GUARD PERCEPTION
+//          GATE / BOX PERCEPTION above). Returns a list of { type,
+//          cameraIndex } facts (cameraSuspicious/cameraAlert — see the
+//          events list above); this file pushes each straight onto
+//          engine.events (director owns no events array of its own — same
+//          "returns facts, engine narrates" split as items.js's own
+//          fireTranq/useRation/useChaff). A camera reaching ALERT_AT calls
+//          squad.broadcastAlert INSIDE tickCameras, before this step
+//          returns — see DESIGN RULE below for why this does NOT feed
+//          anyLOS (step 5).
 //       4. GAME OVER CHECK (new — see GAME OVER above): if !player.alive and
 //          engine.gameOver is not already true, set engine.gameOver = true
 //          and push { type: "gameOver" }. Runs right after the guard loop so
@@ -3191,7 +3566,17 @@
 //          exactly the reference wiring documented in guardAI.js's file
 //          header and exercised by sim.js's "full alert ladder" scenario:
 //          update every guard first, THEN squad.tick with the OR of every
-//          guard's hasLOS.
+//          guard's hasLOS. DESIGN RULE — cameras deliberately DO NOT feed
+//          into anyLOS: a camera reaching ALERT_AT (step 3.5 above) calls
+//          squad.broadcastAlert and flips the squad into ALERT same as a
+//          guard's own confirmed sighting, but anyLOS here is computed ONLY
+//          from the guards array — so with no guard itself confirming
+//          sight, squad.tick() still decays ALERT -> EVASION after
+//          GUARD.EVASION_S on schedule, exactly as if a guard's own LOS had
+//          been broken. This is correct MGS behavior, not a gap: a camera
+//          spots you and calls it in, then the GUARDS have to actually come
+//          find you — a camera is a tripwire, not a second pair of guard
+//          eyes that can independently sustain ALERT forever.
 //       6. Event collection: engine.events is cleared at the TOP of tick(),
 //          right after the frozen check (step 0), before step 1, and
 //          squad.phase/alertCount are snapshotted at that same moment
@@ -3286,6 +3671,10 @@
 //         squad: { phase, phaseTime, lastKnown, alertCount },
 //         gameOver: boolean,   // NEW — engine.gameOver verbatim; see GAME OVER above
 //         darts: number,       // NEW — engine.inventory.darts verbatim
+//         cameras: [ { x, y, panAngle, disabled, meter, fovDeg, range }, ... ],
+//                              // NEW — director.cameraStates() verbatim (see
+//                              // src/director.js contract); [] on a zone
+//                              // with no camera coverage.
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -3467,12 +3856,20 @@
 
     var guards = buildGuards(guardConfigs, world, vision, rng, squad);
 
+    // DIRECTOR (see src/director.js contract) — owns this zone's wall-mounted
+    // security cameras (zone.cameras, empty-safe: a zone with no cameras just
+    // gets a director with an empty roster, no special-casing needed here).
+    // Built fresh for every zone, same "rebuild on transition" rule as
+    // world/vision/squad/guards (see switchZone below).
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad });
+
     var engine = {
       world: world,
       player: player,
       guards: guards,
       squad: squad,
       vision: vision,
+      director: director,
       rng: rng,
       soundEvents: soundEvents,
       inventory: inventory,
@@ -3682,6 +4079,12 @@
       var newVision = Game.createVision({ world: newWorld });
       var newSquad = Game.createSquad();
       var newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
+      // DIRECTOR (see src/director.js contract) — rebuilt fresh for the
+      // target zone's own camera roster, same "discard the departed zone's
+      // instance, never carry it across" rule as world/vision/squad/guards
+      // above (a departed zone's cameras belong to a world that no longer
+      // exists).
+      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad });
 
       var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
       var newPlayer = Game.createPlayer({ world: newWorld });
@@ -3706,6 +4109,7 @@
       vision = newVision;
       squad = newSquad;
       guards = newGuards;
+      director = newDirector;
       player = newPlayer;
       inBlockedExitRegion = false;
 
@@ -3724,6 +4128,7 @@
       engine.vision = vision;
       engine.squad = squad;
       engine.guards = guards;
+      engine.director = director;
       engine.player = player;
 
       engine.events.push({ type: "zoneChange", from: fromId, to: zone.id });
@@ -4054,6 +4459,27 @@
         guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
       }
 
+      // DIRECTOR / CAMERAS (see src/director.js contract) — runs AFTER every
+      // guard's own update() this tick, BEFORE squad.tick(), same slot the
+      // file header's own step ordering calls for. Reuses the EXACT SAME
+      // `perceivedPlayer` wrapper the guard loop just used above (see GUARD
+      // PERCEPTION GATE / BOX PERCEPTION notes) — one wrapping decision per
+      // tick, shared by every viewer in the zone, guard or camera; director
+      // itself never knows a wrapping happened. cameraAlerts is director's
+      // own returned list of { type, cameraIndex } facts (cameraSuspicious/
+      // cameraAlert) — director never touches engine.events itself (it has
+      // no such array), so THIS is where they actually get pushed, same
+      // "returns facts, engine narrates" split as items.js's fireTranq/
+      // useRation/useChaff.
+      var cameraAlerts = director.tickCameras(DT, {
+        time: engine.time,
+        chaffUntil: engine.chaffUntil,
+        player: perceivedPlayer,
+      });
+      for (var cai = 0; cai < cameraAlerts.length; cai++) {
+        engine.events.push(cameraAlerts[cai]);
+      }
+
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
       // player.alive, not "did a guardFire just happen," so any future
       // damage source drives game over through this one check.
@@ -4062,6 +4488,15 @@
         engine.events.push({ type: "gameOver" });
       }
 
+      // CAMERAS DO NOT CONTRIBUTE TO anyLOS (see src/director.js contract's
+      // ALERT note and this file's own DESIGN RULE below): squad.tick()'s
+      // ALERT -> EVASION timer is driven ONLY by whether any GUARD currently
+      // has LOS — a camera alert starts the manhunt (see director.tickCameras
+      // above) but, with no guard confirming sight, the squad still decays
+      // ALERT -> EVASION on schedule next tick, exactly as if a guard's own
+      // sighting had been broken. Guards then converge on squad.lastKnown
+      // (the camera-reported position) during EVASION — "the camera spotted
+      // you, guards come looking," not "the camera IS a guard."
       var anyLOS = guards.some(function (g) {
         return g.hasLOS;
       });
@@ -4107,6 +4542,9 @@
         },
         gameOver: engine.gameOver,
         darts: inventory.darts,
+        // NEW — camera meters (see src/director.js's cameraStates contract).
+        // Empty array on a zone with no camera coverage (e.g. loadingDock).
+        cameras: director.cameraStates(),
       };
     }
 
@@ -4822,6 +5260,31 @@
 //         // guardAI's own perception widening, not an independent
 //         // re-derivation -- if guardAI.js's CAUTION widening rule ever
 //         // changes, this must change with it.
+//       cameras: [ { x, y, facing, fovDeg, range, disabled, meter }, ... ]
+//         // NEW (director cycle -- see src/director.js contract, the
+//         // fulfilled "CAMERA HOOK"). EMPTY when jammed, same rationale as
+//         // `guards` above (a camera's live sweep direction is exactly the
+//         // kind of tactical intel the radar going dark is supposed to
+//         // deny -- and jammed is already true whenever chaffActive is,
+//         // since chaffActive is OR'd into it, so a chaff-disabled camera
+//         // is never the reason this array is non-empty-but-dark; see
+//         // `disabled` below). Otherwise one entry per engine.director.
+//         // cameraStates(), same order, straight passthrough of that
+//         // contract's own fields (x/y/fovDeg/range copied verbatim; `facing`
+//         // here IS that contract's `panAngle` -- the camera's CURRENT pan
+//         // direction, not its static mount-center facing, since that's
+//         // what the view actually draws the wedge along). `disabled` and
+//         // `meter` are exposed so the view can pick NORMAL/ALERT/DISABLED
+//         // styling exactly like src/render.js's own cameraStyleKey (pale
+//         // cyan normally, red once meter >= VISION.SUSPICIOUS_AT, dark grey
+//         // while disabled) -- kept as an honest per-camera field rather
+//         // than folded into `jammed` because a real future desync between
+//         // chaffUntil-driven camera disable and squad-phase jam is exactly
+//         // what this field exists to represent, even though with the
+//         // current director both conditions happen to coincide today.
+//         // engine.director may be absent on a bespoke pre-cycle test engine
+//         // object -- falls back to [], same backward-compat posture as
+//         // chaffActive's own fallback above.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random -- runs
 //   headless in node (tests/radar.test.js exercises this half only).
@@ -4894,6 +5357,15 @@
     CAUTION: "rgba(255, 143, 0, 0.35)",
   };
 
+  // CAMERA cone palette (see file header cameras note) -- pale cyan
+  // normally, red once meter reaches SUSPICIOUS_AT, dark grey while
+  // disabled -- matching src/render.js's CAMERA_CONE_STYLE 3-state scheme.
+  var CAMERA_CONE_STYLE = {
+    NORMAL: "rgba(128, 222, 234, 0.32)",
+    ALERT: "rgba(255, 82, 82, 0.42)",
+    DISABLED: "rgba(102, 102, 102, 0.18)",
+  };
+
   // ---- pure model -----------------------------------------------------------
 
   function copyRect(r) {
@@ -4928,6 +5400,25 @@
           };
         });
 
+    // CAMERAS (new -- see file header). Same "empty when jammed" rule as
+    // guards above. engine.director may be absent on a bespoke pre-cycle
+    // test engine -- falls back to [], never throws (same posture as
+    // chaffActive's own engine.chaffUntil fallback above).
+    var cameraStates = (engine.director && engine.director.cameraStates()) || [];
+    var cameras = jammed
+      ? []
+      : cameraStates.map(function (c) {
+          return {
+            x: c.x,
+            y: c.y,
+            facing: c.panAngle,
+            fovDeg: c.fovDeg,
+            range: c.range,
+            disabled: c.disabled,
+            meter: c.meter,
+          };
+        });
+
     return {
       jammed: jammed,
       phaseJam: phaseJam,
@@ -4943,6 +5434,7 @@
         stance: player.stance,
       },
       guards: guards,
+      cameras: cameras,
     };
   }
 
@@ -4983,6 +5475,38 @@
     ctx.closePath();
     ctx.fillStyle = fill;
     ctx.fill();
+  }
+
+  // CAMERA cone wedge -- same arc-fan draw as drawCone above, but keyed by
+  // the 3-state disabled/meter styling instead of a guard's FSM state (see
+  // file header CAMERA_CONE_STYLE / cameraRadarStyleKey).
+  function cameraRadarStyleKey(c) {
+    if (c.disabled) return "DISABLED";
+    if (c.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
+    return "NORMAL";
+  }
+
+  function drawCameraCone(ctx, scale, c) {
+    var fill = CAMERA_CONE_STYLE[cameraRadarStyleKey(c)];
+    var halfFov = ((c.fovDeg * Math.PI) / 180) / 2;
+    var r = c.range * scale;
+    var cx = c.x * scale;
+    var cy = c.y * scale;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, c.facing - halfFov, c.facing + halfFov);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  // CAMERA dot -- a small square marker (distinct from the guard/player
+  // triangles: a camera is fixed hardware, not a moving actor with a facing
+  // "point"), dimmed to a dark grey while disabled, cyan/red otherwise
+  // matching the cone's own NORMAL/ALERT split.
+  function drawCameraDot(ctx, cx, cy, size, disabled, alerted) {
+    ctx.fillStyle = disabled ? "rgba(102,102,102,0.7)" : alerted ? "#ff5252" : "#80deea";
+    ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
   }
 
   // chaffOnly (new -- see file header CHAFF LOOKS DIFFERENT FROM ALERT):
@@ -5105,6 +5629,17 @@
         drawBlinkText(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
         return;
       }
+
+      // CAMERAS drawn UNDER guards (cones first, then dots, then the player
+      // triangle on top -- same layering convention already used for guards
+      // below), so a camera's static dot never gets buried by a moving
+      // guard's own triangle.
+      model.cameras.forEach(function (c) {
+        drawCameraCone(ctx, scale, c);
+      });
+      model.cameras.forEach(function (c) {
+        drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter >= Game.VISION.SUSPICIOUS_AT);
+      });
 
       model.guards.forEach(function (g) {
         drawCone(ctx, scale, g);
@@ -5711,6 +6246,16 @@
 //   src/engine.js's BOX VERB contract for the actual perception-discount
 //   mechanics this has no bearing on.
 //
+//   SECURITY CAMERAS (new — director cycle, see src/director.js contract):
+//   each engine.director.cameraStates() entry gets a small dark wall-mounted
+//   housing (never re-posed — cameras are fixed hardware) plus a pivoting
+//   cone fan, same raycast-clipped-fan technique as a guard's own vision
+//   cone (see updateCameraCone below), recolored every frame: pale cyan
+//   normally, red once meter >= Game.VISION.SUSPICIOUS_AT, grey/dim while
+//   camState.disabled (chaff) — see cameraStyleKey. Rebuilt/disposed on a
+//   zone change exactly like guard actors (disposeCameraActors, called
+//   alongside disposeGuardActors — see ZONE CHANGES below).
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -5829,6 +6374,31 @@
       ALERT: { color: 0xff8a80, opacity: 1.0 },
       EVASION: { color: 0xce93d8, opacity: 0.85 },
       CAUTION: { color: 0xffd180, opacity: 0.85 },
+    };
+
+    // CAMERAS (new — director cycle, see src/director.js contract): small
+    // dark wall-mounted housing + a pivoting cone fan, same raycast-clipped
+    // fan TECHNIQUE as the guard cones above (see buildCameraConeFan below)
+    // but its own geometry/materials — cameras are a distinct entity type,
+    // not guards, so they get their own actor bookkeeping (see
+    // ensureCameraActor/disposeCameraActors below).
+    var CAMERA_HOUSING_COLOR = 0x20262b; // small dark box, reads as hardware not a guard
+    var CAMERA_HOUSING_W = 0.35;
+    var CAMERA_HOUSING_H = 0.28;
+    var CAMERA_MOUNT_Y = 2.0; // world units — wall-mounted height, above head height
+    // Palette per SPEC: pale cyan normally, red once meter >= SUSPICIOUS_AT,
+    // grey/off while disabled (chaff) — three states, keyed by a small
+    // camState string this file derives per-camera each frame (see
+    // cameraStyleKey below), NOT guard.state (cameras have no FSM).
+    var CAMERA_CONE_STYLE = {
+      NORMAL: { color: 0x80deea, opacity: 0.26 },
+      ALERT: { color: 0xff5252, opacity: 0.42 },
+      DISABLED: { color: 0x666666, opacity: 0.1 },
+    };
+    var CAMERA_EDGE_STYLE = {
+      NORMAL: { color: 0xb2ebf2, opacity: 0.8 },
+      ALERT: { color: 0xff8a80, opacity: 0.95 },
+      DISABLED: { color: 0x888888, opacity: 0.35 },
     };
 
     var METER_MAX_W = 2.0;
@@ -5970,6 +6540,34 @@
     Object.keys(EDGE_STYLE).forEach(function (state) {
       var s = EDGE_STYLE[state];
       EDGE_MATERIALS[state] = new THREE.LineBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: s.opacity,
+        depthWrite: false,
+      });
+    });
+
+    // CAMERA cone/edge materials (see file header CAMERAS note) — same
+    // additive-blend / crisp-outline recipe as CONE_MATERIALS/EDGE_MATERIALS
+    // above, keyed by CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's NORMAL/ALERT/
+    // DISABLED states instead of a guard's FSM state.
+    var CAMERA_CONE_MATERIALS = {};
+    Object.keys(CAMERA_CONE_STYLE).forEach(function (key) {
+      var s = CAMERA_CONE_STYLE[key];
+      CAMERA_CONE_MATERIALS[key] = new THREE.MeshBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: s.opacity,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+    });
+
+    var CAMERA_EDGE_MATERIALS = {};
+    Object.keys(CAMERA_EDGE_STYLE).forEach(function (key) {
+      var s = CAMERA_EDGE_STYLE[key];
+      CAMERA_EDGE_MATERIALS[key] = new THREE.LineBasicMaterial({
         color: s.color,
         transparent: true,
         opacity: s.opacity,
@@ -6246,6 +6844,130 @@
       actor.marker.position.set(guard.x, h + 1.5, guard.y);
     }
 
+    // ---- security cameras (see file header CAMERAS note) -----------------------
+    // Static wall-mounted housing (position/facing fixed at construction,
+    // matching src/director.js's schema — cameras never move) + a pivoting
+    // cone fan that DOES change every frame (panAngle sweeps, color reacts to
+    // meter/disabled). One actor per index into engine.director.cameraStates()
+    // — cameras have no persistent id the way guards do, so index IS the key
+    // (stable for a zone's lifetime; a zone change discards the whole roster
+    // and rebuilds fresh, same as disposeGuardActors below).
+
+    var cameraActors = {}; // index -> { housing, cone, coneEdge }
+
+    function ensureCameraActor(index, cam) {
+      var existing = cameraActors[index];
+      if (existing) return existing;
+
+      var housingGeo = new THREE.BoxGeometry(CAMERA_HOUSING_W, CAMERA_HOUSING_H, CAMERA_HOUSING_W);
+      var housingMat = new THREE.MeshLambertMaterial({ color: CAMERA_HOUSING_COLOR });
+      var housing = new THREE.Mesh(housingGeo, housingMat);
+      // The housing itself never re-poses after this (cameras are fixed,
+      // wall-mounted hardware, unlike a guard's body) — position/orientation
+      // set once here, at the camera's own static x/y and its FIRST-FRAME
+      // panAngle (director.cameraStates() exposes panAngle, not the static
+      // `facing` center — close enough for a cosmetic housing that only
+      // needs to look roughly aimed the right way; the cone fan below is
+      // what actually tracks the live pan every frame).
+      housing.position.set(cam.x, CAMERA_MOUNT_Y, cam.y);
+      housing.rotation.y = -cam.panAngle;
+      scene.add(housing);
+
+      var coneMesh = new THREE.Mesh(new THREE.BufferGeometry(), CAMERA_CONE_MATERIALS.NORMAL);
+      scene.add(coneMesh);
+
+      var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), CAMERA_EDGE_MATERIALS.NORMAL);
+      scene.add(coneEdge);
+
+      var actor = { housing: housing, cone: coneMesh, coneEdge: coneEdge };
+      cameraActors[index] = actor;
+      return actor;
+    }
+
+    // Removes + disposes every live camera actor (see ZONE CHANGES in the
+    // file header) — same rationale as disposeGuardActors above: a zone
+    // change means a different (possibly empty) camera roster, so nothing
+    // from the old zone should linger. Housing geometry/material and cone/
+    // coneEdge geometry are each owned exclusively by their actor; cone/
+    // coneEdge MATERIALS come from the shared CAMERA_CONE_MATERIALS/
+    // CAMERA_EDGE_MATERIALS maps (reused across every camera/zone) and must
+    // NOT be disposed here.
+    function disposeCameraActors() {
+      Object.keys(cameraActors).forEach(function (index) {
+        var actor = cameraActors[index];
+        scene.remove(actor.housing, actor.cone, actor.coneEdge);
+        actor.housing.geometry.dispose();
+        actor.housing.material.dispose();
+        actor.cone.geometry.dispose();
+        actor.coneEdge.geometry.dispose();
+      });
+      cameraActors = {};
+    }
+
+    // Which of CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's three keys a camera
+    // reads as this frame — SPEC palette: pale cyan normally, red once the
+    // meter reaches SUSPICIOUS_AT (an early "it's noticing you" cue, not
+    // just at full ALERT), grey/off while disabled (chaff) — disabled wins
+    // over everything else (a jammed camera reads as dead hardware
+    // regardless of whatever stale meter value it's frozen at).
+    function cameraStyleKey(camState) {
+      if (camState.disabled) return "DISABLED";
+      if (camState.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
+      return "NORMAL";
+    }
+
+    // Rebuilds a camera's vision-cone geometry this frame, same
+    // raycast-clipped-fan TECHNIQUE as updateVisionCone above (apex at the
+    // camera's fixed position, arc points clipped to the first wall each ray
+    // hits) but reading the camera's own CURRENT panAngle/fovDeg/range from
+    // director.cameraStates() instead of a guard's live facing/CAUTION
+    // widening.
+    function updateCameraCone(actor, camState, world) {
+      var key = cameraStyleKey(camState);
+      actor.cone.material = CAMERA_CONE_MATERIALS[key];
+      actor.coneEdge.material = CAMERA_EDGE_MATERIALS[key];
+
+      var halfFov = (camState.fovDeg * Math.PI) / 180 / 2;
+      var range = camState.range;
+
+      var segments = CONE_SEGMENTS;
+      var positions = new Float32Array((segments + 2) * 3);
+      positions[0] = camState.x;
+      positions[1] = CONE_Y;
+      positions[2] = camState.y;
+
+      for (var i = 0; i <= segments; i++) {
+        var angle = camState.panAngle - halfFov + (i * (2 * halfFov)) / segments;
+        var farX = camState.x + Math.cos(angle) * range;
+        var farY = camState.y + Math.sin(angle) * range;
+        var hit = world.raycast(camState.x, camState.y, farX, farY);
+        var px = hit ? hit.x : farX;
+        var py = hit ? hit.y : farY;
+        var idx = (i + 1) * 3;
+        positions[idx] = px;
+        positions[idx + 1] = CONE_Y;
+        positions[idx + 2] = py;
+      }
+
+      var indices = [];
+      for (var k = 0; k < segments; k++) {
+        indices.push(0, k + 1, k + 2);
+      }
+
+      actor.cone.geometry.dispose();
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      actor.cone.geometry = geo;
+
+      actor.coneEdge.geometry.dispose();
+      var edgePositions = positions.slice();
+      for (var e = 1; e < edgePositions.length; e += 3) edgePositions[e] = CONE_Y + 0.005;
+      var edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute("position", new THREE.BufferAttribute(edgePositions, 3));
+      actor.coneEdge.geometry = edgeGeo;
+    }
+
     // ---- detection meter (two quads above the player) --------------------------
 
     var meterBg = null;
@@ -6374,6 +7096,7 @@
         if (built) {
           disposeStatic();
           disposeGuardActors();
+          disposeCameraActors();
           built = false;
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
@@ -6445,6 +7168,18 @@
           updateVisionCone(actor, guard, engine.world, engine.squad);
           updateGuardMarker(actor, guard);
         }
+      }
+
+      // SECURITY CAMERAS (see file header CAMERAS note) — pure snapshot read
+      // off engine.director.cameraStates() (see src/director.js contract);
+      // engine.director is empty-safe (undefined check only matters for a
+      // bespoke pre-cycle test engine that predates this module — every real
+      // engine always has one, even on a zone with zero cameras).
+      var cameraStates = (engine.director && engine.director.cameraStates()) || [];
+      for (var ci = 0; ci < cameraStates.length; ci++) {
+        var camState = cameraStates[ci];
+        var camActor = ensureCameraActor(ci, camState);
+        updateCameraCone(camActor, camState, engine.world);
       }
 
       updateTracers(engine);
@@ -6912,6 +7647,416 @@ Game.selfTests.push({
 });
 
 if (typeof module !== "undefined") module.exports = {};
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/cameras.test.js ====
+(function (global) {
+// tests/cameras.test.js — headless assertions for src/director.js's security
+// cameras, plus their wiring into src/engine.js (tick() ordering, events,
+// snapshot). Same registry pattern as every other tests/*.test.js file: push
+// onto the shared Game.selfTests list; test.js runs every entry and reports
+// ok/FAIL with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+const DT = 1 / 60;
+
+function dist(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+// A stationary target far outside any camera's range, used whenever a test
+// wants a camera to see NOTHING at all.
+function farTarget() {
+  return {
+    x: -9999,
+    y: -9999,
+    visionProfile: function () {
+      return 1.0;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 1. Pan angle: deterministic given ctx.time, bounded to +/- sweepDeg/2
+//    around `facing` over a full sweepPeriodS.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: camera pan angle is a deterministic, bounded function of ctx.time",
+  fn: function () {
+    const zone = Game.ZONES.warehouse;
+    const world = Game.createWorld(zone);
+    const vision = Game.createVision({ world: world });
+    const squad = Game.createSquad();
+    const director = Game.createDirector({ world: world, vision: vision, squad: squad });
+
+    const cam = zone.cameras[0];
+    const halfSweepRad = (cam.sweepDeg * Math.PI) / 180 / 2;
+    const player = farTarget();
+
+    let seenMin = Infinity;
+    let seenMax = -Infinity;
+    const STEPS = 600; // 10s of sim time at DT=1/60, well over one 6s sweepPeriodS
+
+    for (let i = 0; i < STEPS; i++) {
+      const t = i * DT;
+      director.tickCameras(DT, { time: t, chaffUntil: 0, player: player });
+      const panAngle = director.cameraStates()[0].panAngle;
+
+      const expected = cam.facing + Math.sin((2 * Math.PI * t) / cam.sweepPeriodS) * halfSweepRad;
+      assert(
+        Math.abs(panAngle - expected) < 1e-9,
+        "pan angle not a pure/deterministic function of ctx.time at t=" + t.toFixed(3)
+      );
+
+      const delta = panAngle - cam.facing;
+      if (delta < seenMin) seenMin = delta;
+      if (delta > seenMax) seenMax = delta;
+    }
+
+    assert(
+      seenMax <= halfSweepRad + 1e-9 && seenMin >= -halfSweepRad - 1e-9,
+      "pan swing exceeded +/- sweepDeg/2: min=" + seenMin.toFixed(4) + " max=" + seenMax.toFixed(4)
+    );
+    // With a full 10s window (> one 6s period) the sweep should have actually
+    // approached both extremes, not just stayed near zero.
+    assert(seenMax > halfSweepRad * 0.9, "pan angle never swung near the +sweepDeg/2 extreme");
+    assert(seenMin < -halfSweepRad * 0.9, "pan angle never swung near the -sweepDeg/2 extreme");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2. Full engine: a player held dead-center in a camera's cone at 5m fills
+//    the meter to ALERT_AT -> cameraAlert event + squad ALERT, and guards
+//    converge on the reported position.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: player held in a camera cone at 5m triggers cameraAlert + squad ALERT, guards converge",
+  fn: function () {
+    const engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 909001 });
+    const cam = Game.ZONES.warehouse.cameras[1]; // east-facing camera, faces 0 rad
+
+    // Dead-center of the camera's base facing, 5m out — clear open floor
+    // (verified against the warehouse's real walls when these positions were
+    // chosen, see src/world.js's camera placement comments).
+    engine.player.x = cam.x + 5;
+    engine.player.y = cam.y;
+    engine.player.stance = "stand";
+
+    let sawCameraAlert = false;
+    const SEARCH_TICKS = Math.round(8 / DT); // generous: the sweep periodically
+    // carries the player out of the narrow FOV, so the meter fills across
+    // several in-cone/out-of-cone arcs rather than in one smooth ramp — see
+    // src/director.js's tickCameras contract.
+    for (let i = 0; i < SEARCH_TICKS && !sawCameraAlert; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      for (let e = 0; e < engine.events.length; e++) {
+        if (engine.events[e].type === "cameraAlert") sawCameraAlert = true;
+      }
+    }
+    assert(sawCameraAlert, "expected a cameraAlert event within 8s of standing 5m dead-center in a camera's cone");
+    // The camera's broadcastAlert() flips squad.phase to ALERT the instant
+    // the meter crosses ALERT_AT (src/guardAI.js's own no-op-if-already-ALERT
+    // rule), but since NO GUARD has real LOS on the player in this scenario
+    // (see src/engine.js's DESIGN RULE: cameras don't feed anyLOS), the very
+    // same squad.tick() call that runs later THIS SAME engine tick sees
+    // anyGuardHasLOS === false and immediately advances ALERT -> EVASION —
+    // so by the time tick() returns, phase may already read EVASION rather
+    // than a lingering ALERT. Either is the "went hostile because of the
+    // camera" outcome this test cares about.
+    assert(
+      engine.squad.phase === "ALERT" || engine.squad.phase === "EVASION",
+      "expected squad.phase ALERT or EVASION after the camera alert, got " + engine.squad.phase
+    );
+    assert(engine.squad.alertCount >= 1, "expected the camera alert to have counted as a real alert incident");
+
+    const lastKnown = engine.squad.lastKnown;
+    assert(
+      Math.abs(lastKnown.x - engine.player.x) < 1e-6 && Math.abs(lastKnown.y - engine.player.y) < 1e-6,
+      "expected squad.lastKnown to be the camera-reported player position"
+    );
+
+    const target = { x: lastKnown.x, y: lastKnown.y };
+    const initialMin = Math.min.apply(
+      null,
+      engine.guards.map(function (g) {
+        return dist(g.x, g.y, target.x, target.y);
+      })
+    );
+
+    // Guards converge on the reported position (ALERT pursuit, or EVASION's
+    // own convergence-on-lastKnown sweep once the squad has decayed off the
+    // camera-only ALERT — see src/guardAI.js's EVASION contract and
+    // engine.js's DESIGN RULE above) — give it several seconds of travel and
+    // confirm at least one guard was actually forced hostile.
+    let anyGuardWentHostile = false;
+    const FOLLOWUP_TICKS = Math.round(6 / DT);
+    for (let j = 0; j < FOLLOWUP_TICKS; j++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      if (engine.guards.some((g) => g.state === "ALERT" || g.state === "EVASION")) anyGuardWentHostile = true;
+    }
+    assert(anyGuardWentHostile, "expected at least one guard to go hostile (ALERT/EVASION) after the camera-triggered squad alert");
+
+    const finalMin = Math.min.apply(
+      null,
+      engine.guards.map(function (g) {
+        return dist(g.x, g.y, target.x, target.y);
+      })
+    );
+    assert(
+      finalMin < initialMin - 2,
+      "expected the nearest guard to have closed real distance toward the camera-reported position: initial=" +
+        initialMin.toFixed(2) +
+        " final=" +
+        finalMin.toFixed(2)
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 3. Box + stationary in a camera's cone: the wrapped (perceivedPlayer)
+//    target is respected, meter stays far below SUSPICIOUS_AT.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: boxed + stationary in a camera cone keeps the meter near zero (wrapped target respected)",
+  fn: function () {
+    const engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 909002 });
+    const cam = Game.ZONES.warehouse.cameras[1];
+
+    engine.player.x = cam.x + 5;
+    engine.player.y = cam.y;
+    engine.player.stance = "stand";
+
+    engine.tick({ moveX: 0, moveY: 0, box: true });
+    assert(engine.inventory.boxOn, "setup failed: box never toggled on");
+
+    let maxMeter = 0;
+    let sawEscalation = false;
+    const CAMP_TICKS = Math.round(40 / DT); // several full sweepPeriodS cycles
+    for (let i = 0; i < CAMP_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0, box: true });
+      for (let e = 0; e < engine.events.length; e++) {
+        if (engine.events[e].type === "cameraSuspicious" || engine.events[e].type === "cameraAlert") {
+          sawEscalation = true;
+        }
+      }
+      const m = engine.director.cameraStates()[1].meter;
+      if (m > maxMeter) maxMeter = m;
+    }
+
+    assert(!sawEscalation, "boxed + stationary player should never trip cameraSuspicious/cameraAlert");
+    assert(
+      maxMeter < Game.VISION.SUSPICIOUS_AT,
+      "expected the camera meter to stay well below SUSPICIOUS_AT while boxed+stationary, peak was " + maxMeter.toFixed(3)
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 4. Chaff disables: meter frozen, disabled flag set, no alert while the
+//    player dances in and out of the cone.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: chaff disables a camera — meter frozen, disabled flag set, no alert while chaffed",
+  fn: function () {
+    const engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 909003 });
+    const cam = Game.ZONES.warehouse.cameras[1];
+
+    engine.player.x = cam.x + 5;
+    engine.player.y = cam.y;
+
+    engine.tick({ moveX: 0, moveY: 0, chaff: true });
+    assert(engine.chaffUntil > engine.time, "setup failed: chaff never armed");
+
+    const baselineMeter = engine.director.cameraStates()[1].meter;
+    assert(engine.director.cameraStates()[1].disabled, "expected camera[1].disabled immediately after throwing chaff");
+
+    const DANCE_TICKS = Math.round((Game.ITEMS.CHAFF_S - 1) / DT); // stay inside the 15s window with margin
+    for (let i = 0; i < DANCE_TICKS; i++) {
+      // "dances in the cone": alternate dead-center / off to the side every
+      // ~0.2s, trying (and failing) to trip the meter while chaffed.
+      const phase = Math.floor(i / 12) % 2 === 0;
+      engine.player.x = phase ? cam.x + 5 : cam.x + 5;
+      engine.player.y = phase ? cam.y : cam.y + 6; // off-center, still nominally "nearby"
+
+      engine.tick({ moveX: 0, moveY: 0 });
+
+      const state = engine.director.cameraStates()[1];
+      assert(state.disabled, "expected camera[1] to stay disabled throughout the chaff window (tick " + i + ")");
+      assert(
+        state.meter === baselineMeter,
+        "expected the meter to stay FROZEN exactly at its pre-chaff value while disabled (tick " + i + "): " +
+          state.meter +
+          " !== " +
+          baselineMeter
+      );
+      for (let e = 0; e < engine.events.length; e++) {
+        assert(
+          engine.events[e].type !== "cameraSuspicious" && engine.events[e].type !== "cameraAlert",
+          "no camera escalation should be possible while chaffed (tick " + i + ")"
+        );
+      }
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 5. Disabled clears after CHAFF_S (15s) and detection resumes.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: a chaffed camera's disabled flag clears after CHAFF_S and detection resumes",
+  fn: function () {
+    const engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 909004 });
+    const cam = Game.ZONES.warehouse.cameras[1];
+
+    // Park well outside the cone during the chaff window itself so this test
+    // isolates "does disabled clear on schedule" from "does detection
+    // resume" — both checked, but sequentially.
+    engine.player.x = -50;
+    engine.player.y = -50;
+
+    engine.tick({ moveX: 0, moveY: 0, chaff: true });
+    assert(engine.director.cameraStates()[1].disabled, "setup failed: camera never disabled by chaff");
+
+    const THROUGH_CHAFF_TICKS = Math.round((Game.ITEMS.CHAFF_S + 0.5) / DT);
+    for (let i = 0; i < THROUGH_CHAFF_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+    }
+    assert(
+      !engine.director.cameraStates()[1].disabled,
+      "expected camera[1].disabled to clear once engine.time passed chaffUntil"
+    );
+
+    // Detection resumes: move into the cone now and confirm a fresh alert.
+    engine.player.x = cam.x + 5;
+    engine.player.y = cam.y;
+
+    let sawCameraAlert = false;
+    const SEARCH_TICKS = Math.round(8 / DT);
+    for (let i = 0; i < SEARCH_TICKS && !sawCameraAlert; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      for (let e = 0; e < engine.events.length; e++) {
+        if (engine.events[e].type === "cameraAlert") sawCameraAlert = true;
+      }
+    }
+    assert(sawCameraAlert, "expected the camera to resume normal detection once chaff expired");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 6. cameraSuspicious fires once per rising edge, not once per tick spent
+//    above the threshold.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: cameraSuspicious fires once per crossing, not once per tick above SUSPICIOUS_AT",
+  fn: function () {
+    const zone = Game.ZONES.warehouse;
+    const world = Game.createWorld(zone);
+    const vision = Game.createVision({ world: world });
+    const squad = Game.createSquad();
+    const director = Game.createDirector({ world: world, vision: vision, squad: squad });
+
+    const cam = zone.cameras[1]; // east camera, facing 0
+    // time held at 0 for every "in cone" tick below: sin(0) === 0, so
+    // panAngle === cam.facing exactly, guaranteeing this dead-ahead target is
+    // in-cone regardless of how many dt-driven meter ticks have elapsed —
+    // ctx.time only drives the pan angle, dt drives meter integration, and
+    // the two are independent inputs (see src/director.js's contract).
+    const inCone = {
+      x: cam.x + 5,
+      y: cam.y,
+      visionProfile: function () {
+        return 1.0;
+      },
+    };
+    const outOfCone = farTarget();
+
+    let suspiciousCount = 0;
+
+    // Phase 1: rise past SUSPICIOUS_AT (stop short of it staying there forever).
+    for (let i = 0; i < 60; i++) {
+      const fired = director.tickCameras(DT, { time: 0, chaffUntil: 0, player: inCone });
+      fired.forEach((f) => {
+        if (f.type === "cameraSuspicious") suspiciousCount++;
+      });
+      if (director.cameraStates()[1].meter >= Game.VISION.SUSPICIOUS_AT) break;
+    }
+    assert(suspiciousCount === 1, "expected exactly one cameraSuspicious on the initial rising edge, got " + suspiciousCount);
+
+    // Still above the line: several more ticks must NOT re-fire it.
+    for (let i = 0; i < 30; i++) {
+      const fired = director.tickCameras(DT, { time: 0, chaffUntil: 0, player: inCone });
+      fired.forEach((f) => {
+        if (f.type === "cameraSuspicious") suspiciousCount++;
+      });
+    }
+    assert(suspiciousCount === 1, "cameraSuspicious re-fired while continuously above threshold: count=" + suspiciousCount);
+
+    // Phase 2: drain back below SUSPICIOUS_AT.
+    for (let i = 0; i < 120; i++) {
+      director.tickCameras(DT, { time: 0, chaffUntil: 0, player: outOfCone });
+    }
+    assert(
+      director.cameraStates()[1].meter < Game.VISION.SUSPICIOUS_AT,
+      "setup failed: meter never drained back below SUSPICIOUS_AT"
+    );
+
+    // Phase 3: re-enter the cone -- exactly one more cameraSuspicious.
+    for (let i = 0; i < 60; i++) {
+      const fired = director.tickCameras(DT, { time: 0, chaffUntil: 0, player: inCone });
+      fired.forEach((f) => {
+        if (f.type === "cameraSuspicious") suspiciousCount++;
+      });
+      if (director.cameraStates()[1].meter >= Game.VISION.SUSPICIOUS_AT) break;
+    }
+    assert(suspiciousCount === 2, "expected a second cameraSuspicious on re-crossing, got " + suspiciousCount);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 7. Determinism: two engines, same seed, identical camera meters over 600
+//    ticks.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "director: two engines with identical seed/inputs produce identical camera meters over 600 ticks",
+  fn: function () {
+    const engineA = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 55555 });
+    const engineB = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 55555 });
+
+    const cam = Game.ZONES.warehouse.cameras[0];
+    [engineA, engineB].forEach((eng) => {
+      eng.player.x = cam.x + 4;
+      eng.player.y = cam.y;
+    });
+
+    for (let i = 0; i < 600; i++) {
+      // A little back-and-forth movement (identical on both) so this
+      // exercises more than a frozen player, without needing real input
+      // devices.
+      const wobble = Math.sin(i / 37) > 0 ? 1 : -1;
+      engineA.tick({ moveX: wobble * 0.2, moveY: 0 });
+      engineB.tick({ moveX: wobble * 0.2, moveY: 0 });
+
+      const camsA = engineA.director.cameraStates();
+      const camsB = engineB.director.cameraStates();
+      assert(camsA.length === camsB.length, "camera counts diverged at tick " + i);
+      for (let c = 0; c < camsA.length; c++) {
+        assert(
+          camsA[c].meter === camsB[c].meter,
+          "camera[" + c + "] meter diverged at tick " + i + ": " + camsA[c].meter + " !== " + camsB[c].meter
+        );
+        assert(
+          camsA[c].panAngle === camsB[c].panAngle,
+          "camera[" + c + "] panAngle diverged at tick " + i
+        );
+        assert(camsA[c].disabled === camsB[c].disabled, "camera[" + c + "] disabled diverged at tick " + i);
+      }
+    }
+  },
+});
 
 })(typeof window !== "undefined" ? window : global);
 // ==== tests/combat.test.js ====

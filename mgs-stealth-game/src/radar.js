@@ -58,6 +58,31 @@
 //         // guardAI's own perception widening, not an independent
 //         // re-derivation -- if guardAI.js's CAUTION widening rule ever
 //         // changes, this must change with it.
+//       cameras: [ { x, y, facing, fovDeg, range, disabled, meter }, ... ]
+//         // NEW (director cycle -- see src/director.js contract, the
+//         // fulfilled "CAMERA HOOK"). EMPTY when jammed, same rationale as
+//         // `guards` above (a camera's live sweep direction is exactly the
+//         // kind of tactical intel the radar going dark is supposed to
+//         // deny -- and jammed is already true whenever chaffActive is,
+//         // since chaffActive is OR'd into it, so a chaff-disabled camera
+//         // is never the reason this array is non-empty-but-dark; see
+//         // `disabled` below). Otherwise one entry per engine.director.
+//         // cameraStates(), same order, straight passthrough of that
+//         // contract's own fields (x/y/fovDeg/range copied verbatim; `facing`
+//         // here IS that contract's `panAngle` -- the camera's CURRENT pan
+//         // direction, not its static mount-center facing, since that's
+//         // what the view actually draws the wedge along). `disabled` and
+//         // `meter` are exposed so the view can pick NORMAL/ALERT/DISABLED
+//         // styling exactly like src/render.js's own cameraStyleKey (pale
+//         // cyan normally, red once meter >= VISION.SUSPICIOUS_AT, dark grey
+//         // while disabled) -- kept as an honest per-camera field rather
+//         // than folded into `jammed` because a real future desync between
+//         // chaffUntil-driven camera disable and squad-phase jam is exactly
+//         // what this field exists to represent, even though with the
+//         // current director both conditions happen to coincide today.
+//         // engine.director may be absent on a bespoke pre-cycle test engine
+//         // object -- falls back to [], same backward-compat posture as
+//         // chaffActive's own fallback above.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random -- runs
 //   headless in node (tests/radar.test.js exercises this half only).
@@ -130,6 +155,15 @@
     CAUTION: "rgba(255, 143, 0, 0.35)",
   };
 
+  // CAMERA cone palette (see file header cameras note) -- pale cyan
+  // normally, red once meter reaches SUSPICIOUS_AT, dark grey while
+  // disabled -- matching src/render.js's CAMERA_CONE_STYLE 3-state scheme.
+  var CAMERA_CONE_STYLE = {
+    NORMAL: "rgba(128, 222, 234, 0.32)",
+    ALERT: "rgba(255, 82, 82, 0.42)",
+    DISABLED: "rgba(102, 102, 102, 0.18)",
+  };
+
   // ---- pure model -----------------------------------------------------------
 
   function copyRect(r) {
@@ -164,6 +198,25 @@
           };
         });
 
+    // CAMERAS (new -- see file header). Same "empty when jammed" rule as
+    // guards above. engine.director may be absent on a bespoke pre-cycle
+    // test engine -- falls back to [], never throws (same posture as
+    // chaffActive's own engine.chaffUntil fallback above).
+    var cameraStates = (engine.director && engine.director.cameraStates()) || [];
+    var cameras = jammed
+      ? []
+      : cameraStates.map(function (c) {
+          return {
+            x: c.x,
+            y: c.y,
+            facing: c.panAngle,
+            fovDeg: c.fovDeg,
+            range: c.range,
+            disabled: c.disabled,
+            meter: c.meter,
+          };
+        });
+
     return {
       jammed: jammed,
       phaseJam: phaseJam,
@@ -179,6 +232,7 @@
         stance: player.stance,
       },
       guards: guards,
+      cameras: cameras,
     };
   }
 
@@ -219,6 +273,38 @@
     ctx.closePath();
     ctx.fillStyle = fill;
     ctx.fill();
+  }
+
+  // CAMERA cone wedge -- same arc-fan draw as drawCone above, but keyed by
+  // the 3-state disabled/meter styling instead of a guard's FSM state (see
+  // file header CAMERA_CONE_STYLE / cameraRadarStyleKey).
+  function cameraRadarStyleKey(c) {
+    if (c.disabled) return "DISABLED";
+    if (c.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
+    return "NORMAL";
+  }
+
+  function drawCameraCone(ctx, scale, c) {
+    var fill = CAMERA_CONE_STYLE[cameraRadarStyleKey(c)];
+    var halfFov = ((c.fovDeg * Math.PI) / 180) / 2;
+    var r = c.range * scale;
+    var cx = c.x * scale;
+    var cy = c.y * scale;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, c.facing - halfFov, c.facing + halfFov);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  // CAMERA dot -- a small square marker (distinct from the guard/player
+  // triangles: a camera is fixed hardware, not a moving actor with a facing
+  // "point"), dimmed to a dark grey while disabled, cyan/red otherwise
+  // matching the cone's own NORMAL/ALERT split.
+  function drawCameraDot(ctx, cx, cy, size, disabled, alerted) {
+    ctx.fillStyle = disabled ? "rgba(102,102,102,0.7)" : alerted ? "#ff5252" : "#80deea";
+    ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
   }
 
   // chaffOnly (new -- see file header CHAFF LOOKS DIFFERENT FROM ALERT):
@@ -341,6 +427,17 @@
         drawBlinkText(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
         return;
       }
+
+      // CAMERAS drawn UNDER guards (cones first, then dots, then the player
+      // triangle on top -- same layering convention already used for guards
+      // below), so a camera's static dot never gets buried by a moving
+      // guard's own triangle.
+      model.cameras.forEach(function (c) {
+        drawCameraCone(ctx, scale, c);
+      });
+      model.cameras.forEach(function (c) {
+        drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter >= Game.VISION.SUSPICIOUS_AT);
+      });
 
       model.guards.forEach(function (g) {
         drawCone(ctx, scale, g);

@@ -23,7 +23,8 @@ content rotation) take over. L items must be split before selection.
 8. ~~HUD~~ DONE cycle 12.
 9. ~~Music~~ DONE cycle 14 (needs human ear pass — see FEEDBACK request in TESTLOG).
 9b. Mute key + volume | polish | S | Readability | M toggles mute (suspend master gain); persists in-session; title legend updated.
-10. Remaining zones | content | L→split | Expression | ~~Warehouse~~ DONE cycle 15. Next: (a) Laboratory (cameras + laser sensors + keycards L1-L3 — needs camera entity in guard/vision system first), (b) Comms Tower (heavy patrols, finale).
+10. Remaining zones | content | L→split | Expression | ~~Warehouse~~ c15. ~~cameras system~~ c23. Next: (a) Laboratory zone (lasers + keycards L1-L3 + doors + camera installation), (b) Comms Tower (heavy patrols, finale).
+- Camera meter visibility | polish | S | Readability | cone color ramps with camera meter (cyan→amber→red) so players see how close a camera is to confirming.
 10b. Departed-zone state persistence | feature | M | Consequence | stash squad/guard state per zone on exit, restore on re-entry (alerted zones stay hot); replaces v1 discard semantics; determinism preserved.
 11. ~~Items/CQC/tranq~~ DONE c16-c19 (throw variant + guard box-memory spun off as separate items below).
 - Per-guard box memory | feature | S | Tension | a guard who saw the box move stays suspicious of it (extraMult 0.5 not 0.05 for that guard, decays with CAUTION).

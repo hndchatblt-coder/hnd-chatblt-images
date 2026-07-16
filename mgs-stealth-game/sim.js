@@ -1362,6 +1362,123 @@ scenarios.push({
   },
 });
 
+// ---- director / camera playtest scenario ----------------------------------
+// Real warehouse + real cameras (src/director.js) + real chaff (src/items.js/
+// src/engine.js). Proves the two systems actually cooperate end to end: a
+// well-timed chaff throw blinds BOTH pilot cameras for one continuous window
+// long enough to slip a scripted crossing between them unseen, squad staying
+// INFILTRATION throughout -- and once the chaff fades, the SAME cameras go
+// back to work within a couple seconds of a fresh sighting.
+scenarios.push({
+  name: "camera gauntlet: chaff the cameras and slip through, then get caught once chaff fades",
+  seed: 20260716023,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({ seed: this.seed, zoneData: warehouse });
+    const cam1 = warehouse.cameras[1]; // east-aisle camera, facing east
+
+    // Throw chaff immediately -- disables both pilot cameras for CHAFF_S (15s).
+    engine.tick({ moveX: 0, moveY: 0, chaff: true });
+    if (!(engine.chaffUntil > engine.time)) {
+      throw new Error("setup failed: chaff never armed");
+    }
+
+    // Scripted crossing: dead-center of camera0's cone (west, ~3.9m out) ->
+    // the clear y:14-16 cross-aisle band that spans the FULL width of the
+    // map (verified against the warehouse's real walls -- see src/world.js's
+    // camera placement comments) -> dead-center of camera1's cone (east,
+    // ~3.4m out). Position is driven directly (teleport, collision
+    // bypassed) -- same technique sim.js's own box-camp-style scenarios
+    // already use to script a path; the system under test here is
+    // detection, not pathfinding.
+    const waypoints = [
+      { x: 10, y: 13.5 }, // camera0's cone, dead ahead
+      { x: 13, y: 15 }, // duck into the clear cross-aisle band
+      { x: 20, y: 15 }, // center spine
+      { x: 27, y: 15 },
+      { x: 33, y: 13.5 }, // camera1's cone, dead ahead
+    ];
+
+    const SEGMENT_TICKS = Math.round(0.5 / DT); // 0.5s per leg -> 2s total crossing
+    let elapsedS = 0;
+    let sawEscalation = false;
+
+    for (let seg = 0; seg < waypoints.length - 1; seg++) {
+      const a = waypoints[seg];
+      const b = waypoints[seg + 1];
+      for (let i = 0; i < SEGMENT_TICKS; i++) {
+        const t = i / SEGMENT_TICKS;
+        engine.player.x = a.x + (b.x - a.x) * t;
+        engine.player.y = a.y + (b.y - a.y) * t;
+        engine.tick({ moveX: 0, moveY: 0 });
+        elapsedS += DT;
+
+        for (const e of engine.events) {
+          if (e.type === "cameraSuspicious" || e.type === "cameraAlert") sawEscalation = true;
+        }
+        if (engine.squad.phase !== "INFILTRATION") {
+          throw new Error(
+            "squad left INFILTRATION during the chaffed crossing at t=" +
+              elapsedS.toFixed(2) +
+              "s (phase=" +
+              engine.squad.phase +
+              ")"
+          );
+        }
+      }
+    }
+
+    if (sawEscalation) {
+      throw new Error("a camera escalated (cameraSuspicious/cameraAlert) during the chaffed crossing");
+    }
+    if (elapsedS >= G.ITEMS.CHAFF_S) {
+      throw new Error(
+        "setup failed: the scripted crossing (" + elapsedS.toFixed(2) + "s) took longer than the chaff window itself"
+      );
+    }
+
+    // Wait out the remainder of the chaff window well clear of any camera,
+    // so the eventual "detection resumes" check below is a clean, fresh
+    // sighting rather than a stale one from the crossing above.
+    engine.player.x = -50;
+    engine.player.y = -50;
+    const remaining = engine.chaffUntil - engine.time;
+    const WAIT_TICKS = Math.round((remaining + 0.1) / DT);
+    for (let i = 0; i < WAIT_TICKS; i++) {
+      engine.player.x = -50;
+      engine.player.y = -50;
+      engine.tick({ moveX: 0, moveY: 0 });
+    }
+    if (engine.chaffUntil > engine.time) {
+      throw new Error("setup failed: chaff never actually expired");
+    }
+
+    // THEN: cameras work again -- stand solidly in camera1's cone and expect
+    // detection quickly. The camera's own sweep periodically carries the
+    // cone off a stationary target (see src/director.js's tickCameras
+    // contract), so a fresh meter climbing from 0 to Game.VISION.ALERT_AT at
+    // 5m takes a bit under 3s in practice (confirmed empirically against
+    // this exact scenario, and consistent with the unit-level timing
+    // measured in tests/cameras.test.js) rather than an instant trip --
+    // budgeted generously here at 4s so this isn't a flaky race against the
+    // sweep's exact phase.
+    let alertTick = null;
+    const POST_CHAFF_TICKS = Math.round(4 / DT);
+    for (let i = 0; i < POST_CHAFF_TICKS; i++) {
+      engine.player.x = cam1.x + 5;
+      engine.player.y = cam1.y;
+      engine.tick({ moveX: 0, moveY: 0 });
+      if (engine.squad.phase === "ALERT" || engine.squad.phase === "EVASION") {
+        alertTick = i;
+        break;
+      }
+    }
+    if (alertTick === null) {
+      throw new Error("expected the squad to go hostile within a few seconds of standing in camera1's cone once chaff faded");
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

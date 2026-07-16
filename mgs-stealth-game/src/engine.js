@@ -31,12 +31,21 @@
 //                world: world, vision: vision, rng: rng, squad: squad,
 //                spawn: cfg.spawn, waypoints: cfg.waypoints, id: cfg.id,
 //              }))
+//     director    = Game.createDirector({ world: world, vision: vision, squad: squad })
+//              — NEW (see src/director.js's own contract for the full
+//              write-up). Owns this zone's wall-mounted security cameras
+//              (zone.cameras, empty-safe — a zone with no camera data just
+//              gets a director with an empty roster); rebuilt fresh on every
+//              zone transition exactly like world/vision/squad/guards above
+//              (see switchZone below).
 //
 //   engine — flat, readable props (mutated in place by tick()):
-//     world, player, guards (array), squad, vision, rng, soundEvents, zone —
-//       the wired instances/data above (zone === zoneData, the plain-object
-//       level data; soundEvents is the Game.createSoundEvents({world})
-//       instance — see src/soundEvents.js contract).
+//     world, player, guards (array), squad, vision, director, rng,
+//       soundEvents, zone — the wired instances/data above (zone === zoneData,
+//       the plain-object level data; soundEvents is the
+//       Game.createSoundEvents({world}) instance — see src/soundEvents.js
+//       contract; director is the Game.createDirector({...}) instance above —
+//       see src/director.js contract).
 //     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
 //                 advances the simulation by exactly this much regardless of
 //                 wall-clock time — the engine has NO notion of real time; the
@@ -121,6 +130,18 @@
 //                     GAME OVER below). Fires exactly once, the tick hp hits
 //                     0; never again afterward (engine.gameOver latches, and
 //                     a latched engine stops ticking altogether — see below).
+//                   { type: "cameraSuspicious", cameraIndex } — one of
+//                     director.tickCameras' cameras crossed
+//                     Game.VISION.SUSPICIOUS_AT from below THIS tick (see
+//                     src/director.js contract) — edge-triggered, fires again
+//                     on a later re-crossing, never spams every tick spent
+//                     above the line.
+//                   { type: "cameraAlert", cameraIndex } — one of
+//                     director.tickCameras' cameras reads >= Game.VISION.
+//                     ALERT_AT THIS tick (see src/director.js contract) —
+//                     LEVEL-triggered (fires every such tick, not just the
+//                     first), same tick director itself already called
+//                     squad.broadcastAlert.
 //                 More event types (item pickups, ...) will be appended by
 //                 later modules — treat `type` as an open set and always
 //                 branch on it, never assume this is the full list.
@@ -390,13 +411,13 @@
 //   CHAFF HOOK comment, written for exactly this) and exposes which kind of
 //   jam is live so the view can render chaff static differently (a bluish
 //   tint + "CHAFF" label) from a phase-driven ALERT/EVASION blackout (red
-//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK (honest gap,
-//   not a silent one — same posture as this file's own VISION STAGGERING
-//   note below): the Laboratory zone's cameras don't exist yet (SPEC.md's
-//   own zone list has them arriving with keycards later), so "cameras die
-//   under chaff" has nothing to wire up to this cycle; whenever a camera
-//   entity exists, it is expected to gate its own perception off this same
-//   engine.chaffUntil > engine.time signal, not a second parallel timer.
+//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK — FULFILLED this
+//   cycle (was an honest gap in earlier cycles: "whenever a camera entity
+//   exists, it is expected to gate its own perception off this same
+//   engine.chaffUntil > engine.time signal, not a second parallel timer").
+//   src/director.js's cameras now do exactly that — see its own tickCameras
+//   contract's `disabled` check, and DIRECTOR / CAMERAS below for where this
+//   file hands chaffUntil in every tick.
 //   Runs in the same NOISE STEP position as fire/knock (step 2), same
 //   same-tick-visible-to-guards rationale as the fire verb above.
 //
@@ -529,6 +550,21 @@
 //          verb runs in step 2, before this loop).
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
+//       3.5. DIRECTOR / CAMERAS (new — see src/director.js contract):
+//          director.tickCameras(DT, { time: engine.time, chaffUntil: engine.
+//          chaffUntil, player: perceivedPlayer }) — AFTER every guard's own
+//          update() (step 3), BEFORE squad.tick() (step 5), reusing the
+//          EXACT SAME perceivedPlayer wrapper step 3 just used (one wrapping
+//          decision per tick, shared by every viewer — see GUARD PERCEPTION
+//          GATE / BOX PERCEPTION above). Returns a list of { type,
+//          cameraIndex } facts (cameraSuspicious/cameraAlert — see the
+//          events list above); this file pushes each straight onto
+//          engine.events (director owns no events array of its own — same
+//          "returns facts, engine narrates" split as items.js's own
+//          fireTranq/useRation/useChaff). A camera reaching ALERT_AT calls
+//          squad.broadcastAlert INSIDE tickCameras, before this step
+//          returns — see DESIGN RULE below for why this does NOT feed
+//          anyLOS (step 5).
 //       4. GAME OVER CHECK (new — see GAME OVER above): if !player.alive and
 //          engine.gameOver is not already true, set engine.gameOver = true
 //          and push { type: "gameOver" }. Runs right after the guard loop so
@@ -551,7 +587,17 @@
 //          exactly the reference wiring documented in guardAI.js's file
 //          header and exercised by sim.js's "full alert ladder" scenario:
 //          update every guard first, THEN squad.tick with the OR of every
-//          guard's hasLOS.
+//          guard's hasLOS. DESIGN RULE — cameras deliberately DO NOT feed
+//          into anyLOS: a camera reaching ALERT_AT (step 3.5 above) calls
+//          squad.broadcastAlert and flips the squad into ALERT same as a
+//          guard's own confirmed sighting, but anyLOS here is computed ONLY
+//          from the guards array — so with no guard itself confirming
+//          sight, squad.tick() still decays ALERT -> EVASION after
+//          GUARD.EVASION_S on schedule, exactly as if a guard's own LOS had
+//          been broken. This is correct MGS behavior, not a gap: a camera
+//          spots you and calls it in, then the GUARDS have to actually come
+//          find you — a camera is a tripwire, not a second pair of guard
+//          eyes that can independently sustain ALERT forever.
 //       6. Event collection: engine.events is cleared at the TOP of tick(),
 //          right after the frozen check (step 0), before step 1, and
 //          squad.phase/alertCount are snapshotted at that same moment
@@ -646,6 +692,10 @@
 //         squad: { phase, phaseTime, lastKnown, alertCount },
 //         gameOver: boolean,   // NEW — engine.gameOver verbatim; see GAME OVER above
 //         darts: number,       // NEW — engine.inventory.darts verbatim
+//         cameras: [ { x, y, panAngle, disabled, meter, fovDeg, range }, ... ],
+//                              // NEW — director.cameraStates() verbatim (see
+//                              // src/director.js contract); [] on a zone
+//                              // with no camera coverage.
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -827,12 +877,20 @@
 
     var guards = buildGuards(guardConfigs, world, vision, rng, squad);
 
+    // DIRECTOR (see src/director.js contract) — owns this zone's wall-mounted
+    // security cameras (zone.cameras, empty-safe: a zone with no cameras just
+    // gets a director with an empty roster, no special-casing needed here).
+    // Built fresh for every zone, same "rebuild on transition" rule as
+    // world/vision/squad/guards (see switchZone below).
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad });
+
     var engine = {
       world: world,
       player: player,
       guards: guards,
       squad: squad,
       vision: vision,
+      director: director,
       rng: rng,
       soundEvents: soundEvents,
       inventory: inventory,
@@ -1042,6 +1100,12 @@
       var newVision = Game.createVision({ world: newWorld });
       var newSquad = Game.createSquad();
       var newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
+      // DIRECTOR (see src/director.js contract) — rebuilt fresh for the
+      // target zone's own camera roster, same "discard the departed zone's
+      // instance, never carry it across" rule as world/vision/squad/guards
+      // above (a departed zone's cameras belong to a world that no longer
+      // exists).
+      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad });
 
       var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
       var newPlayer = Game.createPlayer({ world: newWorld });
@@ -1066,6 +1130,7 @@
       vision = newVision;
       squad = newSquad;
       guards = newGuards;
+      director = newDirector;
       player = newPlayer;
       inBlockedExitRegion = false;
 
@@ -1084,6 +1149,7 @@
       engine.vision = vision;
       engine.squad = squad;
       engine.guards = guards;
+      engine.director = director;
       engine.player = player;
 
       engine.events.push({ type: "zoneChange", from: fromId, to: zone.id });
@@ -1414,6 +1480,27 @@
         guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
       }
 
+      // DIRECTOR / CAMERAS (see src/director.js contract) — runs AFTER every
+      // guard's own update() this tick, BEFORE squad.tick(), same slot the
+      // file header's own step ordering calls for. Reuses the EXACT SAME
+      // `perceivedPlayer` wrapper the guard loop just used above (see GUARD
+      // PERCEPTION GATE / BOX PERCEPTION notes) — one wrapping decision per
+      // tick, shared by every viewer in the zone, guard or camera; director
+      // itself never knows a wrapping happened. cameraAlerts is director's
+      // own returned list of { type, cameraIndex } facts (cameraSuspicious/
+      // cameraAlert) — director never touches engine.events itself (it has
+      // no such array), so THIS is where they actually get pushed, same
+      // "returns facts, engine narrates" split as items.js's fireTranq/
+      // useRation/useChaff.
+      var cameraAlerts = director.tickCameras(DT, {
+        time: engine.time,
+        chaffUntil: engine.chaffUntil,
+        player: perceivedPlayer,
+      });
+      for (var cai = 0; cai < cameraAlerts.length; cai++) {
+        engine.events.push(cameraAlerts[cai]);
+      }
+
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
       // player.alive, not "did a guardFire just happen," so any future
       // damage source drives game over through this one check.
@@ -1422,6 +1509,15 @@
         engine.events.push({ type: "gameOver" });
       }
 
+      // CAMERAS DO NOT CONTRIBUTE TO anyLOS (see src/director.js contract's
+      // ALERT note and this file's own DESIGN RULE below): squad.tick()'s
+      // ALERT -> EVASION timer is driven ONLY by whether any GUARD currently
+      // has LOS — a camera alert starts the manhunt (see director.tickCameras
+      // above) but, with no guard confirming sight, the squad still decays
+      // ALERT -> EVASION on schedule next tick, exactly as if a guard's own
+      // sighting had been broken. Guards then converge on squad.lastKnown
+      // (the camera-reported position) during EVASION — "the camera spotted
+      // you, guards come looking," not "the camera IS a guard."
       var anyLOS = guards.some(function (g) {
         return g.hasLOS;
       });
@@ -1467,6 +1563,9 @@
         },
         gameOver: engine.gameOver,
         darts: inventory.darts,
+        // NEW — camera meters (see src/director.js's cameraStates contract).
+        // Empty array on a zone with no camera coverage (e.g. loadingDock).
+        cameras: director.cameraStates(),
       };
     }
 

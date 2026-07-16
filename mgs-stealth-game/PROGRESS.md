@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.22 (cycle 22 — audit fixes A6/A8/A10)
+**Version:** v0.23 (cycle 23 — security cameras; director module born)
 
 ## Module status
 
@@ -14,7 +14,7 @@
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
 | soundEvents    | v1          | emit radii, analytic wall attenuation, knock verb |
 | items          | v3          | full SPEC set: tranq, CQC, drag, lockers, box, ration, chaff |
-| director       | not started | reinforcements, radio check-ins          |
+| director       | v1          | cameras (sweep/chaff/alerts); reinforcements+check-ins pending |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | not started | snapshot() groundwork exists in engine   |
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 23: cameras — sweeping cones via shared vision math + perception
+  wrapper, chaff freeze, camera alerts tip squad without feeding anyLOS,
+  radar/render cones, 2 pilot cams in warehouse (144/144, 16/16)
 - cycle 22: bugfix batch — truthful box scenarios + crawl coverage (A6),
   noise-radii cross-check (A8), wall-safe drag + regression (A10)
   (137/137, 15/15)

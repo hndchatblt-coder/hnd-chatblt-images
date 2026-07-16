@@ -39,6 +39,30 @@
 //                                          // these functional hiding spots). `facing`
 //                                          // radians, same atan2 convention as
 //                                          // player.facing/guard.facing (0 = +x).
+//       cameras: [ { x, y, facing, sweepDeg, sweepPeriodS, fovDeg, range }, ... ], // NEW —
+//                                          // wall-mounted security cameras, consumed by
+//                                          // src/director.js (see its own contract for the
+//                                          // full field-by-field breakdown). OPTIONAL/empty
+//                                          // on zones with no camera coverage (loadingDock
+//                                          // ships zero — see below); this cycle's pilot
+//                                          // installation is 2 cameras in the warehouse,
+//                                          // each mounted flush against a shelving-row wall
+//                                          // face, covering one of the two aisle
+//                                          // intersections along the y:14-16 cross-aisle
+//                                          // band that NEITHER patrolling guard's route ever
+//                                          // touches (w1 sticks to the outer perimeter ring,
+//                                          // w2 to the narrow x:17-22 center-aisle spine —
+//                                          // see waypoints/waypoints2 below) — the exact
+//                                          // "aisle intersection the guards don't watch"
+//                                          // the director/render/radar cycle's brief called
+//                                          // for. Each camera's range (10m) deliberately
+//                                          // falls short of covering the FULL length of its
+//                                          // aisle and each is confined to a narrow 50deg
+//                                          // FOV panning across only 60deg total, so a
+//                                          // crouched player has a real route past on the
+//                                          // far side of each camera's reach (see the
+//                                          // per-camera comments below for the specific
+//                                          // uncovered stretch).
 //     }
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
@@ -245,6 +269,10 @@
       { x: 2, y: 9, facing: 0 },
       { x: 2, y: 20, facing: 0 },
     ],
+    // No camera coverage this cycle (see schema note above) — the pilot
+    // installation lives in the warehouse; the loading dock stays
+    // guard-only until a future cycle expands coverage.
+    cameras: [],
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -339,6 +367,34 @@
       { x: 30, y: 22, facing: 0 },
       { x: 37, y: 22, facing: Math.PI },
       { x: 2, y: 24, facing: 0 },
+    ],
+    // PILOT CAMERA INSTALLATION (see schema note above) — 2 cameras, both
+    // wall-mounted flush against a shelving-row face (0.1m clearance so they
+    // sit on open floor, not inside the wall AABB — isBlocked/isBlockedCircle
+    // treat wall containment as closed, so exactly-on-the-face would itself
+    // register as blocked), both aimed across the y:14-16 cross-aisle band
+    // that runs the FULL width of the map (every shelving row leaves the
+    // same 2m gap there) and that neither w1 (outer perimeter ring, y~2/
+    // y~27/x~3/x~37) nor w2 (confined to the narrow x:17-22 center-aisle
+    // spine) ever watches, outside w2's own narrow slice of it.
+    cameras: [
+      // Camera 0 — mounted on shelving row 2's west face (that block spans
+      // x:14-15.5), facing WEST (PI) into the row1/row2 aisle (x:9.5-14),
+      // watching the row1/row2 <-> cross-aisle intersection. Range (10m)
+      // reaches the near/mid aisle but falls ~3m short of the aisle's south
+      // end (y~26) and the crate cluster there — a crouched player hugging
+      // the south stretch of that aisle passes outside this camera's reach
+      // entirely.
+      { x: 13.9, y: 13.5, facing: Math.PI, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+      // Camera 1 — mounted on shelving row 3's east face (that block spans
+      // x:28-29.5), facing EAST (0) into the far-east aisle (x:29.5-39),
+      // watching the row3 <-> cross-aisle intersection. Sits right beside
+      // the far-east darkZone (x:31-37, y:20-26, see darkZones above): a
+      // crouched player who ducks south into that shadow is both outside
+      // this camera's narrow 60deg total swing (it only pans east-ish) and
+      // gets vision.js's DARKNESS_MULT halving on top — a genuine route past
+      // it, not just a nominal one.
+      { x: 29.6, y: 13.5, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
     ],
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
