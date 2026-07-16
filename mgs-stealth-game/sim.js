@@ -957,6 +957,128 @@ scenarios.push({
   },
 });
 
+// ---- tranq playtest scenario (cycle: tranq) --------------------------------
+// The signature non-lethal move: put the Loading Dock's own guard to sleep
+// with a clean unaware headshot, then ghost the same proven west-flank route
+// ("engine-driven infiltration" / "two-zone infiltration" above) into the
+// Warehouse without ever tripping a single alert. Reuses those scenarios'
+// exact dockLegs geometry (verified-clear west-flank route) and walkLeg
+// steering technique (stop dead on a zoneChange event, per the "two-zone
+// infiltration" scenario's own IMPORTANT steering note above).
+
+scenarios.push({
+  name: "tranq the dock guard and ghost the warehouse",
+  seed: 20260716010,
+  run: function (G) {
+    const dock = G.ZONES.loadingDock;
+    const engine = G.createEngine({ seed: this.seed, zoneData: dock });
+
+    // g1 spawns at dock.waypoints[0] = (3,2), facing toward waypoints[1]
+    // (east, facing 0) -- nothing has ticked yet, so this is exact.
+    const guard = engine.guards[0];
+
+    // Line up a clean, close-range shot: teleport the player a few meters
+    // directly in front of the guard's facing, then face back toward it —
+    // same teleport trick tests/combat.test.js and screenshot.js's "03-alert"
+    // scene use to force a specific encounter without walking a real route.
+    const ahead = 3;
+    engine.player.x = guard.x + Math.cos(guard.facing) * ahead;
+    engine.player.y = guard.y + Math.sin(guard.facing) * ahead;
+    engine.player.facing = guard.facing + Math.PI;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", fire: true });
+
+    const tranqEvents = engine.events.filter((e) => e.type === "tranqFired");
+    if (tranqEvents.length !== 1 || !tranqEvents[0].hit || !tranqEvents[0].headshot) {
+      throw new Error(
+        "setup failed: expected a clean unaware headshot on the dock guard, got " + JSON.stringify(tranqEvents)
+      );
+    }
+    if (guard.state !== "SLEEPING") {
+      throw new Error("expected the dock guard to be SLEEPING immediately after the headshot, got " + guard.state);
+    }
+    if (engine.inventory.darts !== 11) {
+      throw new Error("expected 11 darts left after one shot, got " + engine.inventory.darts);
+    }
+    if (engine.squad.alertCount !== 0 || engine.squad.phase !== "INFILTRATION") {
+      throw new Error(
+        "expected the tranq shot itself to raise zero alerts (squad still INFILTRATION), got phase=" +
+          engine.squad.phase +
+          " alertCount=" +
+          engine.squad.alertCount
+      );
+    }
+
+    // ---- Ghost to the Warehouse, unseen — same west-flank route as
+    // "engine-driven infiltration"/"two-zone infiltration" above. The
+    // sleeping guard sits at (3,2) the whole time (SLEEPING guards never
+    // move — see src/guardAI.js's SLEEPING contract), directly on this
+    // route's NW-corner waypoint; that's harmless (it perceives nothing
+    // asleep, and guards were never solid obstacles to player movement to
+    // begin with), so the route is walked unmodified.
+    const ARRIVE = 0.5;
+    const MAX_LEG_TICKS = Math.round(30 / DT);
+    let anyAlertEverFired = false;
+    let zoneChangeCount = 0;
+
+    function walkLeg(wp) {
+      for (let i = 0; i < MAX_LEG_TICKS; i++) {
+        const dx = wp.x - engine.player.x;
+        const dy = wp.y - engine.player.y;
+        const d = Math.hypot(dx, dy);
+        if (d <= ARRIVE) return;
+
+        engine.tick({ moveX: d > 0 ? dx / d : 0, moveY: d > 0 ? dy / d : 0, run: false, stance: wp.stance });
+        if (engine.squad.alertCount > 0) anyAlertEverFired = true;
+        if (engine.events.some((e) => e.type === "zoneChange")) {
+          zoneChangeCount++;
+          return;
+        }
+      }
+      throw new Error("scripted route stalled heading to " + JSON.stringify(wp));
+    }
+
+    const dockLegs = [
+      { x: 3, y: 27, stance: "stand" },
+      { x: 3, y: 9, stance: "crouch" },
+      { x: 3, y: 2, stance: "crouch" },
+      { x: dock.exit.x + dock.exit.w / 2, y: dock.exit.y + dock.exit.h / 2, stance: "stand" },
+    ];
+    for (const wp of dockLegs) {
+      walkLeg(wp);
+      if (zoneChangeCount >= 1) break;
+    }
+
+    if (engine.zone.id !== "warehouse") {
+      throw new Error("expected to have crossed into warehouse, got zone " + engine.zone.id);
+    }
+    if (zoneChangeCount !== 1) {
+      throw new Error("expected exactly 1 zoneChange event, got " + zoneChangeCount);
+    }
+    if (anyAlertEverFired) {
+      throw new Error("expected zero alerts across the entire trip (tranq shot + walk), but at least one fired");
+    }
+    if (engine.squad.alertCount !== 0) {
+      throw new Error("expected squad.alertCount === 0 at the end, got " + engine.squad.alertCount);
+    }
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("expected squad.phase INFILTRATION throughout, ended at " + engine.squad.phase);
+    }
+    if (engine.inventory.darts !== 11) {
+      throw new Error("expected darts to still read 11 at the end (no further shots fired), got " + engine.inventory.darts);
+    }
+    // The dock guard itself is gone from engine.guards after the zone switch
+    // (v1 zone semantics: guards are rebuilt fresh per zone, never persisted
+    // across a departure — see src/engine.js's ZONE TRANSITIONS contract),
+    // but the abandoned object reference is still ours to read: nothing
+    // mutates it further once it's off the active roster, so it's frozen at
+    // exactly the state it was in the instant the zone switched.
+    if (guard.state !== "SLEEPING") {
+      throw new Error("expected the dock guard to still read SLEEPING after the crossing, got " + guard.state);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

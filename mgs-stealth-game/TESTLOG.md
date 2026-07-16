@@ -1,5 +1,34 @@
 # TESTLOG.md
 
+## Cycle 17 (tranq pistol + sleeping guards)
+
+104/104; 12/12; screens clean (weapon box: TRANQ x12). Ray-clip aiming with
+0.5m tolerance, headshot = hit while squad not in ALERT (instant sleep),
+ALERT hits stagger 3s, 60s sleep → wake into self-INVESTIGATE, colleague
+body-discovery (0.6 profile, 10m, 0.5s confirm) → ALERT at the BODY's
+position. items.js is engine-agnostic (computes, never mutates).
+
+**TEST REPLACEMENT (ratchet rule 2 ledger entry):** tests/hud.test.js's
+fresh-engine assertion expected the weapon PLACEHOLDER ({---, null}) — a
+premise made factually false by this cycle's contract (hudModel.weapon =
+{TRANQ, darts}). Replaced by a STRICTER assertion (exact name + exact
+STARTING_DARTS constant), reasoning documented inline in the test file.
+No other test touched.
+
+**3 problems:** (1) sleeping guards can't be moved yet — a body in a patrol
+lane is a guaranteed discovery with no counterplay until CQC/drag (next
+cycle). (2) no aim indicator — firing along facing is hard to judge at range;
+consider a faint aim line while F held → backlog polish. (3) waking guards
+resume PATROL after their self-search — a guard who was darted mid-alert
+wakes amnesiac; acceptable v1, tie to zone-state persistence item.
+
+**3 delights:** (1) body-found alerts point at the body, not the player —
+guards converge on evidence while the player is elsewhere; produces genuine
+misdirection stories. (2) dart-impact noise makes a MISSED shot a lure —
+failure has gameplay value (Toybox). (3) the ghost run scenario (dart the
+dock guard, cross two zones, zero alerts, 11 darts left) is the fantasy of
+the whole game in one machine-checked assert.
+
 ## Cycle 16 (combat: hp, guard fire, game over)
 
 95/95; 11/11; screens clean; restart flow verified live (die → MISSION

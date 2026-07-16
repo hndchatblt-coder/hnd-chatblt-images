@@ -63,7 +63,7 @@
     KeyW: true, KeyA: true, KeyS: true, KeyD: true,
     ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
     ShiftLeft: true, ShiftRight: true,
-    KeyC: true, KeyZ: true, KeyE: true,
+    KeyC: true, KeyZ: true, KeyE: true, KeyF: true,
     Enter: true,
   };
 
@@ -112,6 +112,7 @@
     var held = {}; // physical key -> boolean, level-triggered (movement/run)
     var stance = "stand"; // toggled edge-triggered by C/Z
     var pendingKnock = false; // set true on an E keydown edge, consumed once
+    var pendingFire = false; // set true on an F keydown edge, consumed once
 
     function onKeyDown(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
@@ -123,6 +124,8 @@
         stance = stance === "crawl" ? "stand" : "crawl";
       } else if (e.code === "KeyE") {
         pendingKnock = true;
+      } else if (e.code === "KeyF") {
+        pendingFire = true;
       }
     }
 
@@ -153,6 +156,7 @@
         run: !!(held.ShiftLeft || held.ShiftRight),
         stance: stance,
         knock: pendingKnock,
+        fire: pendingFire,
       };
     }
 
@@ -175,6 +179,7 @@
       while (acc >= DT) {
         engine.tick(buildInput());
         pendingKnock = false; // consumed — only true for the tick right after the edge
+        pendingFire = false; // consumed — only true for the tick right after the edge
         acc -= DT;
       }
 
@@ -253,7 +258,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

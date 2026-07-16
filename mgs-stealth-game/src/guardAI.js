@@ -26,7 +26,8 @@
 //                                 // a beat to react/break LOS before combat
 //                                 // starts, rather than an instant shot the
 //                                 // moment the meter tips over ALERT_AT.
-//       MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity }
+//       MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity,
+//                      SLEEPING: SLEEP_S + 5 }
 //         // hard invariants: a guard's stateTime in SUSPICIOUS/INVESTIGATE must
 //         // NEVER exceed these (INVESTIGATE includes travel time to the
 //         // stimulus). Enforced by a thrown Error in update() — a guard stuck
@@ -39,6 +40,21 @@
 //         // ceiling here because they are bounded by the SQUAD's own phase
 //         // timers (GUARD.EVASION_S / GUARD.CAUTION_S, enforced in
 //         // squad.tick()), not by guard.update()'s own invariant check.
+//         // SLEEPING gets a real ceiling (SLEEP_S + 5s margin, not Infinity
+//         // and not absent) because unlike EVASION/CAUTION it has NO other
+//         // timer driving it out — a bug in the wake-up check (see SLEEPING
+//         // below) would otherwise strand a guard asleep forever with nothing
+//         // to catch it.
+//       SLEEP_S: 60,             // s a headshot/staggered guard stays SLEEPING
+//                                // before waking into INVESTIGATE
+//       STAGGER_SLEEP_S: 3,      // s a NON-headshot dart hit (squad already
+//                                // ALERT) keeps the guard acting before it
+//                                // finally goes down
+//       BODY_SPOT_RANGE: 10,     // m — range clamp for an awake guard's sight
+//                                // check against a SLEEPING colleague's body
+//       BODY_SPOT_CONFIRM_S: 0.5,// s of accumulated visibility on a sleeping
+//                                // colleague's body before an awake guard
+//                                // calls it in (broadcastAlert at the body)
 //     }
 //
 //   Game.createSquad() -> squad
@@ -151,7 +167,7 @@
 //                                same as player.facing / vision viewer.facing)
 //     radius                  — GUARD.RADIUS (constant)
 //     state                   — "PATROL" | "SUSPICIOUS" | "INVESTIGATE" |
-//                                "ALERT" | "EVASION" | "CAUTION"
+//                                "ALERT" | "EVASION" | "CAUTION" | "SLEEPING"
 //     meter                   — 0..1 detection meter (vision.tickMeter
 //                                output); pinned at 1 while state is ALERT
 //                                (perception's fill/drain math is skipped
@@ -197,9 +213,10 @@
 //   into the matching state the very next tick regardless of what it was
 //   doing (that forcing IS the "radio call" — see ALERT below).
 //
-//   guard.update(dt, ctx) — ctx = { player, onGuardFire? }, player satisfying
-//   the target/player contract ({x, y, visionProfile(), moving, stance} — the
-//   last two are read only by ALERT's fire-accuracy roll, see below).
+//   guard.update(dt, ctx) — ctx = { player, onGuardFire?, sleepingGuards? },
+//   player satisfying the target/player contract ({x, y, visionProfile(),
+//   moving, stance} — the last two are read only by ALERT's fire-accuracy
+//   roll, see below).
 //   onGuardFire(guard, hit) is an OPTIONAL callback: this module calls it the
 //   instant this guard fires a shot (see ALERT below), passing itself and the
 //   boolean hit/miss outcome — it does NOT apply any damage itself ("engine
@@ -207,8 +224,26 @@
 //   (e.g. every part-A/part-B test, sim.js scenario predating combat) is
 //   silently fine: a fired shot with no callback simply produces no
 //   observable side effect outside this guard's own internal fire-timer
-//   bookkeeping. Call once per tick (engine uses dt = 1/60). Per tick:
+//   bookkeeping.
+//   sleepingGuards is an OPTIONAL array of currently-SLEEPING guards' public
+//   position, [{ id, x, y }, ...] — the engine (or a test/sim harness, see
+//   the colleague-discovery scenarios in tests/tranq.test.js) is expected to
+//   pass every guard on the roster with state === "SLEEPING" here, EVERY
+//   tick, for EVERY (awake) guard's update() call — see COLLEAGUE DISCOVERY
+//   below for what this guard does with it. Omitting it (every pre-tranq
+//   test/sim call) is silently fine: no list means nothing to spot, a no-op.
+//   Call once per tick (engine uses dt = 1/60). Per tick:
 //     0. stateTime += dt, up front (unchanged from part A).
+//     0.5. SLEEPING SHORT-CIRCUIT (new — see SLEEPING below): if guard.state
+//        is "SLEEPING", none of steps 1-5 below run at all this tick — no
+//        radio-call sync, no perception, no FSM dispatch, no colleague
+//        discovery, no combat. Only the SLEEPING per-state behavior (sleep
+//        timer + wake check) and this guard's own SLEEPING MAX_STATE_S
+//        invariant run, then (for a lone-squad guard) squad.tick(dt, false)
+//        exactly as step 5 would, and update() returns. A radio call
+//        (squad.phase flipping to ALERT/EVASION/CAUTION) does NOT wake a
+//        sleeping guard early — they are unconscious, not merely distracted —
+//        so this short-circuit runs BEFORE step 1's sync, not after it.
 //     1. RADIO CALL / SQUAD-PHASE SYNC (new in part B, runs before
 //        perception): if squad.phase is ALERT/EVASION/CAUTION and this
 //        guard's own state doesn't already match (subject to the CAUTION/
@@ -227,8 +262,17 @@
 //        guard.hasLOS = sight.inCone && sight.hasLOS (always computed).
 //        guard.meter: pinned at 1 if state is ALERT, else
 //        vision.tickMeter(guard.meter, sight.factor, dt) as before.
-//     3. FSM dispatch on (possibly just-synced) guard.state — see per-state
-//        behavior below.
+//     2.5. COLLEAGUE DISCOVERY (new — see SLEEPING/COLLEAGUE DISCOVERY below):
+//        runs only while guard.state (post-sync) is PATROL, SUSPICIOUS,
+//        INVESTIGATE, or CAUTION — never ALERT/EVASION (those states already
+//        have the player's live contact as their sole focus, per the file
+//        header's existing hearNoise note on ALERT/EVASION ignoring
+//        anything but their own confirmed target). Checks this guard's sight
+//        against every entry in ctx.sleepingGuards; a confirmed body-spot
+//        calls squad.broadcastAlert AT THE BODY and jumps this guard straight
+//        to ALERT, same shape as a confirmed player sighting.
+//     3. FSM dispatch on (possibly just-synced, possibly just-alerted-by-
+//        colleague-discovery) guard.state — see per-state behavior below.
 //     4. INVARIANT: after dispatch, if guard.state is SUSPICIOUS or
 //        INVESTIGATE and guard.stateTime > GUARD.MAX_STATE_S[guard.state],
 //        throws an Error (ALERT's ceiling is Infinity, so it never trips;
@@ -238,6 +282,13 @@
 //        it calls squad.tick(dt, guard.hasLOS) on itself here, once, as the
 //        very last thing update() does (see squad contract above for why
 //        that's safe only in the lone-guard case).
+//     6. STAGGERED DART CHECK (new — see guard.tranq/SLEEPING below): if a
+//        non-headshot dart previously staggered this guard, its private
+//        stagger clock advances by dt here, AFTER everything above (this
+//        guard fully perceives/moves/dispatches/fires as normal this tick —
+//        "keeps acting" per the dart's own contract). Once the clock reaches
+//        GUARD.STAGGER_SLEEP_S (3s), this guard is forced into SLEEPING
+//        immediately, overriding whatever state steps 1-5 just left it in.
 //
 //   Per-state behavior:
 //     PATROL — unchanged from part A: walks the waypoint loop at
@@ -364,6 +415,67 @@
 //       GUARD.CAUTION_S (45s) of no re-sighting, at which point this guard's
 //       NEXT tick sync (step 1) forces it back to state PATROL at
 //       PATROL_SPEED with the normal (un-widened) cone.
+//     SLEEPING — entered ONLY via guard.tranq() (see below), never through
+//       the normal FSM dispatch/radio-call sync (a SLEEPING guard's update()
+//       short-circuits at step 0.5, before step 1's sync even runs — see
+//       above — so a squad-wide ALERT does not wake it). While SLEEPING:
+//       guard.meter is pinned at 0 (perception doesn't run at all — a
+//       sleeping guard notices nothing, including the player standing right
+//       in front of it), guard.hasLOS is forced false, no movement, no
+//       firing. A private sleep clock advances by dt every tick; once it
+//       reaches GUARD.SLEEP_S (60s) the guard wakes into INVESTIGATE with
+//       stimulus = its OWN current position (it just groggily "notices
+//       something's off" where it's lying, not any stale player-sighting
+//       info) — from there it's the ordinary INVESTIGATE search-then-resume
+//       machinery already documented above (searches GUARD.INVESTIGATE_SEARCH
+//       seconds, then resumes CAUTION or PATROL depending on squad.phase AT
+//       THAT MOMENT, same live-checked rule as every other INVESTIGATE exit).
+//
+//   guard.tranq(headshot) — external stimulus API, called by the ENGINE (see
+//   src/items.js/src/engine.js) the instant a fired dart HITS this guard.
+//   `headshot` (boolean) is computed by the CALLER, not this guard (see
+//   src/items.js's HEADSHOT RULE: true when this guard's squad.phase was NOT
+//   ALERT at the moment of the hit — an unaware target):
+//     - Already SLEEPING: no-op (a second dart can't re-sleep a sleeping
+//       guard; items.js's own hit test already excludes SLEEPING guards from
+//       being hit at all, so this is a defensive no-op, not a reachable path
+//       in practice).
+//     - headshot === true: this guard is forced into SLEEPING IMMEDIATELY,
+//       this same tick, overriding whatever state/FSM step it was mid-way
+//       through — an unaware target drops instantly, no matter what.
+//     - headshot === false: this guard is NOT put to sleep immediately —
+//       instead its private stagger clock starts (see update() step 6 above)
+//       and it keeps fully acting (perceiving, moving, dispatching, and — if
+//       ALERT — still firing) for GUARD.STAGGER_SLEEP_S (3s) before finally
+//       collapsing into SLEEPING on whatever tick that clock expires. This is
+//       the "tranq an alert, hostile guard" case: the dart still works, but
+//       an already-fighting guard doesn't just vanish mid-firefight — it
+//       staggers first, exactly like the real games' tranq animation delay.
+//
+//   COLLEAGUE DISCOVERY (new — see update() step 2.5 above) — the flip side
+//   of guard.tranq(): an awake guard (state PATROL/SUSPICIOUS/INVESTIGATE/
+//   CAUTION only — never ALERT/EVASION, see step 2.5) checks its OWN sight
+//   (this.vision.computeSight, reused verbatim — same function every other
+//   perception check in this file uses) against every body in
+//   ctx.sleepingGuards, with { profile: 0.6 } (a body on the floor is a
+//   smaller/harder-to-spot silhouette than a standing target — see
+//   src/vision.js's opts.profile hook) and viewer.range forced to
+//   GUARD.BODY_SPOT_RANGE (10m, tighter than the normal 14m cone — you have
+//   to be reasonably close to notice a colleague isn't where they should
+//   be). A body currently in-cone-and-in-LOS accumulates visibility time
+//   (per sleeping-guard-id, so spotting two different bodies in the same
+//   patrol doesn't cross-contaminate each other's timers); losing sight of a
+//   given body resets THAT body's timer to 0 (no partial credit carried
+//   across separate glances). Once a body's accumulated time reaches
+//   GUARD.BODY_SPOT_CONFIRM_S (0.5s), this guard calls
+//   squad.broadcastAlert(body.x, body.y) — a body-found ALERT, per SPEC.md's
+//   "guards also notice sleeping/dead colleagues" — and this guard itself
+//   jumps straight to ALERT, exactly like a confirmed player sighting (see
+//   SUSPICIOUS/INVESTIGATE above for the shape of that same
+//   broadcastAlert+setState("ALERT") pair). Every other guard on the squad
+//   joins ALERT the next tick via the normal step 1 radio-call sync, same as
+//   any other alert — colleague discovery is just a different TRIGGER for
+//   the exact same squad-wide broadcastAlert machinery, not a parallel path.
 //
 //   guard.hearNoise(x, y, strength) — external stimulus API. `strength` is
 //   "faint" or "strong" (soundEvents.js will call this later; tests/sim call
@@ -380,11 +492,14 @@
 //                squad's CAUTION timer hasn't expired in the meantime —a
 //                noise is not a confirmed contact, so it doesn't reset the
 //                squad's cooldown clock or change squad.phase at all.
-//     Any other case (already INVESTIGATE, ALERT, or EVASION) is ignored — a
-//     guard already closing in on (or standing over) something isn't
-//     distracted by a second noise, and ALERT/EVASION never react to
+//     Any other case (already INVESTIGATE, ALERT, EVASION, or SLEEPING) is
+//     ignored — a guard already closing in on (or standing over) something
+//     isn't distracted by a second noise, ALERT/EVASION never react to
 //     anything but the confirmed target (their own meter, checked every
-//     tick, is what escalates them — see ALERT/EVASION above).
+//     tick, is what escalates them — see ALERT/EVASION above), and a
+//     SLEEPING guard is unconscious (see SLEEPING above — this is the same
+//     "nothing wakes them but their own sleep timer" rule applied to noise
+//     instead of a squad radio call).
 //
 // Local tuning constants below (TURN_RATE, *_SWEEP_HZ) are NOT part of the
 // public Game.GUARD contract — they govern the shape of facing animation only
@@ -471,8 +586,15 @@
     FIRE_INTERVAL_S: 1.5,
     FIRE_DAMAGE: 0.15,
     FIRE_FIRST_DELAY_S: 0.6,
-    MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity },
+    SLEEP_S: 60,
+    STAGGER_SLEEP_S: 3,
+    BODY_SPOT_RANGE: 10,
+    BODY_SPOT_CONFIRM_S: 0.5,
+    MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity, SLEEPING: 0 },
   };
+  // SLEEPING's ceiling is SLEEP_S + a 5s margin (see file header) — computed
+  // here since GUARD.SLEEP_S isn't available yet inside the literal above.
+  GUARD.MAX_STATE_S.SLEEPING = GUARD.SLEEP_S + 5;
 
   // Local-only tuning (not part of the public contract, see file header).
   var TURN_RATE = 3; // rad/s, SUSPICIOUS turning-to-face-stimulus rate
@@ -601,6 +723,19 @@
     // non-ALERT state), so tickAlert's own check is the only reader.
     var fireTimer = 0;
     var nextFireAt = null;
+
+    // SLEEPING / dart state (new — see guard.tranq / SLEEPING in the file
+    // header). sleepTime is seconds elapsed while SLEEPING (wakes at
+    // GUARD.SLEEP_S). staggerActive/staggerElapsed track a non-headshot dart
+    // hit's grace period before it finally puts the guard down (see update()
+    // step 6). bodySpotTimers accumulates, per sleeping-colleague id, how
+    // long THIS guard has had continuous sight of that body (see COLLEAGUE
+    // DISCOVERY in the file header) — none of this is part of the public
+    // contract, all internal bookkeeping.
+    var sleepTime = 0;
+    var staggerActive = false;
+    var staggerElapsed = 0;
+    var bodySpotTimers = {};
 
     function setState(newState, stimulus) {
       guard.state = newState;
@@ -829,10 +964,95 @@
       }
     }
 
+    // ---- SLEEPING (see file header) ---------------------------------------------
+
+    // Forces this guard into SLEEPING right now, overriding whatever state it
+    // was in — used both by a headshot (guard.tranq(true), immediate) and by
+    // a stagger clock expiring (guard.tranq(false)'s 3s grace period, see
+    // update() step 6). setState resets stateTime/fireTimer as usual; sleep-
+    // specific bookkeeping (sleepTime, meter, hasLOS) is reset here.
+    function enterSleep() {
+      setState("SLEEPING", null);
+      sleepTime = 0;
+      guard.meter = 0;
+      guard.hasLOS = false;
+    }
+
+    // Per-tick SLEEPING behavior (see update() step 0.5 and file header):
+    // perception/movement/firing are all frozen; only the wake-up clock runs.
+    function tickSleeping(dt) {
+      guard.meter = 0;
+      guard.hasLOS = false;
+      sleepTime += dt;
+      if (sleepTime >= GUARD.SLEEP_S) {
+        sleepTime = 0;
+        setState("INVESTIGATE", { x: guard.x, y: guard.y });
+      }
+    }
+
+    // COLLEAGUE DISCOVERY (see update() step 2.5 and file header) — checks
+    // this guard's own sight against every SLEEPING colleague's body,
+    // escalating to ALERT the instant one is confirmed. Only called while
+    // guard.state is PATROL/SUSPICIOUS/INVESTIGATE/CAUTION (enforced by the
+    // caller, update(), not re-checked here).
+    function checkColleagueDiscovery(dt, ctx) {
+      var sleeping = ctx.sleepingGuards;
+      if (!sleeping || sleeping.length === 0) return;
+
+      var viewer = {
+        x: guard.x,
+        y: guard.y,
+        facing: guard.facing,
+        range: GUARD.BODY_SPOT_RANGE,
+      };
+
+      for (var i = 0; i < sleeping.length; i++) {
+        var body = sleeping[i];
+        if (body.id === guard.id) continue; // can't spot yourself
+
+        var key = String(body.id);
+        var sight = vision.computeSight(viewer, body, { profile: 0.6 });
+        if (sight.inCone && sight.hasLOS) {
+          bodySpotTimers[key] = (bodySpotTimers[key] || 0) + dt;
+          if (bodySpotTimers[key] >= GUARD.BODY_SPOT_CONFIRM_S) {
+            squad.broadcastAlert(body.x, body.y);
+            setState("ALERT", null);
+            return; // this guard is now ALERT; stop checking other bodies this tick
+          }
+        } else {
+          bodySpotTimers[key] = 0;
+        }
+      }
+    }
+
     // ---- update / hearNoise -------------------------------------------------------
 
     function update(dt, ctx) {
       guard.stateTime += dt;
+
+      // 0.5. SLEEPING short-circuit (see file header) — none of the normal
+      // radio-call sync / perception / FSM dispatch / colleague discovery /
+      // combat steps run at all; only the sleep timer + this state's own
+      // MAX_STATE_S ceiling do, then (lone-squad only) squad.tick.
+      if (guard.state === "SLEEPING") {
+        tickSleeping(dt);
+        var maxSleep = GUARD.MAX_STATE_S.SLEEPING;
+        if (maxSleep !== undefined && guard.stateTime > maxSleep) {
+          throw new Error(
+            "guard " +
+              guard.id +
+              " stuck in SLEEPING for " +
+              guard.stateTime.toFixed(2) +
+              "s (max " +
+              maxSleep +
+              "s) — FSM invariant violated"
+          );
+        }
+        if (ownSquad) {
+          squad.tick(dt, false);
+        }
+        return;
+      }
 
       // 1. Radio call / squad-phase sync (see file header) — forces this
       // guard's state to match a squad-wide ALERT/EVASION/CAUTION phase,
@@ -869,6 +1089,20 @@
         guard.meter = 1;
       } else {
         guard.meter = vision.tickMeter(guard.meter, sight.factor, dt);
+      }
+
+      // 2.5. Colleague discovery (see file header) — only while this guard
+      // is PATROL/SUSPICIOUS/INVESTIGATE/CAUTION (never ALERT/EVASION, which
+      // are already fully committed to the player's live contact). May jump
+      // this guard straight to ALERT (see checkColleagueDiscovery) before the
+      // FSM dispatch below ever runs, exactly like a colleague's radio call.
+      if (
+        guard.state === "PATROL" ||
+        guard.state === "SUSPICIOUS" ||
+        guard.state === "INVESTIGATE" ||
+        guard.state === "CAUTION"
+      ) {
+        checkColleagueDiscovery(dt, ctx);
       }
 
       // 3. FSM dispatch.
@@ -924,10 +1158,23 @@
       if (ownSquad) {
         squad.tick(dt, guard.hasLOS);
       }
+
+      // 6. Staggered dart check (see file header, guard.tranq/SLEEPING) —
+      // runs AFTER everything above, so a staggered guard fully perceives/
+      // moves/dispatches/fires as normal this tick right up until its clock
+      // expires, at which point it's forced into SLEEPING, overriding
+      // whatever step 1-5 just left it in.
+      if (staggerActive) {
+        staggerElapsed += dt;
+        if (staggerElapsed >= GUARD.STAGGER_SLEEP_S) {
+          staggerActive = false;
+          enterSleep();
+        }
+      }
     }
 
     function hearNoise(x, y, strength) {
-      if (guard.state === "ALERT" || guard.state === "EVASION") return;
+      if (guard.state === "ALERT" || guard.state === "EVASION" || guard.state === "SLEEPING") return;
       if (strength === "faint") {
         if (guard.state === "PATROL") setState("SUSPICIOUS", { x: x, y: y });
       } else if (strength === "strong") {
@@ -941,8 +1188,22 @@
       }
     }
 
+    // guard.tranq(headshot) — see file header. External stimulus API called
+    // by the engine (or a test/sim harness) the instant a fired dart hits
+    // this guard.
+    function tranq(headshot) {
+      if (guard.state === "SLEEPING") return; // already asleep, no-op
+      if (headshot) {
+        enterSleep();
+      } else {
+        staggerActive = true;
+        staggerElapsed = 0;
+      }
+    }
+
     guard.update = update;
     guard.hearNoise = hearNoise;
+    guard.tranq = tranq;
 
     // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
     // kept alive on the guard too in case future callers want it directly.

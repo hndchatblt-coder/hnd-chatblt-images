@@ -15,6 +15,32 @@
 //     part is idempotent (guarded by an internal flag), the "update" part is
 //     not (it always re-reads engine.player/engine.guards/engine.squad).
 //
+//   SLEEPING GUARDS (new — see src/guardAI.js's SLEEPING contract): a guard
+//   with state === "SLEEPING" is posed lying flat (a scale trick on the same
+//   body mesh every other guard uses — no separate geometry/model), its nose
+//   cone and vision cone/cone-edge hidden (a sleeping guard perceives
+//   nothing, so nothing to draw), and a bobbing "Zzz" sprite (a CanvasTexture
+//   glyph, same technique as the existing "?"/"!" state markers) floats above
+//   it — the bob is driven by engine.time (deterministic, no Date.now, same
+//   rule as every other animation in this file).
+//
+//   DART TRACER (new — see src/items.js/src/engine.js's fire-verb contract):
+//   a thin bright line from the player's muzzle to the dart's impact point,
+//   fading out over TRACER_DURATION_S (~0.25s). CONTRACT NOTE: this is
+//   spawned by reading engine.events for a "tranqFired" event (which carries
+//   `impact`, see src/engine.js's tranqFired event shape) INSIDE syncScene —
+//   engine.events holds only the MOST RECENT tick()'s events (cleared at the
+//   top of every tick(), per src/engine.js's own contract), and boot.js's
+//   frame loop calls renderer.render() (which calls syncScene) once per
+//   ANIMATION FRAME, AFTER draining however many fixed-timestep ticks that
+//   frame's accumulator called for — so this only sees a tranqFired event
+//   that happened on the LAST tick of a given frame's catch-up loop. A player
+//   mashing fire fast enough to trigger it more than once inside a single
+//   animation frame (input is edge-triggered to begin with, so this requires
+//   an extreme frame hitch) could miss a tracer spawn; an honest, documented
+//   gap, not a silent one, same shape as this file's own zone-change/actor-
+//   rebuild contract notes elsewhere.
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -132,6 +158,19 @@
     var METER_MAX_W = 2.0;
     var METER_H = 0.32;
 
+    // SLEEPING pose (scale trick — see file header): the standing body mesh
+    // (BoxGeometry(BODY_W, 1, BODY_W), normally scaled to (1, height, 1) and
+    // sat at y = height/2 by placeActor) is instead scaled to lie flat along
+    // local +X (the direction the group's rotation.y already points it, so a
+    // sleeping body reads as lying in the direction it was facing when it
+    // went down) at a low, floor-hugging profile.
+    var SLEEP_LENGTH = STAND_H; // lying "length" ~= a standing guard's height
+    var SLEEP_THICKNESS = 0.4; // low profile, floor-hugging
+    var SLEEP_Y = SLEEP_THICKNESS / 2;
+
+    var TRACER_DURATION_S = 0.25;
+    var TRACER_Y = 0.6; // roughly muzzle height
+
     // ---- renderer / scene / camera --------------------------------------------
 
     var webgl = new THREE.WebGLRenderer({ antialias: true });
@@ -221,6 +260,16 @@
         transparent: true,
         depthTest: false,
       });
+    });
+
+    // "Zzz" sprite for SLEEPING guards (see file header) — built once, shared
+    // (like MARKER_MATERIALS) across every guard actor and every zone; never
+    // disposed by a zone change, only individual actors' USE of it toggles.
+    var ZZZ_TEXTURE = makeGlyphTexture("Zzz", "#9fd8ff");
+    var ZZZ_MATERIAL = new THREE.SpriteMaterial({
+      map: ZZZ_TEXTURE,
+      transparent: true,
+      depthTest: false,
     });
 
     var CONE_MATERIALS = {};
@@ -344,9 +393,28 @@
     function placeActor(actor, x, y, facing, height) {
       actor.group.position.set(x, 0, y);
       actor.group.rotation.y = -facing;
-      actor.body.scale.y = height;
-      actor.body.position.y = height / 2;
+      // Explicit full reset (not just scale.y) so an actor that was posed
+      // SLEEPING (see placeSleepingActor below) on a previous frame doesn't
+      // carry over its lying-flat scale/rotation once it's awake again.
+      actor.body.scale.set(1, height, 1);
+      actor.body.rotation.set(0, 0, 0);
+      actor.body.position.set(0, height / 2, 0);
+      actor.nose.visible = true;
       actor.nose.position.set(BODY_W / 2 + 0.1, height * 0.55, 0);
+    }
+
+    // SLEEPING pose (see file header) — guards only, never the player. Lies
+    // the body mesh flat along local +X via a scale trick (no rotation
+    // needed): the mesh's own local X axis already points the direction the
+    // group's rotation.y turns it, so a sleeping body reads as lying in the
+    // direction it was facing when it went down.
+    function placeSleepingActor(actor, guard) {
+      actor.group.position.set(guard.x, 0, guard.y);
+      actor.group.rotation.y = -guard.facing;
+      actor.body.scale.set(SLEEP_LENGTH / BODY_W, SLEEP_THICKNESS, 1);
+      actor.body.rotation.set(0, 0, 0);
+      actor.body.position.set(0, SLEEP_Y, 0);
+      actor.nose.visible = false;
     }
 
     var playerActor = null;
@@ -372,6 +440,11 @@
       var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), EDGE_MATERIALS.PATROL);
       scene.add(coneEdge);
 
+      var zzz = new THREE.Sprite(ZZZ_MATERIAL);
+      zzz.scale.set(1.4, 1.4, 1);
+      zzz.visible = false;
+      scene.add(zzz);
+
       var actor = {
         group: base.group,
         body: base.body,
@@ -379,6 +452,7 @@
         marker: marker,
         cone: coneMesh,
         coneEdge: coneEdge,
+        zzz: zzz,
       };
       guardActors[guard.id] = actor;
       return actor;
@@ -395,10 +469,12 @@
     // CONE_MATERIALS/EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard
     // state, reused across every guard and every zone) and must NOT be
     // disposed, or the next zone's guards would render with dead materials.
+    // zzz likewise shares ZZZ_MATERIAL (see file header) — only removed from
+    // the scene here, never disposed.
     function disposeGuardActors() {
       Object.keys(guardActors).forEach(function (id) {
         var actor = guardActors[id];
-        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge);
+        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge, actor.zzz);
         actor.body.geometry.dispose();
         actor.body.material.dispose();
         actor.nose.geometry.dispose();
@@ -507,6 +583,63 @@
       scene.add(meterBg, meterFill);
     }
 
+    // ---- dart tracer (see file header DART TRACER note) ------------------------
+
+    var tracers = []; // { from:{x,y}, to:{x,y}, startTime } — pure data
+    var tracerLines = []; // parallel THREE.Line objects currently in the scene
+
+    function clearTracers() {
+      tracerLines.forEach(function (line) {
+        scene.remove(line);
+        line.geometry.dispose();
+        line.material.dispose();
+      });
+      tracerLines = [];
+      tracers = [];
+    }
+
+    function updateTracers(engine) {
+      for (var i = 0; i < engine.events.length; i++) {
+        var ev = engine.events[i];
+        if (ev.type === "tranqFired" && ev.impact) {
+          tracers.push({
+            from: { x: engine.player.x, y: engine.player.y },
+            to: { x: ev.impact.x, y: ev.impact.y },
+            startTime: engine.time,
+          });
+        }
+      }
+
+      tracers = tracers.filter(function (t) {
+        return engine.time - t.startTime < TRACER_DURATION_S;
+      });
+
+      // Rebuilt fresh every frame — the list is always tiny (a handful of
+      // tracers alive at once, each lasting a quarter second), so this is
+      // simpler and cheap enough versus reusing/pooling THREE.Line objects.
+      tracerLines.forEach(function (line) {
+        scene.remove(line);
+        line.geometry.dispose();
+        line.material.dispose();
+      });
+      tracerLines = tracers.map(function (t) {
+        var age = engine.time - t.startTime;
+        var alpha = Math.max(0, 1 - age / TRACER_DURATION_S);
+        var positions = new Float32Array([t.from.x, TRACER_Y, t.from.y, t.to.x, TRACER_Y, t.to.y]);
+        var geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        var mat = new THREE.LineBasicMaterial({
+          color: 0xbfffea,
+          transparent: true,
+          opacity: alpha,
+          depthWrite: false,
+        });
+        var line = new THREE.Line(geo, mat);
+        scene.add(line);
+        return line;
+      });
+    }
+
     function meterColor(v) {
       // green -> yellow (0..0.5), yellow -> red (0.5..1)
       var c1, c2, t;
@@ -562,6 +695,7 @@
           disposeGuardActors();
           built = false;
         }
+        clearTracers(); // old zone's coordinates are meaningless in the new one
         zone = engine.zone;
         zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
         camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
@@ -584,11 +718,25 @@
       for (var i = 0; i < engine.guards.length; i++) {
         var guard = engine.guards[i];
         var actor = ensureGuardActor(guard);
-        placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
-        updateVisionCone(actor, guard, engine.world, engine.squad);
-        updateGuardMarker(actor, guard);
+        if (guard.state === "SLEEPING") {
+          placeSleepingActor(actor, guard);
+          actor.cone.visible = false;
+          actor.coneEdge.visible = false;
+          actor.marker.visible = false;
+          actor.zzz.visible = true;
+          var bob = Math.sin(engine.time * 2.2) * 0.12;
+          actor.zzz.position.set(guard.x, SLEEP_Y + 1.1 + bob, guard.y);
+        } else {
+          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
+          actor.cone.visible = true;
+          actor.coneEdge.visible = true;
+          actor.zzz.visible = false;
+          updateVisionCone(actor, guard, engine.world, engine.squad);
+          updateGuardMarker(actor, guard);
+        }
       }
 
+      updateTracers(engine);
       updateMeter(engine);
     }
 

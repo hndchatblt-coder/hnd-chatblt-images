@@ -106,8 +106,17 @@ function tickHiddenUntil(engine, predicate, maxTicks) {
 
 // ---- 1. Fresh engine baseline ----------------------------------------------
 
+// NOTE (tranq cycle): this test originally asserted model.weapon was still
+// the pre-items placeholder ({name:"---", ammo:null}) on a fresh engine.
+// That premise is now factually wrong -- Game.createEngine() wires up a real
+// Game.createInventory() (see src/items.js / src/engine.js), and src/hud.js's
+// own contract now requires hudModel.weapon = {name:"TRANQ", ammo: darts}
+// whenever engine.inventory exists (see its file header). Per CLAUDE.md's
+// ratchet rule ("a wrong test is replaced by a stricter one"), the weapon
+// assertion below is updated to the new real shape; every other assertion in
+// this test (life/phase/zoneName/item placeholder/maxDetection) is untouched.
 Game.selfTests.push({
-  name: "hud: fresh engine model -- life 1.0, INFILTRATION, zone name, placeholders, no detection",
+  name: "hud: fresh engine model -- life 1.0, INFILTRATION, zone name, real weapon, item placeholder, no detection",
   fn: function () {
     var engine = freshEngine();
     var model = Game.hudModel(engine);
@@ -119,7 +128,10 @@ Game.selfTests.push({
     assert(model.zoneName === "LOADING DOCK", "expected zoneName 'LOADING DOCK', got " + model.zoneName);
     assert(model.time === engine.time, "expected time to mirror engine.time");
 
-    assert(model.weapon.name === "---" && model.weapon.ammo === null, "expected weapon placeholder shape");
+    assert(
+      model.weapon.name === "TRANQ" && model.weapon.ammo === Game.ITEMS.STARTING_DARTS,
+      "expected real weapon shape {TRANQ, " + Game.ITEMS.STARTING_DARTS + "}, got " + JSON.stringify(model.weapon)
+    );
     assert(model.item.name === "---" && model.item.count === null, "expected item placeholder shape");
 
     assert(model.maxDetection === 0, "expected maxDetection 0 at boot, got " + model.maxDetection);

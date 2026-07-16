@@ -59,6 +59,18 @@
 //                     (see KNOCK VERB below); x,y are the player's position
 //                     at the moment of the knock. Fires at most once per
 //                     edge, regardless of whether any guard heard it.
+//                   { type: "tranqFired", hit, headshot, guardId, impact } —
+//                     input.fire had a false->true edge THIS tick AND the
+//                     inventory had a dart to spend (see FIRE VERB below).
+//                     hit/headshot/guardId mirror inventory.fireTranq()'s
+//                     return (headshot/guardId are undefined on a miss);
+//                     impact is { x, y }, the dart's final resting point —
+//                     included (beyond items.js's own return shape) because
+//                     src/render.js's dart-tracer effect needs somewhere to
+//                     read it from (see FIRE VERB below and render.js's own
+//                     contract for how it consumes this same-tick event).
+//                     Does NOT fire if the inventory was already empty (no
+//                     dart spent, nothing to report).
 //                   { type: "noiseHeard", guardId, x, y, strength } — one per
 //                     guard that heard ANY sound this tick (movement noise
 //                     and/or a knock), per soundEvents.emit/emitRadius's
@@ -94,6 +106,40 @@
 //                 More event types (item pickups, ...) will be appended by
 //                 later modules — treat `type` as an open set and always
 //                 branch on it, never assume this is the full list.
+//
+//   FIRE VERB — tranq pistol (new this cycle): input.fire (boolean) is
+//   EDGE-TRIGGERED exactly like input.knock (see KNOCK VERB below) — engine
+//   tracks the previous tick's input.fire internally and only acts on a
+//   false->true transition. On that edge: calls engine.inventory.fireTranq
+//   (engine) (see src/items.js contract — reads player/world/guards, spends
+//   a dart, returns { fired, hit, guardId?, headshot?, impact }). If
+//   !result.fired (inventory was already empty), nothing else happens — no
+//   event, no noise, per items.js's own contract. Otherwise:
+//     1. Pushes { type: "tranqFired", hit, headshot, guardId, impact } (see
+//        the tranqFired event shape above).
+//     2. Emits dart-impact NOISE at the impact point — a SHARP ("strong")
+//        stimulus regardless of hit/miss, same convention as the knock verb
+//        and guard-fire's own gunshot noise: soundEvents.emit(impact.x,
+//        impact.y, "dartImpact", guards) (SOUND.RADII.dartImpact = 5m
+//        unattenuated, SOUND.SHARP.dartImpact = true — both already defined
+//        in src/soundEvents.js). Any listener that heard it pushes
+//        { type: "noiseHeard", guardId, x, y, strength: "strong" }, same
+//        shape/x-y-is-the-sound's-origin convention as every other noiseHeard
+//        push in this file. This is what lets a miss (or even a hit) pull an
+//        uninvolved third guard elsewhere in the zone into INVESTIGATE — the
+//        SAME hearNoise("strong") pathway a knock or gunshot uses.
+//     3. If result.hit: finds the hit guard in the CURRENT guards array by
+//        result.guardId and calls guard.tranq(result.headshot) on it (see
+//        src/guardAI.js's guard.tranq contract for the headshot-vs-stagger
+//        behavior). items.js itself never calls guard.tranq or emits noise
+//        — see its own ENGINE-AGNOSTIC note — this is the engine doing both,
+//        exactly like it turns guardAI's onGuardFire callback into
+//        damage/events below.
+//   Runs in the same NOISE STEP position as the knock verb (step 2, after
+//   player.update, before any guard.update), so a dart fired this tick is
+//   already reflected in guard.state (the hit guard's SLEEPING/staggering,
+//   any bystander's hearNoise-driven INVESTIGATE) by the time step 3's
+//   guard.update() runs this same tick.
 //
 //   COMBAT — guard fire / player damage / game over (new this cycle):
 //     Step 3 (guard update loop) below passes each guard.update() a THIRD ctx
@@ -202,12 +248,26 @@
 //            { type: "noiseHeard", guardId: guard.id, x, y, strength } onto
 //            engine.events (x,y are the SOUND's origin, i.e. the (x,y) passed
 //            to emit/emitRadius above, not the guard's own position).
+//            c. FIRE VERB (new — see FIRE VERB above for the full write-up):
+//               input.fire is EDGE-TRIGGERED exactly like input.knock, same
+//               private-closure-state shape. On that edge, calls
+//               inventory.fireTranq(engine); if it fired, pushes tranqFired,
+//               emits dartImpact noise (pushing noiseHeard for anyone who
+//               heard it, same loop shape as (a)/(b) above), and — on a hit —
+//               calls the hit guard's guard.tranq(headshot).
 //       3. Each guard, in array order: guard.update(DT, { player: player,
-//          onGuardFire: onGuardFire }) — onGuardFire is the COMBAT hook
-//          described above; a guard in ALERT within range/LOS/cadence may
-//          call it synchronously from inside this update() call, which is
-//          how a guardFire/playerHit event and a player.damage() call land
-//          within the SAME tick the shot was taken.
+//          onGuardFire: onGuardFire, sleepingGuards: sleepingGuards }) —
+//          onGuardFire is the COMBAT hook described above; a guard in ALERT
+//          within range/LOS/cadence may call it synchronously from inside
+//          this update() call, which is how a guardFire/playerHit event and a
+//          player.damage() call land within the SAME tick the shot was
+//          taken. sleepingGuards (new — see src/guardAI.js's COLLEAGUE
+//          DISCOVERY contract) is computed ONCE per tick, before this loop
+//          starts, as every CURRENT guard whose state === "SLEEPING" mapped
+//          to { id, x, y } — the same snapshot is handed to every guard's
+//          update() call this tick (a guard tranq'd earlier THIS SAME tick,
+//          via the fire verb above, is already reflected here since the fire
+//          verb runs in step 2, before this loop).
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
 //       4. GAME OVER CHECK (new — see GAME OVER above): if !player.alive and
@@ -321,8 +381,12 @@
 //         player: { x, y, stance, facing, hp, alive },  // hp/alive NEW — see
 //                              // GAME OVER above, mirror player.hp/alive verbatim
 //         guards: [ { id, x, y, state, meter, facing }, ... ],  // same order as engine.guards
+//                              // — state already covers "is this guard
+//                              // asleep" (state === "SLEEPING"), so no
+//                              // separate sleeping flag is added here.
 //         squad: { phase, phaseTime, lastKnown, alertCount },
 //         gameOver: boolean,   // NEW — engine.gameOver verbatim; see GAME OVER above
+//         darts: number,       // NEW — engine.inventory.darts verbatim
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -345,6 +409,9 @@
       // the engine's own edge-triggered knock-verb handling (see tick()
       // step 2b in the file header). Defaults to false, same as run.
       knock: !!input.knock,
+      // fire: same shape/rationale as knock, but for the tranq pistol (see
+      // FIRE VERB in the file header / tick() step 2c). Defaults to false.
+      fire: !!input.fire,
     };
   }
 
@@ -402,10 +469,20 @@
     var squad = Game.createSquad();
     var player = Game.createPlayer({ world: world });
 
+    // Inventory (see src/items.js contract) — NOT rebuilt on a zone
+    // transition (see FIRE VERB / switchZone below): darts are mission-
+    // scoped, not zone-scoped, so this var is never reassigned by
+    // switchZone the way world/player/squad/etc. are.
+    var inventory = Game.createInventory();
+
     // Edge-trigger state for the knock verb (see file header, tick() step
     // 2b) — private to this engine instance, not exposed on `engine` since
     // it's an implementation detail of the input, not simulation truth.
     var prevKnock = false;
+
+    // Edge-trigger state for the fire verb (see file header, tick() step
+    // 2c) — same shape/rationale as prevKnock above.
+    var prevFire = false;
 
     // Edge-trigger state for zoneBlocked (see file header, tick() step 6):
     // true while the player is standing inside an exit trigger whose `to`
@@ -424,6 +501,7 @@
       vision: vision,
       rng: rng,
       soundEvents: soundEvents,
+      inventory: inventory,
       zone: zone,
       DT: DT,
       tickCount: 0,
@@ -609,10 +687,61 @@
           }
         }
       }
+      // Fire verb: edge-triggered (false->true only), same shape as knock
+      // above (see file header FIRE VERB / tick() step 2c). Unlike knock,
+      // firing has no wall-adjacency gate — inventory.fireTranq() itself
+      // decides hit/miss/impact from the player's position/facing.
+      var fireEdge = normalized.fire && !prevFire;
+      prevFire = normalized.fire;
+      if (fireEdge) {
+        var fireResult = inventory.fireTranq(engine);
+        if (fireResult.fired) {
+          engine.events.push({
+            type: "tranqFired",
+            hit: fireResult.hit,
+            headshot: fireResult.headshot,
+            guardId: fireResult.guardId,
+            impact: fireResult.impact,
+          });
+
+          var dartResults = soundEvents.emit(fireResult.impact.x, fireResult.impact.y, "dartImpact", guards);
+          for (var di = 0; di < dartResults.length; di++) {
+            if (dartResults[di].heard) {
+              engine.events.push({
+                type: "noiseHeard",
+                guardId: dartResults[di].listenerId,
+                x: fireResult.impact.x,
+                y: fireResult.impact.y,
+                strength: dartResults[di].strength,
+              });
+            }
+          }
+
+          if (fireResult.hit) {
+            for (var hgi = 0; hgi < guards.length; hgi++) {
+              if (guards[hgi].id === fireResult.guardId) {
+                guards[hgi].tranq(fireResult.headshot);
+                break;
+              }
+            }
+          }
+        }
+      }
       // ---- END NOISE STEP ---------------------------------------------------
 
+      // sleepingGuards snapshot (see file header, tick() step 3) — computed
+      // once per tick, from the CURRENT guards array (already reflecting any
+      // guard.tranq() call the fire verb above just made this same tick),
+      // and handed unchanged to every guard's update() call below.
+      var sleepingGuards = [];
+      for (var sgi = 0; sgi < guards.length; sgi++) {
+        if (guards[sgi].state === "SLEEPING") {
+          sleepingGuards.push({ id: guards[sgi].id, x: guards[sgi].x, y: guards[sgi].y });
+        }
+      }
+
       for (var i = 0; i < guards.length; i++) {
-        guards[i].update(DT, { player: player, onGuardFire: onGuardFire });
+        guards[i].update(DT, { player: player, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
       }
 
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
@@ -667,6 +796,7 @@
           alertCount: squad.alertCount,
         },
         gameOver: engine.gameOver,
+        darts: inventory.darts,
       };
     }
 

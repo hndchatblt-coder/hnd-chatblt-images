@@ -38,13 +38,20 @@
 //       alertCount: number,      // engine.squad.alertCount, copied
 //       zoneName: string,        // engine.zone.name
 //       time: number,            // engine.time, the mission clock (seconds)
-//       weapon: { name: "---", ammo: null },
-//                               // PLACEHOLDER — no weapon/ammo system exists
-//                               // yet. Shape is fixed now so a future items
-//                               // cycle only has to populate real values, not
-//                               // add a new field/reshape the HUD view. name
-//                               // is a display string ("---" = none equipped);
-//                               // ammo is a count or null (infinite/N-A).
+//       weapon: { name: "TRANQ", ammo: number },
+//                               // REAL as of this cycle (was a placeholder —
+//                               // shape unchanged, see the old note this
+//                               // replaces): mirrors engine.inventory when
+//                               // present — name is always "TRANQ" (the only
+//                               // weapon this cycle), ammo is
+//                               // engine.inventory.darts. Falls back to the
+//                               // original placeholder { name: "---", ammo:
+//                               // null } if engine.inventory is absent (e.g.
+//                               // a bespoke test engine-shaped object that
+//                               // predates items.js) so this stays backward
+//                               // compatible with anything not wiring up an
+//                               // inventory. The view grays the content text
+//                               // out when ammo === 0 (see drawWeaponBox).
 //       item: { name: "---", count: null },
 //                               // PLACEHOLDER, same shape/rationale as weapon
 //                               // above but for the consumable-item slot.
@@ -92,7 +99,9 @@
 //         phaseRemaining while EVASION; an amber box reading "CAUTION" + the
 //         same style countdown while CAUTION.
 //       - Bottom-left: weapon box, bordered rounded rect ~150x64, "WEAPON"
-//         label + grayed "---" placeholder content.
+//         label + content ("TRANQ  xN" once engine.inventory exists, grayed
+//         out once darts hit 0; the original grayed "---" placeholder
+//         content only when engine.inventory is absent).
 //       - Bottom-right: item box, same shape, "ITEM" / "---".
 //       - Zone-name card: shown center-left whenever model.zoneName differs
 //         from the LAST zoneName this view actually rendered (tracked in a
@@ -166,7 +175,9 @@
       alertCount: squad.alertCount,
       zoneName: engine.zone.name,
       time: engine.time,
-      weapon: { name: "---", ammo: null },
+      weapon: engine.inventory
+        ? { name: "TRANQ", ammo: engine.inventory.darts }
+        : { name: "---", ammo: null },
       item: { name: "---", count: null },
       maxDetection: maxDetection,
     };
@@ -267,7 +278,7 @@
     ctx.textBaseline = "top";
   }
 
-  function drawBox(ctx, x, y, label, content) {
+  function drawBox(ctx, x, y, label, content, contentColor) {
     var w = HUD.BOX_W;
     var h = HUD.BOX_H;
     drawPanel(ctx, x, y, w, h);
@@ -276,16 +287,22 @@
     ctx.font = "bold 11px monospace";
     ctx.fillText(label, x + 8, y + 6);
 
-    ctx.fillStyle = "rgba(216, 255, 228, 0.45)";
+    ctx.fillStyle = contentColor || "rgba(216, 255, 228, 0.45)";
     ctx.font = "bold 18px monospace";
     ctx.fillText(content, x + 8, y + 26);
   }
+
+  // Grayed content color when a weapon/item is fully depleted (ammo/count
+  // === 0 — NOT null, which means "no ammo concept at all," e.g. the item
+  // box's placeholder; see hudModel's weapon/item shapes above).
+  var DEPLETED_COLOR = "rgba(120, 120, 120, 0.55)";
 
   function drawWeaponBox(ctx, model, widthCss, heightCss) {
     var x = HUD.MARGIN;
     var y = heightCss - HUD.BOX_H - HUD.MARGIN;
     var content = model.weapon.name + (model.weapon.ammo !== null ? "  x" + model.weapon.ammo : "");
-    drawBox(ctx, x, y, "WEAPON", content);
+    var color = model.weapon.ammo === 0 ? DEPLETED_COLOR : undefined;
+    drawBox(ctx, x, y, "WEAPON", content, color);
   }
 
   function drawItemBox(ctx, model, widthCss, heightCss) {
