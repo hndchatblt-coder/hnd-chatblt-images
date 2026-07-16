@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.10 (cycle 10 — render; FIRST PLAYABLE; snapshot in releases/)
+**Version:** v0.11 (cycle 11 — soliton radar)
 
 ## Module status
 
@@ -17,7 +17,7 @@
 | director       | not started | reinforcements, radio check-ins          |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | not started | snapshot() groundwork exists in engine   |
-| radar          | not started | soliton radar                            |
+| radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
 | hud            | not started |                                          |
 | codec          | not started |                                          |
 | music          | not started | WebAudio, failure-isolated               |
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 11: soliton radar — pure radarModel + canvas view, guard cones with
+  CAUTION widening, deterministic jam static, no position leaks (69/69, 9/9)
 - cycle 10: render — playable! iso view, state-colored wall-clipped vision
   cones, stance-scaled player, markers/meter, WASD+knock input, 3-scene
   screenshot suite; release v0.10 snapshotted, PLAYME regenerated

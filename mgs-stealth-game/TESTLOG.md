@@ -1,5 +1,31 @@
 # TESTLOG.md
 
+## Cycle 11 (soliton radar)
+
+69/69; 9/9; 3/3 shots eyeballed — radar crisp in patrol, full static + blinking
+ALERT when jammed. Model/view split: pure radarModel(engine) is what's tested;
+the model EMPTIES the guards array while jammed so positions can't leak.
+
+**3 problems:**
+1. radar.js isn't in test.js's LOGIC_ORDER, so its test self-requires the
+   module — works, but the loader convention now has two patterns. Unify at
+   the cycle-20 audit (add a RENDER_SAFE list or make radarModel its own tiny
+   logic module).
+2. Radar shows walls but not the detection meter / squad phase text — HUD
+   cycle should add the alert-phase indicator so radar static is explained to
+   new players ("why did my map break").
+3. Radar overlaps nothing at 1280x720 but its 220px fixed width will collide
+   with the HUD's item box on small windows — HUD cycle must define the
+   overlay layout grid.
+
+**3 delights:**
+1. The jam is a mechanic, not a cosmetic: the model refusing to emit guard
+   data during ALERT/EVASION means even a debug consumer can't cheat.
+2. Deterministic static (xorshift on tickCount) — identical replays produce
+   identical noise; the aesthetic obeys the determinism rule.
+3. CAUTION widening on the radar cones mirrors guardAI's real perception
+   constants — the map never lies about what guards can see.
+
 ## Cycle 10 (render layer — GAME IS PLAYABLE; release v0.10)
 
 63/63 tests; 9/9 scenarios; 3/3 screenshots inspected by eye (title, patrol
