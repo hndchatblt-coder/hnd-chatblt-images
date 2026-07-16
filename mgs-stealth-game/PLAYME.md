@@ -1,35 +1,49 @@
-# PLAYME.md — v0.10 (regenerated at cycle 10)
+# PLAYME.md — v0.20 (regenerated at cycle 20)
 
-**The game is playable as of this release.** Double-click `game.html` (or
-`releases/v0.10.html`) — no server needed. Press ENTER at the title.
+Open `game.html` (or `releases/v0.20.html`) — double-click, no server. ENTER
+to start. Music starts with the mission (WebAudio needs that first keypress).
 
 ## Controls
 
-WASD / arrows — move · SHIFT — run · C — crouch · Z — crawl · E — knock on wall
+WASD/arrows move · SHIFT run · C crouch · Z crawl · E knock · F tranq dart
+Q CQC (from behind) · G drag body / stuff in locker / hide in locker · B box
+R ration · X chaff grenade
 
-## What's new (cycles 1–10)
+## New since v0.10 (cycles 11–20)
 
-- The Loading Dock: 40×30m yard, containers, crate stacks, guard hut, two
-  shadow zones, exit gap at the north wall (glowing green).
-- One guard walking a perimeter patrol with head-sweeps — full MGS FSM:
-  PATROL → SUSPICIOUS ("?") → INVESTIGATE → ALERT ("!") → EVASION → CAUTION.
-- Live vision cone drawn on the floor, honestly clipped by walls, colored by
-  guard state (green/yellow/orange/red/purple/amber). Detection meter fills
-  above your head when you're being seen.
-- Sound: running is loud (8m), walking 3m, crouching 1m; walls halve every
-  sound. E knocks on an adjacent wall (10m lure — guards come to INVESTIGATE).
-- Stances change your visibility: crouch −40%, crawl −70%, shadows −50%.
+- **It can kill you now.** Guards fire during ALERT (grace beat, then every
+  1.5s; moving and standing make you easier to hit). MISSION FAILED → ENTER
+  retries. Rations (R, x3) heal.
+- **Soliton radar** top-right — live cones; jams to static during ALERT/
+  EVASION; chaff (X) jams it blue for 15s (the pop is loud — tradeoff).
+- **Full MGS1-style HUD** — life, mission clock, alert counter, phase banner
+  with EVASION/CAUTION countdowns, TRANQ/RATION boxes, zone name cards.
+- **Procedural music** — sneak ambient, the "!" sting, combat, evasion pulse,
+  caution pads, resolve motif. All synthesized, crossfades only.
+- **Tranq pistol** (F, 12 darts) — unaware guards drop instantly; alerted
+  ones stagger 3s. Missed darts make noise where they land (use it!).
+- **CQC** (Q) from behind. **Drag** sleepers (G), **stuff them in lockers**
+  (G at a locker) before their friends find them — a spotted body is an
+  instant zone-wide ALERT at the body's position.
+- **Hide in lockers** (G) or under the **cardboard box** (B) — near-invisible
+  while still; blown the moment you move in a cone.
+- **The Warehouse** — second zone through the north exit: shelving-aisle
+  maze, two guards on interlocking patrols, dark aisle ends. Can't change
+  zones mid-alert.
 
 ## Things to try
 
-1. **The lure:** crouch behind the west container, knock (E), watch the guard
-   leave his route to investigate — then slip north through the shadow strip.
-2. **Get seen on purpose:** stand in the open until the meter fills — "!" —
-   then break line of sight and watch him hunt your last known position for
-   30s before the zone cools down through CAUTION.
-3. **Crawl the dark zone** west of the containers while his cone sweeps past.
+1. **The full cleanup:** dart the warehouse's center-aisle guard, drag him
+   into a locker, and watch his buddy's patrol cross the empty lane, none
+   the wiser.
+2. **Fail loudly on purpose:** miss a dart into a far wall and watch the
+   guard investigate the impact point instead of you.
+3. **Box camp** in a patrol lane; hold your nerve while the cone sweeps you.
+4. **Survive a firefight:** get seen, eat a hit, chaff, break contact, and
+   outlast EVASION→CAUTION from inside a locker.
 
 ## Not yet in
 
-Radar, HUD, music, items (box/tranq/CQC), other 3 zones, codec, saves, win
-state. The guard can catch you but can't hurt you yet — alerts are for pride.
+Laboratory + Comms Tower zones (cameras/keycards/finale), codec calls,
+saves, win state + rank screen, reinforcements/radio check-ins. Known gap
+(audit A1): firing/CQC from inside the box isn't blocked yet — honor system.
