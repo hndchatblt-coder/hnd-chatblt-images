@@ -1,5 +1,24 @@
 # TESTLOG.md
 
+## Cycle 33 (polish: event-feedback pack)
+
+213/213; 22/22; 5/5 shots + a knock-ripple evidence shot verified by eye
+(ring centered on player, fading correctly). Hit flash (camera-parented
+overlay, 0.4s decay, reset-not-stack), pooled noise ripples sized to the
+REAL emit radii (run 8m/0.5s, walk 3m/0.7s, silent stances none), death
+sting (descending saws + all beds duck to silence). Director purity re-
+pinned by test so the gameOver edge-detection can't leak into the pure side.
+
+**Problems:** (1) ripple rings show nominal radius, not wall-attenuated —
+documented honest simplification; revisit if players misread it. (2) hit
+flash unverifiable in fixed screenshots (timing) — acceptable, evidence
+approach works for one-offs. (3) A9 event-consumer count improving (3 more
+consumed this cycle) — recheck at cycle 40 audit as planned.
+
+**Delight:** you can now SEE your own noise — the run-ring visibly touching
+a guard's position the tick before he spins around teaches the sound system
+in one glance. Readability pillar's cheapest big win yet.
+
 ## Cycle 32 (CRASH FIX: searcher wedge → graceful give-up)
 
 210/210; 22/22; 5/5 shots. Tick-counted wedge trackers (2s window, 0.3m

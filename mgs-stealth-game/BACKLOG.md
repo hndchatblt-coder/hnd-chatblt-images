@@ -18,7 +18,7 @@ content rotation) take over. L items must be split before selection.
 6. ~~SoundEvents~~ DONE cycle 9.
 6b. ~~Render layer~~ DONE cycle 10 (v0.10 released).
 6c. ~~Cone/marker readability~~ DONE cycle 13.
-6d. Knock ripple visual | polish | S | Readability | expanding ring at knock point (world-space, ~0.5s) so players see their own sound radius; also faint ring for run footsteps every ~0.5s.
+6d. ~~Knock ripple visual~~ DONE cycle 33 (+ hit flash + death sting).
 7. ~~Radar~~ DONE cycle 11 (chaff jam hook documented, wired when chaff lands).
 8. ~~HUD~~ DONE cycle 12.
 9. ~~Music~~ DONE cycle 14 (needs human ear pass — see FEEDBACK request in TESTLOG).
@@ -35,8 +35,6 @@ content rotation) take over. L items must be split before selection.
 - Locker checks during EVASION | feature | S | Tension | hiding mid-EVASION is dominant; guards sweeping in EVASION open nearby lockers (discovery → ALERT).
 - CQC throw variant | feature | S | Expression | hold Q: throw (2m, 5s stun, 6m thud) vs tap choke — risk/reward choice.
 - Aim line while F held | polish | S | Readability | faint ray preview so ranged darts are judgeable.
-- Hit flash / damage feedback | polish | S | Readability | brief red flash or player flinch on playerHit event in render.js.
-- Death sting | polish | S | Tension | music one-shot on gameOver event.
 12. ~~Codec~~ DONE cycle 26 (frequency-dial input + easter-egg calls → wells).
 - Defer non-critical codec calls while ALERT/EVASION | polish | S | Tension | firstBody/lowDarts queue until phase cools; firstAlert plays immediately (it's about the alert).
 13. ~~SaveState~~ DONE cycle 27 (single-slot; multi-slot + codec-pause save edge + schema migration → backlog later).

@@ -112,6 +112,66 @@
 //       private bookkeeping, so its actor keeps glowing after collection;
 //       cosmetic only, tracked in BACKLOG.md).
 //
+//   HIT FLASH (new — feedback cycle, see src/engine.js's playerHit event
+//   contract): a full-viewport translucent red overlay + a red tint pulse on
+//   the player mesh, both driven by the same timer. On seeing a "playerHit"
+//   event in engine.events (same same-tick-event pattern as DART TRACER
+//   above), a closure var hitFlashStart is SET to engine.time (not pushed
+//   onto a list) — a second hit before the first has faded just resets the
+//   clock rather than stacking/adding, per this cycle's design brief ("stacks
+//   sanely", i.e. doesn't). alpha ramps from HIT_FLASH_ALPHA_MAX down to 0
+//   linearly over HIT_FLASH_DURATION_S, computed every frame from
+//   engine.time - hitFlashStart (deterministic, no Date.now — same rule as
+//   every other animation in this file). The overlay itself is a plane
+//   parented to `camera` (see "scene.add(camera)" below — a camera normally
+//   never needs to be IN the scene graph, but making it so lets a child mesh
+//   sit at a fixed camera-local offset and be scaled to exactly (camera.right
+//   - camera.left) x (camera.top - camera.bottom) every frame, which for an
+//   ORTHOGRAPHIC camera means it exactly fills the viewport regardless of
+//   resize — no perspective divide to fight). depthTest:false plus always
+//   being the object nearest the camera (local z = -1, versus every world
+//   object being many units away) keeps it drawn on top of everything else.
+//   The player-mesh tint reuses whatever base color the BOX DISGUISE block
+//   above just set (PLAYER_COLOR or BOX_COLOR) and lerps it toward
+//   PLAYER_HIT_TINT_COLOR by the same normalized alpha, so a boxed player
+//   still visibly flinches red on a hit.
+//
+//   KNOCK / FOOTSTEP RIPPLES (new — BACKLOG 6d, Readability pillar: "show the
+//   player their own noise"): expanding, fading ring outlines (THREE.LineLoop,
+//   same raycast-free circle-of-points technique as the cone rims, just not
+//   raycast-clipped) drawn at CONE_Y-ish height. Two producers:
+//     - KNOCK: a "knock" event (engine.events, same same-tick pattern as
+//       above) spawns one ring at the event's x/y, growing 0 -> Game.SOUND.
+//       RADII.knock over RIPPLE_STYLE.knock.duration.
+//     - FOOTSTEPS: NOT event-driven — engine.player.noiseRadius() is
+//       continuous per-tick STATE (see src/player.js contract), so this reads
+//       it every frame and throttles new spawns with closure timestamps
+//       (lastRunRippleAt/lastWalkRippleAt) compared against engine.time
+//       (deterministic, no setInterval). >=8 (running) spawns a ring growing
+//       to Game.SOUND.RADII.run every ~0.5s; >=3 and <8 (walking) spawns a
+//       fainter ring growing to Game.SOUND.RADII.walk every ~0.7s; <3
+//       (crouch 1 / crawl 0 / stationary) spawns nothing, per the design
+//       brief. Suppressed entirely while engine.gameOver (a dead player makes
+//       no footsteps).
+//   HONEST SIMPLIFICATION (documented, not silent): every ring's radius is
+//   the NOMINAL Game.SOUND.RADII value for that sound kind — it does NOT run
+//   soundEvents.js's wallsBetween/effectiveRadius attenuation, so a ring can
+//   visually reach through a wall a guard on the other side would not
+//   actually hear through as far. This is deliberate: the ring's job is to
+//   show the PLAYER an honest "this is how far this sound kind nominally
+//   travels" reference (matching Game.SOUND.RADII exactly, so the visual
+//   never lies about the base radius), not to re-derive full per-guard
+//   geometry every frame. See BACKLOG.md's existing wallsBetween/
+//   effectiveRadius note for the same caveat already documented for guards'
+//   own hearing.
+//   POOLING: up to RIPPLE_MAX_LIVE (6) THREE.LineLoop meshes are created ONCE
+//   (ripplePool) and reused — their geometry's position BufferAttribute is
+//   overwritten in place every frame (needsUpdate = true) for whichever data
+//   ripple currently occupies that pool slot, rather than disposing/
+//   recreating geometry per spawn (unlike the dart tracer's simpler "rebuild
+//   fresh every frame" approach, which this cycle's design brief explicitly
+//   asked to avoid for ripples: "keep a small pooled set of ring meshes").
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -292,6 +352,32 @@
     var HIDDEN_BLINK_HZ = 1.4;
     var TWO_PI_R = Math.PI * 2;
 
+    // HIT FLASH (see file header) — decaying screen-edge flash + player tint
+    // on a "playerHit" event.
+    var HIT_FLASH_ALPHA_MAX = 0.35;
+    var HIT_FLASH_DURATION_S = 0.4;
+    var HIT_FLASH_COLOR = 0xb71c1c;
+    var PLAYER_HIT_TINT_COLOR = 0xff1744;
+    var HIT_FLASH_Z = -1; // local units in front of `camera` (camera looks down local -Z)
+
+    // KNOCK / FOOTSTEP RIPPLES (see file header) — pooled ring meshes, one
+    // style per producer kind. maxR is filled in per-instance from
+    // Game.SOUND.RADII (read at spawn time, not baked in here, so this stays
+    // in sync with soundEvents.js's own tunables rather than duplicating
+    // them).
+    var RIPPLE_MAX_LIVE = 6;
+    var RIPPLE_SEGMENTS = 32;
+    var RIPPLE_Y = CONE_Y + 0.01; // just above cone fills, avoid z-fighting the floor
+    var RIPPLE_STYLE = {
+      knock: { color: 0xfff59d, opacity: 0.95, duration: 0.6 },
+      run: { color: 0xb3e5fc, opacity: 0.5, duration: 0.5 },
+      walk: { color: 0xb3e5fc, opacity: 0.25, duration: 0.7 },
+    };
+    var RUN_NOISE_THRESHOLD = 8; // player.noiseRadius() >= this -> "running" ripple
+    var WALK_NOISE_THRESHOLD = 3; // >= this (and < run threshold) -> "walking" ripple
+    var RUN_RIPPLE_INTERVAL_S = 0.5;
+    var WALK_RIPPLE_INTERVAL_S = 0.7;
+
     // ---- renderer / scene / camera --------------------------------------------
 
     var webgl = new THREE.WebGLRenderer({ antialias: true });
@@ -313,6 +399,12 @@
     var camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
     camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
     camera.lookAt(zoneCenter.x, 0, zoneCenter.y);
+    // Added to the scene graph (new — HIT FLASH, see file header) purely so a
+    // camera-local CHILD mesh (the hit-flash overlay quad below) renders at
+    // all — WebGLRenderer only traverses `scene`'s own graph, and the camera
+    // itself draws nothing visible, so this has no effect beyond enabling
+    // that child.
+    scene.add(camera);
 
     // ---- small local helpers ---------------------------------------------------
 
@@ -1008,6 +1100,193 @@
       });
     }
 
+    // ---- hit flash (see file header HIT FLASH note) ----------------------------
+
+    // Small local color-lerp helper (0xRRGGBB ints, t clamped 0..1 by the
+    // caller already always passing a valid alpha ratio) — no dependency on
+    // THREE.Color for this, keeping it a plain number-in-number-out helper.
+    function lerpHexColor(from, to, t) {
+      var fr = (from >> 16) & 0xff,
+        fg = (from >> 8) & 0xff,
+        fb = from & 0xff;
+      var tr = (to >> 16) & 0xff,
+        tg = (to >> 8) & 0xff,
+        tb = to & 0xff;
+      var r = Math.round(fr + (tr - fr) * t);
+      var g = Math.round(fg + (tg - fg) * t);
+      var b = Math.round(fb + (tb - fb) * t);
+      return (r << 16) | (g << 8) | b;
+    }
+
+    var hitFlashMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        color: HIT_FLASH_COLOR,
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+        // DoubleSide defensively — this plane's visible face depends on
+        // getting the camera-local -Z "faces the camera" orientation exactly
+        // right; not worth a blank/invisible overlay bug over saving one
+        // fill's worth of backface culling on a single full-screen quad.
+        side: THREE.DoubleSide,
+      })
+    );
+    hitFlashMesh.position.set(0, 0, HIT_FLASH_Z);
+    hitFlashMesh.renderOrder = 999; // belt-and-braces on top of every other transparent draw
+    hitFlashMesh.visible = false;
+    camera.add(hitFlashMesh); // camera-local child — see "scene.add(camera)" above
+
+    var hitFlashStart = null; // engine.time of the most recent playerHit event, null = never hit
+
+    // Scans this tick's events (same same-tick pattern as updateTracers
+    // above), resets (never stacks — see file header) the flash clock on a
+    // fresh playerHit, and returns the current 0..HIT_FLASH_ALPHA_MAX alpha.
+    // Called once per frame, BEFORE the player-mesh tint below so both read
+    // the same alpha for the same frame.
+    function computeHitFlashAlpha(engine) {
+      for (var i = 0; i < engine.events.length; i++) {
+        if (engine.events[i].type === "playerHit") {
+          hitFlashStart = engine.time;
+          break;
+        }
+      }
+      if (hitFlashStart === null) return 0;
+      var age = engine.time - hitFlashStart;
+      if (age >= HIT_FLASH_DURATION_S) return 0;
+      return HIT_FLASH_ALPHA_MAX * (1 - age / HIT_FLASH_DURATION_S);
+    }
+
+    function updateHitFlashMesh(alpha) {
+      hitFlashMesh.material.opacity = alpha;
+      hitFlashMesh.visible = alpha > 0.0005;
+      // Exactly fills the orthographic frustum at this depth regardless of
+      // aspect/resize — see file header note on why this only works because
+      // the camera is orthographic (no perspective divide with depth).
+      hitFlashMesh.scale.set(
+        Math.max(0.001, camera.right - camera.left),
+        Math.max(0.001, camera.top - camera.bottom),
+        1
+      );
+    }
+
+    // ---- knock / footstep ripples (see file header RIPPLES note) ---------------
+
+    var ripples = []; // pure data: { x, y, startTime, duration, maxR, kind } — up to RIPPLE_MAX_LIVE alive
+    var ripplePool = []; // fixed-size pool of THREE.LineLoop, built once, reused (see file header POOLING)
+    var lastRunRippleAt = -Infinity;
+    var lastWalkRippleAt = -Infinity;
+
+    function ensureRipplePool() {
+      while (ripplePool.length < RIPPLE_MAX_LIVE) {
+        var positions = new Float32Array(RIPPLE_SEGMENTS * 3);
+        var geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        var mat = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        });
+        var line = new THREE.LineLoop(geo, mat);
+        line.visible = false;
+        scene.add(line);
+        ripplePool.push(line);
+      }
+    }
+
+    // Clears the pure ripple data (called on a zone change — see ZONE
+    // CHANGES below — old-zone x/y are meaningless in the new one). The pool
+    // meshes themselves are left in the scene (zone-agnostic, reused as-is);
+    // the per-frame sync below hides every pool slot with no ripple assigned.
+    function clearRipples() {
+      ripples = [];
+    }
+
+    function spawnRipple(x, y, startTime, kind, maxR) {
+      ripples.push({
+        x: x,
+        y: y,
+        startTime: startTime,
+        duration: RIPPLE_STYLE[kind].duration,
+        maxR: maxR,
+        kind: kind,
+      });
+    }
+
+    function writeRingPositions(line, x, y, r) {
+      var arr = line.geometry.attributes.position.array;
+      for (var i = 0; i < RIPPLE_SEGMENTS; i++) {
+        var a = (i / RIPPLE_SEGMENTS) * TWO_PI_R;
+        arr[i * 3] = x + Math.cos(a) * r;
+        arr[i * 3 + 1] = RIPPLE_Y;
+        arr[i * 3 + 2] = y + Math.sin(a) * r;
+      }
+      line.geometry.attributes.position.needsUpdate = true;
+    }
+
+    function updateRipples(engine) {
+      ensureRipplePool();
+
+      // KNOCK (event-driven, same same-tick pattern as updateTracers above).
+      for (var i = 0; i < engine.events.length; i++) {
+        var ev = engine.events[i];
+        if (ev.type === "knock") {
+          spawnRipple(ev.x, ev.y, engine.time, "knock", Game.SOUND.RADII.knock);
+        }
+      }
+
+      // FOOTSTEPS (continuous state, not an event — see file header): read
+      // player.noiseRadius() every frame and throttle spawns off engine.time
+      // deltas. Suppressed entirely once gameOver (a dead/frozen player makes
+      // no footsteps) — mirrors player.js's own "dead player" freeze posture.
+      if (!engine.gameOver) {
+        var nr = engine.player.noiseRadius();
+        if (nr >= RUN_NOISE_THRESHOLD) {
+          if (engine.time - lastRunRippleAt >= RUN_RIPPLE_INTERVAL_S) {
+            spawnRipple(engine.player.x, engine.player.y, engine.time, "run", Game.SOUND.RADII.run);
+            lastRunRippleAt = engine.time;
+          }
+        } else if (nr >= WALK_NOISE_THRESHOLD) {
+          if (engine.time - lastWalkRippleAt >= WALK_RIPPLE_INTERVAL_S) {
+            spawnRipple(engine.player.x, engine.player.y, engine.time, "walk", Game.SOUND.RADII.walk);
+            lastWalkRippleAt = engine.time;
+          }
+        }
+        // crouch (1) / crawl (0) / stationary (0): no ripple, per design brief.
+      }
+
+      ripples = ripples.filter(function (r) {
+        return engine.time - r.startTime < r.duration;
+      });
+      // Airtight pool contract: never let more ripples live than pool slots
+      // exist (shouldn't happen given the spawn throttles above, but a static
+      // knock spam edge case — e.g. many knock events landing extremely close
+      // together — must degrade by dropping the OLDEST, not by overrunning
+      // the pool array).
+      if (ripples.length > RIPPLE_MAX_LIVE) {
+        ripples = ripples.slice(ripples.length - RIPPLE_MAX_LIVE);
+      }
+
+      for (var p = 0; p < ripplePool.length; p++) {
+        var line = ripplePool[p];
+        var ripple = ripples[p];
+        if (!ripple) {
+          line.visible = false;
+          continue;
+        }
+        var age = engine.time - ripple.startTime;
+        var t = age / ripple.duration; // 0..1
+        var style = RIPPLE_STYLE[ripple.kind];
+        var r = Math.max(0.05, t * ripple.maxR); // 0 -> maxR, linear in time (deterministic)
+        writeRingPositions(line, ripple.x, ripple.y, r);
+        line.material.color.setHex(style.color);
+        line.material.opacity = style.opacity * (1 - t); // fades out as it expands
+        line.visible = true;
+      }
+    }
+
     function meterColor(v) {
       // green -> yellow (0..0.5), yellow -> red (0.5..1)
       var c1, c2, t;
@@ -1068,6 +1347,7 @@
           built = false;
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
+        clearRipples(); // same reasoning — see file header RIPPLES note
         zone = engine.zone;
         zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
         camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
@@ -1092,6 +1372,12 @@
       var player = engine.player;
       placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
 
+      // HIT FLASH (see file header) — computed once here (before the
+      // box-disguise recolor below) so both the full-viewport overlay
+      // (updateHitFlashMesh, called down with updateTracers/updateMeter) and
+      // the player-mesh tint immediately below read the same frame's alpha.
+      var hitFlashAlpha = computeHitFlashAlpha(engine);
+
       // BOX DISGUISE (see file header) — re-skins the SAME body/nose meshes
       // placeActor just posed above; runs every frame so taking the box off
       // reliably reverts to the normal color/scale/nose-visible, not just a
@@ -1107,6 +1393,18 @@
         playerActor.nose.visible = false; // a box gives no external facing hint
       } else {
         playerActor.body.material.color.setHex(PLAYER_COLOR);
+      }
+
+      // HIT FLASH player-mesh tint (see file header) — lerps whichever base
+      // color the box-disguise block just set (BOX_COLOR or PLAYER_COLOR)
+      // toward PLAYER_HIT_TINT_COLOR by the flash's own normalized alpha, so
+      // a boxed player still visibly flinches red on a hit. No-op (leaves
+      // the base color alone) once the flash has fully decayed.
+      if (hitFlashAlpha > 0) {
+        var tintT = hitFlashAlpha / HIT_FLASH_ALPHA_MAX;
+        playerActor.body.material.color.setHex(
+          lerpHexColor(playerActor.body.material.color.getHex(), PLAYER_HIT_TINT_COLOR, tintT)
+        );
       }
 
       // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
@@ -1179,6 +1477,8 @@
 
       updateTracers(engine);
       updateMeter(engine);
+      updateHitFlashMesh(hitFlashAlpha);
+      updateRipples(engine);
     }
 
     function render(engine) {

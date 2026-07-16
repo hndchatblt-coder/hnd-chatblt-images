@@ -74,6 +74,12 @@
 //          in this same call, since CAUTION->INFILTRATION flips track to
 //          "sneak" and resolve on the same tick -- see the director contract
 //          above).
+//       6. engine.gameOver false->true edge (a LOCAL prevGameOver flag here,
+//          NOT part of the director/result above -- see DEATH STING + BED
+//          DUCK below) -> fires the one-shot "deathSting" additively into
+//          masterGain, then ramps every built continuous track's own
+//          GainNode to 0 over 1s and leaves it there (never un-ducked; see
+//          below for why no undo path is needed).
 //     AUDIO ISOLATION (project mandate, see CLAUDE.md): the ENTIRE body of
 //     update() runs inside one try/catch. Any throw -- AudioContext missing,
 //     a node call failing, anything -- logs a single console.warn (never
@@ -117,6 +123,37 @@
 //                  descending motif), each its own gain-enveloped voice
 //                  scheduled via oscillator start/stop times (sample-
 //                  accurate, no setTimeout).
+//     "deathSting" -- one-shot (new -- feedback cycle): mirrors "sting"'s own
+//                  construction (a stacked minor-third/fifth brassy voicing
+//                  of detuned sawtooths through a lowpass, plus a separate
+//                  sine sub for weight) but DESCENDING and slower -- each
+//                  oscillator's frequency (including the sub) portamento-
+//                  glides down an octave via exponentialRampToValueAtTime
+//                  over the full ~2s decay, instead of "sting"'s fixed-pitch
+//                  hit. A dark, falling "you lost" cadence rather than the
+//                  alert sting's sharp brass stab.
+//
+//   DEATH STING + BED DUCK (new -- feedback cycle, see src/engine.js's
+//   gameOver contract): deliberately NOT plumbed through the pure director
+//   above (createMusicDirector stays phase-only, unaware gameOver even
+//   exists -- see tests/feedback.test.js's own re-pinning assertions that
+//   guard against this leaking). Instead, createMusic's own update(engine)
+//   keeps a SEPARATE local `prevGameOver` closure flag and edge-detects
+//   engine.gameOver directly (the same "read engine.events/engine state,
+//   never assume a caller tells you" posture director.update(phase) itself
+//   can't take since it never sees engine at all). On the false->true edge:
+//   fires playDeathSting once (additive into masterGain, exactly like
+//   playSting/playResolve -- unaffected by the duck below since it doesn't
+//   route through any per-track gain node), then ramps every currently-BUILT
+//   continuous track's own GainNode (tracks[name].gain.gain, the same nodes
+//   crossfadeTo already animates) to 0 over 1s and leaves it there -- "the
+//   silence IS the feedback" per this cycle's design brief. Never un-ducks:
+//   engine.gameOver is a LATCH (see src/engine.js's FROZEN ENGINE note) that
+//   never reverts to false on its own, and a retry-after-death goes through
+//   src/boot.js's runGame() -> a brand-new Game.createMusic() instance (read,
+//   not modified, this cycle -- verified runGame() already does this for
+//   every fresh playthrough including a game-over retry), so there is no
+//   in-place "undo the duck" path this module needs to handle.
 //   The only non-deterministic-looking input anywhere in the synth is
 //   audioCtx.currentTime (the sanctioned audio clock -- see CLAUDE.md/file
 //   header) plus a small local xorshift PRNG used ONLY to fill noise-texture
@@ -471,6 +508,53 @@
     });
   }
 
+  // Descending dark sting on gameOver (see file header DEATH STING note) --
+  // mirrors playSting's stacked-detuned-saw + sub construction above but
+  // DESCENDING (each oscillator glides down an octave via
+  // exponentialRampToValueAtTime) and slower (~2s vs sting's ~1.2s).
+  function playDeathSting(ctx, dest) {
+    var now = ctx.currentTime;
+    var dur = 2.0;
+
+    var gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.85, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    gain.connect(dest);
+
+    var filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 1800;
+    filter.connect(gain);
+
+    // stacked minor-third + fifth voicing, same intervals as playSting's
+    // brassy hit, but each oscillator glides DOWN an octave over `dur`.
+    var startFreqs = [220, 220 * Math.pow(2, 3 / 12), 220 * Math.pow(2, 7 / 12)];
+    startFreqs.forEach(function (f, i) {
+      var o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f, now);
+      o.frequency.exponentialRampToValueAtTime(f / 2, now + dur);
+      o.detune.value = (i - 1) * 6;
+      o.connect(filter);
+      o.start(now);
+      o.stop(now + dur + 0.1);
+    });
+
+    var subGain = ctx.createGain();
+    subGain.gain.setValueAtTime(0.0001, now);
+    subGain.gain.linearRampToValueAtTime(0.8, now + 0.02);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    subGain.connect(dest);
+    var sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(55, now);
+    sub.frequency.exponentialRampToValueAtTime(27.5, now + dur);
+    sub.connect(subGain);
+    sub.start(now);
+    sub.stop(now + dur + 0.1);
+  }
+
   var CONTINUOUS_BUILDERS = {
     sneak: buildSneak,
     combat: buildCombat,
@@ -488,6 +572,11 @@
     var masterGain = null;
     var tracks = {}; // trackName -> { gain: GainNode } -- built lazily, kept forever
     var currentTrackName = null;
+    // DEATH STING + BED DUCK (see file header) -- local, NOT part of the pure
+    // director's own state (director stays phase-only). Latches true on the
+    // first engine.gameOver === true update() call and never resets (see
+    // file header for why no in-place "undo" path is needed).
+    var prevGameOver = false;
 
     function warnOnce(err) {
       if (warned) return;
@@ -555,6 +644,20 @@
         if (result.changed) crossfadeTo(result.track);
         if (result.sting) playSting(audioCtx, masterGain);
         if (result.resolve) playResolve(audioCtx, masterGain);
+
+        // DEATH STING + BED DUCK (see file header) -- edge-detected directly
+        // off engine.gameOver, deliberately OUTSIDE the pure director above.
+        if (engine.gameOver && !prevGameOver) {
+          playDeathSting(audioCtx, masterGain);
+          var duckNow = audioCtx.currentTime;
+          Object.keys(tracks).forEach(function (name) {
+            var g = tracks[name].gain.gain;
+            g.cancelScheduledValues(duckNow);
+            g.setValueAtTime(g.value, duckNow);
+            g.linearRampToValueAtTime(0, duckNow + 1.0);
+          });
+        }
+        prevGameOver = engine.gameOver;
       } catch (e) {
         broken = true;
         warnOnce(e);

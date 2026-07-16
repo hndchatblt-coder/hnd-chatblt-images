@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.32 (cycle 32 — searcher-wedge crash fix)
+**Version:** v0.33 (cycle 33 — feedback polish pack)
 
 ## Module status
 
@@ -38,6 +38,8 @@
 
 ## Changelog (last 5)
 
+- cycle 33: polish — hit flash, noise-radius ripples (run/walk/knock, sized
+  to real emit radii), death sting + bed duck (213/213, 22/22)
 - cycle 32: crash fix — wedge trackers with graceful give-up on INVESTIGATE/
   EVASION/ALERT convergence; save/restore taught the tracker state; real-
   placement regression (210/210, 22/22)
