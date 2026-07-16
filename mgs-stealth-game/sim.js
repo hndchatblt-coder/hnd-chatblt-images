@@ -693,6 +693,117 @@ scenarios.push({
   },
 });
 
+// ---- zone-transition playtest scenario (cycle: Zones) ----------------------
+// Same engine-driven style as the scenarios above, but the whole point this
+// time is crossing a REAL zone boundary mid-run: dock -> warehouse -> dock,
+// asserting zero alerts across the entire trip and both zoneChange events
+// firing. Reuses the west-flank route from the "engine-driven infiltration"
+// scenario above for the Loading Dock leg (same geometry, same reasoning).
+//
+// IMPORTANT steering detail: each leg's "walk toward this waypoint" loop MUST
+// stop dead the instant a zoneChange event fires, rather than continuing to
+// chase that leg's ORIGINAL target coordinate — once engine.tick() swaps the
+// world/player mid-loop, engine.player is a brand-new instance in the new
+// zone, and a stale target from the old zone can put the steering vector
+// wildly off (in an earlier draft of this scenario, chasing loadingDock's
+// exit-dash target after the switch dragged the player straight through the
+// Warehouse's OWN north stub into guards w1/w2's spawn points and triggered
+// ALERT — the fix is simply to treat a zoneChange event as "leg complete,"
+// exactly like reaching the waypoint itself).
+//
+// Guard-timing note: per src/engine.js's zone-transition semantics, guards
+// are rebuilt FRESH at their ZONE_GUARDS spawn points on every zone entry (v1
+// semantics — no persistence across a departure). So every time this
+// scenario (re-)enters the Warehouse, w1 spawns at waypoints[0]=(3,2) (far
+// NW) and w2 at waypoints2[0]=(17,5) (north-central) — both far from the
+// south entrance (20,25) this scenario actually uses. The brief "move a few
+// meters in" dip to (20,21) and pull back to (20,25.5) stays well south of
+// w2's patrol rectangle (y:5-20) the whole time, and the total Warehouse
+// dwell is far shorter than w2's ~18s travel time to get anywhere near that
+// area (see src/world.js's warehouse comment) — comfortable margin, not a
+// hair's-breadth timing dependency.
+scenarios.push({
+  name: "two-zone infiltration: dock to warehouse and back unseen",
+  seed: 20260716009,
+  run: function (G) {
+    const dock = G.ZONES.loadingDock;
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({ seed: this.seed, zoneData: dock });
+
+    const ARRIVE = 0.5;
+    const MAX_LEG_TICKS = Math.round(30 / DT);
+    let anyAlertEverFired = false;
+    let zoneChangeCount = 0;
+
+    // Walks toward `wp` until either arrival (ARRIVE) or a zoneChange event
+    // fires (treated as leg completion — see the steering note above).
+    // Throws if the leg stalls without either happening.
+    function walkLeg(wp, legLabel) {
+      for (let i = 0; i < MAX_LEG_TICKS; i++) {
+        const dx = wp.x - engine.player.x;
+        const dy = wp.y - engine.player.y;
+        const d = Math.hypot(dx, dy);
+        if (d <= ARRIVE) return;
+
+        engine.tick({ moveX: d > 0 ? dx / d : 0, moveY: d > 0 ? dy / d : 0, run: false, stance: wp.stance });
+        if (engine.squad.alertCount > 0) anyAlertEverFired = true;
+        if (engine.events.some((e) => e.type === "zoneChange")) {
+          zoneChangeCount++;
+          return;
+        }
+      }
+      throw new Error("scripted route stalled heading to " + legLabel + " " + JSON.stringify(wp));
+    }
+
+    // ---- Loading Dock: west flank to the north exit (same route as the
+    // "engine-driven infiltration" scenario above) ----
+    const dockLegs = [
+      { x: 3, y: 27, stance: "stand" }, // west along the open south corridor
+      { x: 3, y: 9, stance: "crouch" }, // north through the west-flank dark zone
+      { x: 3, y: 2, stance: "crouch" }, // NW corner, still sneaking near the guard hut
+      { x: dock.exit.x + dock.exit.w / 2, y: dock.exit.y + dock.exit.h / 2, stance: "stand" }, // dash for the exit gap
+    ];
+    for (const wp of dockLegs) {
+      walkLeg(wp, "loadingDock leg");
+      if (zoneChangeCount >= 1) break; // the exit-dash leg crossed; stop iterating dockLegs
+    }
+    if (engine.zone.id !== "warehouse") {
+      throw new Error("expected to have crossed into warehouse, got zone " + engine.zone.id);
+    }
+
+    // ---- Warehouse: a few meters in from the south entrance, then straight
+    // back out (well south of both guards' patrol ground — see the
+    // guard-timing note above) ----
+    const warehouseLegs = [
+      { x: 20, y: 21, stance: "crouch" }, // a few meters north of the entrance
+      { x: 20, y: 25.5, stance: "crouch" }, // back toward the south exit trigger
+      { x: warehouse.exit.x + warehouse.exit.w / 2, y: warehouse.exit.y + warehouse.exit.h / 2, stance: "stand" }, // cross back
+    ];
+    for (const wp of warehouseLegs) {
+      walkLeg(wp, "warehouse leg");
+      if (zoneChangeCount >= 2) break;
+    }
+    if (engine.zone.id !== "loadingDock") {
+      throw new Error("expected to have returned to loadingDock, got zone " + engine.zone.id);
+    }
+
+    if (zoneChangeCount !== 2) {
+      throw new Error("expected exactly 2 zoneChange events (there and back), got " + zoneChangeCount);
+    }
+    if (anyAlertEverFired) {
+      throw new Error("expected zero alerts across the whole two-zone round trip, but at least one fired");
+    }
+    if (engine.squad.alertCount !== 0) {
+      throw new Error("expected squad.alertCount === 0 at the end, got " + engine.squad.alertCount);
+    }
+
+    // One more tick for good measure: proves the engine is still perfectly
+    // usable after a round-trip zone transition, not just technically "not
+    // crashed" the instant it landed back in loadingDock.
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

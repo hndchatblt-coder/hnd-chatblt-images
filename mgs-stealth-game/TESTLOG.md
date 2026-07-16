@@ -1,5 +1,32 @@
 # TESTLOG.md
 
+## Cycle 15 (Warehouse zone + transitions)
+
+87/87; 10/10 (incl. two-zone unseen round trip); screenshots clean. Facility
+is multi-zone: exits[]/entrances{} schema (zone.exit kept as live alias),
+INFILTRATION-gated transitions, fresh-rebuild v1 semantics, rng stream
+preserved across zones (cross-zone determinism proven by test).
+
+**3 problems:**
+1. Departed-zone guard/squad state is discarded — alert a guard, leave,
+   return: he's forgotten everything. Acceptable v1; persistence is a real
+   feature (per-zone state stash) → backlog (M, Consequence).
+2. Player object is rebuilt on transition because player.js binds world at
+   construction — hp/inventory will need careful copying when they exist;
+   fragile spot, flag for the items cycle.
+3. "Verticality" from SPEC interpreted as aisle-maze density (2D sim can't do
+   catwalks). Deliberate scope call — SPEC drift noted here so the audit can
+   challenge it.
+
+**3 delights:**
+1. Zone-change gating on INFILTRATION means you can't flee mid-alert —
+   EVASION must be survived, not skipped. Consequence pillar, enforced by
+   one condition.
+2. The generalized leg-clearance test now sweeps EVERY loop in EVERY zone —
+   cycle-5's bug class is extinct by construction.
+3. Warehouse w2 guard sweeping the center aisle while w1 walks the perimeter
+   creates natural pincer moments with zero scripting.
+
 ## Cycle 14 (music)
 
 79/79; 9/9; screenshots clean. Pure director (track/sting/resolve semantics

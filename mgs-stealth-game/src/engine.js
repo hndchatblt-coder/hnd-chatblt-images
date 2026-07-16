@@ -5,8 +5,20 @@
 //     seed         — RNG seed (src/rng.js). Default 1.
 //     guardConfigs — [{ id, spawn, waypoints }, ...] passed straight through to
 //                    Game.createGuard (src/guardAI.js) for each guard, sharing
-//                    one squad. Default: a single guard,
-//                    [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }].
+//                    one squad. Default (opts.guardConfigs omitted): looked up
+//                    from an internal per-zone table, ZONE_GUARDS, keyed by
+//                    zoneData.id —
+//                      loadingDock: [{ id: "g1", spawn: zone.waypoints[0],
+//                                      waypoints: zone.waypoints }]
+//                      warehouse:   [{ id: "w1", spawn: zone.waypoints[0],
+//                                      waypoints: zone.waypoints },
+//                                    { id: "w2", spawn: zone.waypoints2[0],
+//                                      waypoints: zone.waypoints2 }]
+//                    Any zone.id not in ZONE_GUARDS (e.g. a custom zoneData
+//                    passed straight into a test) falls back to the single-
+//                    guard-on-`waypoints` default above. This same table is
+//                    what re-populates guards on a zone TRANSITION (see below)
+//                    — it is not just an opts default.
 //
 //   Construction wires up the full module stack in dependency order:
 //     rng         = Game.createRng(seed)
@@ -54,6 +66,16 @@
 //                     the sound's ORIGIN (not the guard's position), strength
 //                     is "faint" or "strong". If a guard hears more than one
 //                     sound in the same tick, one event is pushed per sound.
+//                   { type: "zoneChange", from, to } — the player crossed a
+//                     resolvable zone.exits[] trigger this tick while
+//                     squad.phase was INFILTRATION (see ZONE TRANSITIONS
+//                     below); from/to are zone id strings.
+//                   { type: "zoneBlocked", to } — the player stood in a
+//                     zone.exits[] trigger whose `to` does not resolve to a
+//                     built Game.ZONES entry (e.g. the warehouse's laboratory
+//                     stub). Edge-triggered like "knock": fires once when the
+//                     player ENTERS the trigger region, not once per tick
+//                     spent standing in it (see ZONE TRANSITIONS below).
 //                 More event types (item pickups, damage, ...) will be
 //                 appended by later modules — treat `type` as an open set and
 //                 always branch on it, never assume this is the full list.
@@ -140,7 +162,46 @@
 //          step 2 are pushed directly at emission time (step 2), not diffed
 //          from a snapshot — they're edge-triggered facts about that step,
 //          not state to compare before/after.
-//       6. tickCount++ and time = tickCount * DT.
+//       6. ZONE TRANSITIONS (new — after squad.tick, using its just-updated
+//          phase; see squad.phase design rule below): if the player is
+//          standing inside ANY of zone.exits[] (world.inRegion(player.x,
+//          player.y, exits[i])) AND squad.phase === "INFILTRATION" this tick:
+//            - if Game.ZONES[exits[i].to] exists: switch zones. A fresh
+//              world/soundEvents/vision/squad/guards stack is built for the
+//              target zone (guards from ZONE_GUARDS[target.id], same table
+//              opts.guardConfigs defaults from — see file header above; the
+//              DEPARTED zone's guards/squad are discarded, not persisted —
+//              v1 semantics, see design note below). The player object itself
+//              is also rebuilt (Game.createPlayer only takes its world at
+//              construction, see src/player.js contract — there is no hook to
+//              swap a live player's world), but its stance and facing are
+//              copied onto the new instance and its position is set to
+//              target.entrances[exits[i].entranceKey] — so from the outside
+//              (engine.player.stance/facing/x/y) this reads as "the same
+//              player, teleported to the new zone's entrance." engine.zone/
+//              world/player/guards/squad/vision/soundEvents are all
+//              reassigned to the new instances; rng is NOT rebuilt (the one
+//              seeded stream continues across zones, which is what makes the
+//              cross-transition determinism test possible). Pushes
+//              { type: "zoneChange", from: <old zone.id>, to: <new zone.id> }.
+//              At most one switch per tick (the first matching exit wins).
+//            - else (unresolvable `to`, e.g. the warehouse's laboratory
+//              stub): no switch; pushes { type: "zoneBlocked", to } but only
+//              on the region-ENTRY edge (private closure state tracks
+//              whether the player was already inside a blocked-exit region
+//              last tick this was evaluated, same edge-trigger shape as the
+//              knock verb in step 2) — standing in the trigger for 200 ticks
+//              fires it once, not 200 times.
+//          DESIGN RULE — no zone-changing mid-alert: gating the entire check
+//          on squad.phase === "INFILTRATION" means a player cannot cross (or
+//          get blocked-from-crossing) an exit while ALERT/EVASION/CAUTION;
+//          they must lose the squad's attention first. This also means the
+//          blocked-region edge tracker simply isn't updated on non-
+//          INFILTRATION ticks — if the player is standing in a blocked region
+//          when ALERT interrupts, then the squad stands down while they're
+//          still standing there, no second zoneBlocked fires (it reads as one
+//          continuous, uninterrupted "entry").
+//       7. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
 //   is for guard i to refresh its expensive computeSight only on ticks where
@@ -164,6 +225,7 @@
 //     JSON.stringify or hand to a future saveState module):
 //       {
 //         tickCount: number,
+//         zoneId: string,      // NEW — engine.zone.id at the moment of the snapshot
 //         player: { x, y, stance, facing },
 //         guards: [ { id, x, y, state, meter, facing }, ... ],  // same order as engine.guards
 //         squad: { phase, phaseTime, lastKnown, alertCount },
@@ -196,11 +258,48 @@
     return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
   }
 
+  // ZONE TRANSITIONS — per-zone guard tables (see file header, opts.guardConfigs
+  // and tick() step 6): keyed by zone.id, used both as the opts.guardConfigs
+  // default at construction AND to repopulate guards whenever a zone
+  // transition rebuilds the stack for a target zone. A zone.id with no entry
+  // here (e.g. a bespoke zoneData a test hands in directly) falls back to
+  // defaultGuardConfigs' single-guard-on-`waypoints` shape.
+  var ZONE_GUARDS = {
+    loadingDock: function (zone) {
+      return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
+    },
+    warehouse: function (zone) {
+      return [
+        { id: "w1", spawn: zone.waypoints[0], waypoints: zone.waypoints },
+        { id: "w2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
+      ];
+    },
+  };
+
+  function guardConfigsForZone(zone) {
+    var builder = ZONE_GUARDS[zone.id];
+    return builder ? builder(zone) : defaultGuardConfigs(zone);
+  }
+
+  function buildGuards(guardConfigs, world, vision, rng, squad) {
+    return guardConfigs.map(function (cfg) {
+      return Game.createGuard({
+        world: world,
+        vision: vision,
+        rng: rng,
+        squad: squad,
+        spawn: cfg.spawn,
+        waypoints: cfg.waypoints,
+        id: cfg.id,
+      });
+    });
+  }
+
   function createEngine(opts) {
     opts = opts || {};
     var zone = opts.zoneData || Game.ZONES.loadingDock;
     var seed = opts.seed !== undefined ? opts.seed : 1;
-    var guardConfigs = opts.guardConfigs || defaultGuardConfigs(zone);
+    var guardConfigs = opts.guardConfigs || guardConfigsForZone(zone);
 
     var rng = Game.createRng(seed);
     var world = Game.createWorld(zone);
@@ -214,17 +313,14 @@
     // it's an implementation detail of the input, not simulation truth.
     var prevKnock = false;
 
-    var guards = guardConfigs.map(function (cfg) {
-      return Game.createGuard({
-        world: world,
-        vision: vision,
-        rng: rng,
-        squad: squad,
-        spawn: cfg.spawn,
-        waypoints: cfg.waypoints,
-        id: cfg.id,
-      });
-    });
+    // Edge-trigger state for zoneBlocked (see file header, tick() step 6):
+    // true while the player is standing inside an exit trigger whose `to`
+    // doesn't resolve to a built zone, so the event fires once on entry, not
+    // once per tick spent standing there. Reset whenever a zone switch
+    // actually happens (fresh zone, fresh region state).
+    var inBlockedExitRegion = false;
+
+    var guards = buildGuards(guardConfigs, world, vision, rng, squad);
 
     var engine = {
       world: world,
@@ -240,6 +336,86 @@
       time: 0,
       events: [],
     };
+
+    // ZONE TRANSITIONS (see file header, tick() step 6). Rebuilds the entire
+    // world/soundEvents/vision/squad/guards stack for `targetZone`, and a
+    // fresh player positioned at targetZone.entrances[entranceKey] (falling
+    // back to targetZone.playerSpawn if that entrance is somehow missing —
+    // defensive only, every shipped zone defines the entrances its own exits
+    // point at). rng is deliberately NOT rebuilt — the single seeded stream
+    // continues across the switch. Reassigns every closure var AND the
+    // matching `engine.*` prop so both tick()/snapshot() (which close over
+    // the vars directly) and external readers (engine.player, etc.) see the
+    // new zone immediately.
+    function switchZone(targetZone, entranceKey) {
+      var fromId = zone.id;
+
+      var newWorld = Game.createWorld(targetZone);
+      var newSoundEvents = Game.createSoundEvents({ world: newWorld });
+      var newVision = Game.createVision({ world: newWorld });
+      var newSquad = Game.createSquad();
+      var newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
+
+      var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
+      var newPlayer = Game.createPlayer({ world: newWorld });
+      newPlayer.x = entrance.x;
+      newPlayer.y = entrance.y;
+      newPlayer.stance = player.stance;
+      newPlayer.facing = player.facing;
+
+      zone = targetZone;
+      world = newWorld;
+      soundEvents = newSoundEvents;
+      vision = newVision;
+      squad = newSquad;
+      guards = newGuards;
+      player = newPlayer;
+      inBlockedExitRegion = false;
+
+      engine.zone = zone;
+      engine.world = world;
+      engine.soundEvents = soundEvents;
+      engine.vision = vision;
+      engine.squad = squad;
+      engine.guards = guards;
+      engine.player = player;
+
+      engine.events.push({ type: "zoneChange", from: fromId, to: zone.id });
+    }
+
+    // Checks zone.exits[] for the player standing in a trigger region and
+    // acts per the DESIGN RULE in the file header: only while
+    // squad.phase === "INFILTRATION". At most one switch per tick (first
+    // matching exit wins); an unresolvable `to` pushes zoneBlocked on the
+    // region-entry edge only (see inBlockedExitRegion above).
+    function tryZoneTransition() {
+      if (squad.phase !== "INFILTRATION") return;
+
+      var exits = zone.exits || [];
+      var matched = null;
+      for (var i = 0; i < exits.length; i++) {
+        if (world.inRegion(player.x, player.y, exits[i])) {
+          matched = exits[i];
+          break;
+        }
+      }
+
+      if (!matched) {
+        inBlockedExitRegion = false;
+        return;
+      }
+
+      var targetZone = Game.ZONES[matched.to];
+      if (targetZone) {
+        switchZone(targetZone, matched.entranceKey);
+        return;
+      }
+
+      if (!inBlockedExitRegion) {
+        engine.events.push({ type: "zoneBlocked", to: matched.to });
+      }
+      inBlockedExitRegion = true;
+    }
 
     function tick(input) {
       engine.events = [];
@@ -316,6 +492,10 @@
         engine.events.push({ type: "alert", x: lk.x, y: lk.y });
       }
 
+      // ---- ZONE TRANSITIONS (see file header, tick() step 6) — after
+      // squad.tick, using the phase it just settled into this tick.
+      tryZoneTransition();
+
       engine.tickCount++;
       engine.time = engine.tickCount * DT;
     }
@@ -323,6 +503,7 @@
     function snapshot() {
       return {
         tickCount: engine.tickCount,
+        zoneId: zone.id,
         player: {
           x: player.x,
           y: player.y,

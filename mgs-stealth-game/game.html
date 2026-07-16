@@ -53,15 +53,45 @@
 // ==== src/world.js ====
 // src/world.js
 // PUBLIC API:
-//   Game.ZONES.loadingDock — first facility zone, plain-object level data:
+//   Game.ZONES.loadingDock / Game.ZONES.warehouse — facility zones, plain-object
+//   level data (SCHEMA — both zones conform to this shape; fields added this
+//   cycle are marked NEW):
 //     {
 //       id, name,
 //       bounds: { w, h },                 // meters, origin top-left, +x right, +y down
 //       walls: [ { x, y, w, h }, ... ],    // AABBs: perimeter + interior obstacles
-//       playerSpawn: { x, y },
-//       exit: { x, y, w, h },              // trigger AABB leading to the next zone
-//       waypoints: [ { x, y }, ... ],       // patrol loop, open floor
+//       playerSpawn: { x, y },             // default spawn if this zone is booted directly
+//       exit: { x, y, w, h },              // BACK-COMPAT ALIAS: always === exits[0].
+//                                          // hud/radar/render/existing scenarios read
+//                                          // zone.exit directly — kept working verbatim.
+//       exits: [ { x, y, w, h, to, entranceKey }, ... ], // NEW — replaces the old
+//                                          // single `exit` prop as the source of truth.
+//                                          // `to` is a Game.ZONES key (or a not-yet-built
+//                                          // zone id, e.g. "laboratory" — a deliberate stub;
+//                                          // engine.js handles an unresolvable `to` by
+//                                          // staying put + emitting `zoneBlocked`, never by
+//                                          // throwing). `entranceKey` indexes the TARGET
+//                                          // zone's `entrances` map (below) to find where the
+//                                          // player appears after crossing.
+//       entrances: { [fromZoneId]: { x, y }, ... }, // NEW — spawn points keyed by the
+//                                          // zone the player is arriving FROM, e.g.
+//                                          // warehouse.entrances.fromLoadingDock. Looked up
+//                                          // via the crossed exit's `entranceKey`, not the
+//                                          // literal source zone id, so a zone can expose
+//                                          // more than one path in from the same neighbor.
+//       waypoints: [ { x, y }, ... ],       // patrol loop #1, open floor
+//       waypoints2: [ { x, y }, ... ],       // NEW — patrol loop #2 (a second guard's
+//                                          // route, e.g. a cross-aisle sweep); OPTIONAL —
+//                                          // only zones with a second patrolling guard
+//                                          // define it (see warehouse below). Same shape/
+//                                          // rules as `waypoints`: closed loop, every leg
+//                                          // must be walkable at r=0.6 (see world.test.js).
 //       darkZones: [ { x, y, w, h }, ... ], // shadowed regions (vision uses these)
+//       lockers: [ { x, y, facing }, ... ], // NEW — data only this cycle (no collision/
+//                                          // interaction yet; the future items cycle makes
+//                                          // these functional hiding spots). `facing`
+//                                          // radians, same atan2 convention as
+//                                          // player.facing/guard.facing (0 = +x).
 //     }
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
@@ -245,7 +275,13 @@
       { x: 25, y: 23, w: 3, h: 3 }, // small crates, S center-right
     ],
     playerSpawn: { x: 20, y: 27 },
-    exit: { x: 18, y: 0, w: 4, h: 3 },
+    // exits/entrances: the only path out of the Loading Dock is north into the
+    // Warehouse through the perimeter gap at x:18-22. entrances.fromWarehouse
+    // sits just south of that gap (y:4, one meter clear of the y:0-3 trigger
+    // AABB) so a player crossing back in from the Warehouse doesn't spawn
+    // standing on top of the trigger and immediately re-cross.
+    exits: [{ x: 18, y: 0, w: 4, h: 3, to: "warehouse", entranceKey: "fromLoadingDock" }],
+    entrances: { fromWarehouse: { x: 20, y: 4 } },
     waypoints: [
       { x: 3, y: 2 }, // NW corner (above all obstacles for clear north leg)
       { x: 37, y: 2 }, // NE corner
@@ -256,10 +292,112 @@
       { x: 2, y: 9, w: 5, h: 11 }, // shadow west of the container, along the left flank
       { x: 23, y: 13, w: 3, h: 5 }, // shadow between the crate stack and the east container
     ],
+    // Data only this cycle (see schema note above) — placed in the west dark
+    // zone, plausible near-term hiding spots for the future items cycle.
+    lockers: [
+      { x: 2, y: 9, facing: 0 },
+      { x: 2, y: 20, facing: 0 },
+    ],
   };
+  loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
+
+  // ---- zone data: WAREHOUSE --------------------------------------------------
+  // 40x30m, industrial interior. Perimeter is the same 4-conceptual-wall
+  // pattern as the Loading Dock, but BOTH the top and bottom walls are split
+  // around a 4m gap at x:18-22: south leads back to the Loading Dock, north is
+  // a stub toward the (not yet built) Laboratory zone — engine.js resolves
+  // unknown `to` targets by staying put and emitting `zoneBlocked` rather than
+  // throwing, so this stub is safe to ship ahead of the zone it points to.
+  // That shared x:18-22 column is kept deliberately free of shelving, so it
+  // reads as the main north-south spine connecting both exits; three shelving
+  // rows (six long thin AABBs, each split top/bottom around a shared y:14-16
+  // gap so the aisles are still crossable) sit on either side of that spine,
+  // forming four aisles west-to-east: the far-west aisle (x:1-8), between rows
+  // 1/2 (x:9.5-14), the wide center aisle (x:15.5-28, containing the spine),
+  // and the far-east aisle (x:29.5-39). Crate clusters give cover/patrol
+  // targets inside the aisles; two dark zones sit at aisle ends (unlit
+  // shelving corners), well clear of every wall.
+  var warehouse = {
+    id: "warehouse",
+    name: "WAREHOUSE",
+    bounds: { w: 40, h: 30 },
+    walls: [
+      // perimeter (6 segments: top split around the north stub, bottom split
+      // around the south exit, left, right)
+      { x: 0, y: 0, w: 18, h: 1 }, // top-left
+      { x: 22, y: 0, w: 18, h: 1 }, // top-right (gap: x 18-22, stub to laboratory)
+      { x: 0, y: 29, w: 18, h: 1 }, // bottom-left
+      { x: 22, y: 29, w: 18, h: 1 }, // bottom-right (gap: x 18-22, exit to loadingDock)
+      { x: 0, y: 0, w: 1, h: 30 }, // left
+      { x: 39, y: 0, w: 1, h: 30 }, // right
+      // shelving row 1 (x 8-9.5), split around the y:14-16 cross-aisle gap
+      { x: 8, y: 4, w: 1.5, h: 10 },
+      { x: 8, y: 16, w: 1.5, h: 10 },
+      // shelving row 2 (x 14-15.5), same gap
+      { x: 14, y: 4, w: 1.5, h: 10 },
+      { x: 14, y: 16, w: 1.5, h: 10 },
+      // shelving row 3 (x 28-29.5), same gap
+      { x: 28, y: 4, w: 1.5, h: 10 },
+      { x: 28, y: 16, w: 1.5, h: 10 },
+      // crate clusters, one per aisle
+      { x: 4, y: 10, w: 2, h: 2 }, // far-west aisle, north
+      { x: 11, y: 20, w: 2, h: 2 }, // row1/row2 aisle, south
+      { x: 24, y: 9, w: 2, h: 2 }, // center aisle, north (east side, clear of the spine)
+      { x: 33, y: 19, w: 2, h: 2 }, // far-east aisle, south
+    ],
+    // Booting directly into the Warehouse (e.g. a headless test with no
+    // transition) spawns at the same spot a player arrives at via the south
+    // exit from the Loading Dock.
+    playerSpawn: { x: 20, y: 25 },
+    exits: [
+      // South: back to the Loading Dock. Trigger sits against the bottom
+      // perimeter gap (y:26-29); entrances.fromLoadingDock (below) is 1m
+      // clear north of it so arriving players don't stand on the trigger.
+      { x: 18, y: 26, w: 4, h: 3, to: "loadingDock", entranceKey: "fromWarehouse" },
+      // North: stub toward the Laboratory. Not yet a real zone — see file
+      // header note above. entranceKey names the entry the Laboratory would
+      // expose for arrivals FROM the Warehouse, once it exists.
+      { x: 18, y: 0, w: 4, h: 3, to: "laboratory", entranceKey: "fromWarehouse" },
+    ],
+    entrances: { fromLoadingDock: { x: 20, y: 25 } },
+    // Primary loop: the same clear perimeter-corridor shape as loadingDock's
+    // waypoints (y~2 north / y~27 south bands sit above/below every shelving
+    // row, and x~3 / x~37 columns run clear down each flank) — guard w1 walks
+    // the outer ring.
+    waypoints: [
+      { x: 3, y: 2 },
+      { x: 37, y: 2 },
+      { x: 37, y: 27 },
+      { x: 3, y: 27 },
+    ],
+    // Second loop: guard w2's cross-aisle sweep, a rectangle confined to the
+    // wide center aisle (x:15.5-28) — clear of every shelving row and both
+    // crate clusters that flank it, giving a patrol that reads as genuinely
+    // different ground from the perimeter loop above.
+    waypoints2: [
+      { x: 17, y: 5 },
+      { x: 22, y: 5 },
+      { x: 22, y: 25 },
+      { x: 17, y: 25 },
+    ],
+    darkZones: [
+      { x: 2, y: 4, w: 4, h: 8 }, // far-west aisle, unlit north corner
+      { x: 31, y: 20, w: 6, h: 6 }, // far-east aisle, unlit south corner
+    ],
+    // Data only this cycle (see schema note above) — tucked along shelving
+    // ends and aisle margins, clear of every wall/crate.
+    lockers: [
+      { x: 2, y: 6, facing: 0 },
+      { x: 11, y: 6, facing: Math.PI },
+      { x: 30, y: 22, facing: 0 },
+      { x: 37, y: 22, facing: Math.PI },
+      { x: 2, y: 24, facing: 0 },
+    ],
+  };
+  warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
   Game.createWorld = createWorld;
-  Game.ZONES = { loadingDock: loadingDock };
+  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse };
   if (typeof module !== "undefined")
     module.exports = { createWorld: createWorld, ZONES: Game.ZONES };
 })(typeof window !== "undefined"
@@ -1715,8 +1853,20 @@
 //     seed         — RNG seed (src/rng.js). Default 1.
 //     guardConfigs — [{ id, spawn, waypoints }, ...] passed straight through to
 //                    Game.createGuard (src/guardAI.js) for each guard, sharing
-//                    one squad. Default: a single guard,
-//                    [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }].
+//                    one squad. Default (opts.guardConfigs omitted): looked up
+//                    from an internal per-zone table, ZONE_GUARDS, keyed by
+//                    zoneData.id —
+//                      loadingDock: [{ id: "g1", spawn: zone.waypoints[0],
+//                                      waypoints: zone.waypoints }]
+//                      warehouse:   [{ id: "w1", spawn: zone.waypoints[0],
+//                                      waypoints: zone.waypoints },
+//                                    { id: "w2", spawn: zone.waypoints2[0],
+//                                      waypoints: zone.waypoints2 }]
+//                    Any zone.id not in ZONE_GUARDS (e.g. a custom zoneData
+//                    passed straight into a test) falls back to the single-
+//                    guard-on-`waypoints` default above. This same table is
+//                    what re-populates guards on a zone TRANSITION (see below)
+//                    — it is not just an opts default.
 //
 //   Construction wires up the full module stack in dependency order:
 //     rng         = Game.createRng(seed)
@@ -1764,6 +1914,16 @@
 //                     the sound's ORIGIN (not the guard's position), strength
 //                     is "faint" or "strong". If a guard hears more than one
 //                     sound in the same tick, one event is pushed per sound.
+//                   { type: "zoneChange", from, to } — the player crossed a
+//                     resolvable zone.exits[] trigger this tick while
+//                     squad.phase was INFILTRATION (see ZONE TRANSITIONS
+//                     below); from/to are zone id strings.
+//                   { type: "zoneBlocked", to } — the player stood in a
+//                     zone.exits[] trigger whose `to` does not resolve to a
+//                     built Game.ZONES entry (e.g. the warehouse's laboratory
+//                     stub). Edge-triggered like "knock": fires once when the
+//                     player ENTERS the trigger region, not once per tick
+//                     spent standing in it (see ZONE TRANSITIONS below).
 //                 More event types (item pickups, damage, ...) will be
 //                 appended by later modules — treat `type` as an open set and
 //                 always branch on it, never assume this is the full list.
@@ -1850,7 +2010,46 @@
 //          step 2 are pushed directly at emission time (step 2), not diffed
 //          from a snapshot — they're edge-triggered facts about that step,
 //          not state to compare before/after.
-//       6. tickCount++ and time = tickCount * DT.
+//       6. ZONE TRANSITIONS (new — after squad.tick, using its just-updated
+//          phase; see squad.phase design rule below): if the player is
+//          standing inside ANY of zone.exits[] (world.inRegion(player.x,
+//          player.y, exits[i])) AND squad.phase === "INFILTRATION" this tick:
+//            - if Game.ZONES[exits[i].to] exists: switch zones. A fresh
+//              world/soundEvents/vision/squad/guards stack is built for the
+//              target zone (guards from ZONE_GUARDS[target.id], same table
+//              opts.guardConfigs defaults from — see file header above; the
+//              DEPARTED zone's guards/squad are discarded, not persisted —
+//              v1 semantics, see design note below). The player object itself
+//              is also rebuilt (Game.createPlayer only takes its world at
+//              construction, see src/player.js contract — there is no hook to
+//              swap a live player's world), but its stance and facing are
+//              copied onto the new instance and its position is set to
+//              target.entrances[exits[i].entranceKey] — so from the outside
+//              (engine.player.stance/facing/x/y) this reads as "the same
+//              player, teleported to the new zone's entrance." engine.zone/
+//              world/player/guards/squad/vision/soundEvents are all
+//              reassigned to the new instances; rng is NOT rebuilt (the one
+//              seeded stream continues across zones, which is what makes the
+//              cross-transition determinism test possible). Pushes
+//              { type: "zoneChange", from: <old zone.id>, to: <new zone.id> }.
+//              At most one switch per tick (the first matching exit wins).
+//            - else (unresolvable `to`, e.g. the warehouse's laboratory
+//              stub): no switch; pushes { type: "zoneBlocked", to } but only
+//              on the region-ENTRY edge (private closure state tracks
+//              whether the player was already inside a blocked-exit region
+//              last tick this was evaluated, same edge-trigger shape as the
+//              knock verb in step 2) — standing in the trigger for 200 ticks
+//              fires it once, not 200 times.
+//          DESIGN RULE — no zone-changing mid-alert: gating the entire check
+//          on squad.phase === "INFILTRATION" means a player cannot cross (or
+//          get blocked-from-crossing) an exit while ALERT/EVASION/CAUTION;
+//          they must lose the squad's attention first. This also means the
+//          blocked-region edge tracker simply isn't updated on non-
+//          INFILTRATION ticks — if the player is standing in a blocked region
+//          when ALERT interrupts, then the squad stands down while they're
+//          still standing there, no second zoneBlocked fires (it reads as one
+//          continuous, uninterrupted "entry").
+//       7. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
 //   is for guard i to refresh its expensive computeSight only on ticks where
@@ -1874,6 +2073,7 @@
 //     JSON.stringify or hand to a future saveState module):
 //       {
 //         tickCount: number,
+//         zoneId: string,      // NEW — engine.zone.id at the moment of the snapshot
 //         player: { x, y, stance, facing },
 //         guards: [ { id, x, y, state, meter, facing }, ... ],  // same order as engine.guards
 //         squad: { phase, phaseTime, lastKnown, alertCount },
@@ -1906,11 +2106,48 @@
     return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
   }
 
+  // ZONE TRANSITIONS — per-zone guard tables (see file header, opts.guardConfigs
+  // and tick() step 6): keyed by zone.id, used both as the opts.guardConfigs
+  // default at construction AND to repopulate guards whenever a zone
+  // transition rebuilds the stack for a target zone. A zone.id with no entry
+  // here (e.g. a bespoke zoneData a test hands in directly) falls back to
+  // defaultGuardConfigs' single-guard-on-`waypoints` shape.
+  var ZONE_GUARDS = {
+    loadingDock: function (zone) {
+      return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
+    },
+    warehouse: function (zone) {
+      return [
+        { id: "w1", spawn: zone.waypoints[0], waypoints: zone.waypoints },
+        { id: "w2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
+      ];
+    },
+  };
+
+  function guardConfigsForZone(zone) {
+    var builder = ZONE_GUARDS[zone.id];
+    return builder ? builder(zone) : defaultGuardConfigs(zone);
+  }
+
+  function buildGuards(guardConfigs, world, vision, rng, squad) {
+    return guardConfigs.map(function (cfg) {
+      return Game.createGuard({
+        world: world,
+        vision: vision,
+        rng: rng,
+        squad: squad,
+        spawn: cfg.spawn,
+        waypoints: cfg.waypoints,
+        id: cfg.id,
+      });
+    });
+  }
+
   function createEngine(opts) {
     opts = opts || {};
     var zone = opts.zoneData || Game.ZONES.loadingDock;
     var seed = opts.seed !== undefined ? opts.seed : 1;
-    var guardConfigs = opts.guardConfigs || defaultGuardConfigs(zone);
+    var guardConfigs = opts.guardConfigs || guardConfigsForZone(zone);
 
     var rng = Game.createRng(seed);
     var world = Game.createWorld(zone);
@@ -1924,17 +2161,14 @@
     // it's an implementation detail of the input, not simulation truth.
     var prevKnock = false;
 
-    var guards = guardConfigs.map(function (cfg) {
-      return Game.createGuard({
-        world: world,
-        vision: vision,
-        rng: rng,
-        squad: squad,
-        spawn: cfg.spawn,
-        waypoints: cfg.waypoints,
-        id: cfg.id,
-      });
-    });
+    // Edge-trigger state for zoneBlocked (see file header, tick() step 6):
+    // true while the player is standing inside an exit trigger whose `to`
+    // doesn't resolve to a built zone, so the event fires once on entry, not
+    // once per tick spent standing there. Reset whenever a zone switch
+    // actually happens (fresh zone, fresh region state).
+    var inBlockedExitRegion = false;
+
+    var guards = buildGuards(guardConfigs, world, vision, rng, squad);
 
     var engine = {
       world: world,
@@ -1950,6 +2184,86 @@
       time: 0,
       events: [],
     };
+
+    // ZONE TRANSITIONS (see file header, tick() step 6). Rebuilds the entire
+    // world/soundEvents/vision/squad/guards stack for `targetZone`, and a
+    // fresh player positioned at targetZone.entrances[entranceKey] (falling
+    // back to targetZone.playerSpawn if that entrance is somehow missing —
+    // defensive only, every shipped zone defines the entrances its own exits
+    // point at). rng is deliberately NOT rebuilt — the single seeded stream
+    // continues across the switch. Reassigns every closure var AND the
+    // matching `engine.*` prop so both tick()/snapshot() (which close over
+    // the vars directly) and external readers (engine.player, etc.) see the
+    // new zone immediately.
+    function switchZone(targetZone, entranceKey) {
+      var fromId = zone.id;
+
+      var newWorld = Game.createWorld(targetZone);
+      var newSoundEvents = Game.createSoundEvents({ world: newWorld });
+      var newVision = Game.createVision({ world: newWorld });
+      var newSquad = Game.createSquad();
+      var newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
+
+      var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
+      var newPlayer = Game.createPlayer({ world: newWorld });
+      newPlayer.x = entrance.x;
+      newPlayer.y = entrance.y;
+      newPlayer.stance = player.stance;
+      newPlayer.facing = player.facing;
+
+      zone = targetZone;
+      world = newWorld;
+      soundEvents = newSoundEvents;
+      vision = newVision;
+      squad = newSquad;
+      guards = newGuards;
+      player = newPlayer;
+      inBlockedExitRegion = false;
+
+      engine.zone = zone;
+      engine.world = world;
+      engine.soundEvents = soundEvents;
+      engine.vision = vision;
+      engine.squad = squad;
+      engine.guards = guards;
+      engine.player = player;
+
+      engine.events.push({ type: "zoneChange", from: fromId, to: zone.id });
+    }
+
+    // Checks zone.exits[] for the player standing in a trigger region and
+    // acts per the DESIGN RULE in the file header: only while
+    // squad.phase === "INFILTRATION". At most one switch per tick (first
+    // matching exit wins); an unresolvable `to` pushes zoneBlocked on the
+    // region-entry edge only (see inBlockedExitRegion above).
+    function tryZoneTransition() {
+      if (squad.phase !== "INFILTRATION") return;
+
+      var exits = zone.exits || [];
+      var matched = null;
+      for (var i = 0; i < exits.length; i++) {
+        if (world.inRegion(player.x, player.y, exits[i])) {
+          matched = exits[i];
+          break;
+        }
+      }
+
+      if (!matched) {
+        inBlockedExitRegion = false;
+        return;
+      }
+
+      var targetZone = Game.ZONES[matched.to];
+      if (targetZone) {
+        switchZone(targetZone, matched.entranceKey);
+        return;
+      }
+
+      if (!inBlockedExitRegion) {
+        engine.events.push({ type: "zoneBlocked", to: matched.to });
+      }
+      inBlockedExitRegion = true;
+    }
 
     function tick(input) {
       engine.events = [];
@@ -2026,6 +2340,10 @@
         engine.events.push({ type: "alert", x: lk.x, y: lk.y });
       }
 
+      // ---- ZONE TRANSITIONS (see file header, tick() step 6) — after
+      // squad.tick, using the phase it just settled into this tick.
+      tryZoneTransition();
+
       engine.tickCount++;
       engine.time = engine.tickCount * DT;
     }
@@ -2033,6 +2351,7 @@
     function snapshot() {
       return {
         tickCount: engine.tickCount,
+        zoneId: zone.id,
         player: {
           x: player.x,
           y: player.y,
@@ -3431,6 +3750,20 @@
 //     from the live engine state. Safe to call every frame; the "build once"
 //     part is idempotent (guarded by an internal flag), the "update" part is
 //     not (it always re-reads engine.player/engine.guards/engine.squad).
+//
+//   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
+//   it differs from the last-seen id (an engine.js zone transition happened —
+//   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
+//   (floor/walls/wall-edges/darkzones/exit quad) and every guard actor
+//   (body/nose/marker/vision-cone/cone-edge — the old zone's guard roster,
+//   e.g. loadingDock's "g1", is a different set of ids than warehouse's
+//   "w1"/"w2") are removed from the scene and their owned geometries AND
+//   materials disposed (see disposeStatic/disposeGuardActors below — nothing
+//   from the old zone is kept around leaking GPU resources), the camera is
+//   re-centered on the new zone's bounds, and the static scene is rebuilt
+//   fresh for the new zone before any dynamic sync happens this call. The
+//   player actor is NOT rebuilt (its mesh isn't zone-specific, only its
+//   position/stance are) — it's simply repositioned like any other frame.
 //   renderer.render(engine) — syncScene(engine) then draws exactly one frame.
 //   renderer.resize() — re-reads container.clientWidth/clientHeight, resizes
 //     the WebGL canvas and recomputes the orthographic frustum so the whole
@@ -3650,9 +3983,13 @@
       });
     });
 
-    // ---- static scene (built once) ---------------------------------------------
+    // ---- static scene (built once per zone) -------------------------------------
 
     var built = false;
+    // Every THREE.Object3D added by buildStatic(), so a zone change can remove
+    // + dispose them all without hunting through `scene.children` (see
+    // disposeStatic below and the ZONE CHANGES note in the file header).
+    var staticObjects = [];
 
     function buildFlatQuad(x, y, w, h, yOffset, material) {
       var geo = new THREE.PlaneGeometry(w, h);
@@ -3662,13 +3999,19 @@
       return mesh;
     }
 
+    function addStatic(obj) {
+      scene.add(obj);
+      staticObjects.push(obj);
+      return obj;
+    }
+
     function buildStatic() {
       var floorMat = new THREE.MeshLambertMaterial({ color: FLOOR_COLOR });
-      scene.add(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
+      addStatic(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
 
       var darkMat = new THREE.MeshLambertMaterial({ color: DARKZONE_COLOR });
       (zone.darkZones || []).forEach(function (dz) {
-        scene.add(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
+        addStatic(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
       });
 
       (zone.walls || []).forEach(function (wall) {
@@ -3680,7 +4023,7 @@
         });
         var mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
-        scene.add(mesh);
+        addStatic(mesh);
 
         var edges = new THREE.EdgesGeometry(geo);
         var line = new THREE.LineSegments(
@@ -3688,7 +4031,7 @@
           new THREE.LineBasicMaterial({ color: WALL_EDGE_COLOR })
         );
         line.position.copy(mesh.position);
-        scene.add(line);
+        addStatic(line);
       });
 
       if (zone.exit) {
@@ -3696,10 +4039,22 @@
           color: 0x003318,
           emissive: EXIT_COLOR,
         });
-        scene.add(
+        addStatic(
           buildFlatQuad(zone.exit.x, zone.exit.y, zone.exit.w, zone.exit.h, 0.03, exitMat)
         );
       }
+    }
+
+    // Removes + disposes every object buildStatic() created (geometry AND
+    // material — none of these are shared with anything else, unlike the
+    // guard actor materials handled by disposeGuardActors below).
+    function disposeStatic() {
+      staticObjects.forEach(function (obj) {
+        scene.remove(obj);
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      });
+      staticObjects = [];
     }
 
     // ---- dynamic actors (player, guards) ---------------------------------------
@@ -3763,6 +4118,31 @@
       };
       guardActors[guard.id] = actor;
       return actor;
+    }
+
+    // Removes + disposes every live guard actor (see ZONE CHANGES in the file
+    // header — a zone change means a brand-new guard roster with different
+    // ids, e.g. loadingDock's "g1" vs warehouse's "w1"/"w2", so the old
+    // actors would otherwise sit around invisible-but-never-freed forever).
+    // body/nose geometry+material and cone/coneEdge geometry are each owned
+    // exclusively by their actor (fresh THREE.Material/Geometry per
+    // makeActor()/updateVisionCone() call) and are disposed here; cone/
+    // coneEdge MATERIALS and the marker's material come from the shared
+    // CONE_MATERIALS/EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard
+    // state, reused across every guard and every zone) and must NOT be
+    // disposed, or the next zone's guards would render with dead materials.
+    function disposeGuardActors() {
+      Object.keys(guardActors).forEach(function (id) {
+        var actor = guardActors[id];
+        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge);
+        actor.body.geometry.dispose();
+        actor.body.material.dispose();
+        actor.nose.geometry.dispose();
+        actor.nose.material.dispose();
+        actor.cone.geometry.dispose();
+        actor.coneEdge.geometry.dispose();
+      });
+      guardActors = {};
     }
 
     // Rebuilds a guard's vision-cone geometry this frame, clipped by
@@ -3907,7 +4287,25 @@
 
     // ---- per-frame sync ---------------------------------------------------------
 
+    // Tracks the zone id the static scene was last built for (see ZONE
+    // CHANGES in the file header). null until the first syncScene() call.
+    var currentZoneId = null;
+
     function syncScene(engine) {
+      if (engine.zone && engine.zone.id !== currentZoneId) {
+        if (built) {
+          disposeStatic();
+          disposeGuardActors();
+          built = false;
+        }
+        zone = engine.zone;
+        zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
+        camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
+        camera.lookAt(zoneCenter.x, 0, zoneCenter.y);
+        resize(); // refit the orthographic frustum to the new zone's bounds
+        currentZoneId = zone.id;
+      }
+
       if (!built) {
         buildStatic();
         built = true;
@@ -6813,6 +7211,365 @@ Game.selfTests.push({
         legLabel + " raycast hit at (" + (hit ? hit.x.toFixed(2) : "?") + "," + (hit ? hit.y.toFixed(2) : "?") + ")"
       );
     }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/zones.test.js ====
+(function (global) {
+// tests/zones.test.js — headless assertions for the two-zone world (Game.ZONES)
+// and the zone-transition machinery in src/engine.js. Same registry pattern as
+// tests/world.test.js / tests/engine.test.js: push onto the shared
+// Game.selfTests list; test.js runs every entry and reports ok/FAIL with real
+// exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+// Same leg-clearance technique as tests/world.test.js test #9 ("every
+// consecutive waypoint leg is walkably clear (r=0.6 sampled)"), generalized
+// to run over EVERY waypoint loop (`waypoints` and, where present,
+// `waypoints2`) in EVERY zone in Game.ZONES — the sanity test in world.test.js
+// only ever checked loadingDock.waypoints.
+function assertLoopClear(world, loopName, waypoints) {
+  assert(waypoints.length >= 3, loopName + ": expected at least 3 waypoints for a loop, got " + waypoints.length);
+
+  for (var i = 0; i < waypoints.length; i++) {
+    var a = waypoints[i];
+    var b = waypoints[(i + 1) % waypoints.length];
+    var legLabel = loopName + " leg " + i + " (" + i + "->" + ((i + 1) % waypoints.length) + ")";
+
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var legLen = Math.sqrt(dx * dx + dy * dy);
+    var samples = Math.ceil(legLen / 0.25);
+
+    for (var s = 0; s <= samples; s++) {
+      var t = samples > 0 ? s / samples : 0;
+      var px = a.x + dx * t;
+      var py = a.y + dy * t;
+      assert(
+        !world.isBlockedCircle(px, py, 0.6),
+        legLabel + " blocked at sample (" + px.toFixed(2) + "," + py.toFixed(2) + ")"
+      );
+    }
+
+    var hit = world.raycast(a.x, a.y, b.x, b.y);
+    assert(
+      hit === null,
+      legLabel + " raycast hit at (" + (hit ? hit.x.toFixed(2) : "?") + "," + (hit ? hit.y.toFixed(2) : "?") + ")"
+    );
+  }
+}
+
+// 1. Every patrol loop (waypoints, and waypoints2 where present) in every
+// zone is walkably clear at r=0.6 — the general form of world.test.js's
+// single-zone/single-loop sanity check.
+Game.selfTests.push({
+  name: "zones: every waypoint loop in every zone is walkably clear (r=0.6 sampled)",
+  fn: function () {
+    var zoneIds = Object.keys(Game.ZONES);
+    assert(zoneIds.length >= 2, "expected at least 2 zones, got " + zoneIds.length);
+
+    zoneIds.forEach(function (zoneId) {
+      var zone = Game.ZONES[zoneId];
+      var world = Game.createWorld(zone);
+      assertLoopClear(world, zoneId + ".waypoints", zone.waypoints);
+      if (zone.waypoints2) {
+        assertLoopClear(world, zoneId + ".waypoints2", zone.waypoints2);
+      }
+    });
+  },
+});
+
+// 2. exit/exits back-compat: zone.exit is always exactly exits[0], on both
+// zones — hud/radar/render/pre-existing scenarios all read zone.exit and must
+// keep working verbatim.
+Game.selfTests.push({
+  name: "zones: zone.exit alias === zone.exits[0] on every zone",
+  fn: function () {
+    Object.keys(Game.ZONES).forEach(function (zoneId) {
+      var zone = Game.ZONES[zoneId];
+      assert(Array.isArray(zone.exits) && zone.exits.length >= 1, zoneId + ": expected a non-empty exits array");
+      assert(zone.exit === zone.exits[0], zoneId + ": zone.exit must be === zone.exits[0]");
+    });
+  },
+});
+
+// 3. entrances/exits well-formed: every exit's `to` + entranceKey resolve to
+// an actual spawn point on the target zone, EXCEPT the warehouse's
+// laboratory stub (that zone doesn't exist yet by design — see src/world.js
+// and src/engine.js's zoneBlocked handling).
+Game.selfTests.push({
+  name: "zones: every exit's to+entranceKey resolves (except the laboratory stub)",
+  fn: function () {
+    var checkedAtLeastOneStub = false;
+
+    Object.keys(Game.ZONES).forEach(function (zoneId) {
+      var zone = Game.ZONES[zoneId];
+      zone.exits.forEach(function (exit, i) {
+        var label = zoneId + ".exits[" + i + "]";
+        assert(typeof exit.to === "string" && exit.to.length > 0, label + ": missing `to`");
+        assert(typeof exit.entranceKey === "string" && exit.entranceKey.length > 0, label + ": missing `entranceKey`");
+
+        var targetZone = Game.ZONES[exit.to];
+        if (!targetZone) {
+          // The one documented stub this cycle.
+          assert(exit.to === "laboratory", label + ": unresolvable `to` other than the known laboratory stub: " + exit.to);
+          checkedAtLeastOneStub = true;
+          return;
+        }
+
+        var entrance = targetZone.entrances && targetZone.entrances[exit.entranceKey];
+        assert(
+          entrance && typeof entrance.x === "number" && typeof entrance.y === "number",
+          label + ": entranceKey '" + exit.entranceKey + "' does not resolve on " + exit.to + ".entrances"
+        );
+
+        var targetWorld = Game.createWorld(targetZone);
+        assert(
+          !targetWorld.isBlocked(entrance.x, entrance.y),
+          label + ": resolved entrance (" + entrance.x + "," + entrance.y + ") on " + exit.to + " is blocked"
+        );
+      });
+    });
+
+    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (the laboratory stub) to exercise that branch");
+  },
+});
+
+// 4. Engine transition: drive the player into loadingDock's north exit while
+// INFILTRATION -> zoneChange event, engine.zone becomes warehouse, player
+// lands at warehouse.entrances.fromLoadingDock, 2 guards, fresh squad.
+Game.selfTests.push({
+  name: "engine zone transition: crossing loadingDock's north exit during INFILTRATION enters warehouse",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 1, zoneData: dock });
+
+    assert(engine.squad.phase === "INFILTRATION", "setup: expected fresh engine to start INFILTRATION");
+
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    engine.player.stance = "crouch";
+    engine.player.facing = 1.23; // arbitrary nonzero facing to verify preservation
+
+    engine.tick({ moveX: 0, moveY: 0, stance: "crouch" });
+
+    var zoneChangeEvents = engine.events.filter(function (e) {
+      return e.type === "zoneChange";
+    });
+    assert(zoneChangeEvents.length === 1, "expected exactly one zoneChange event, got " + zoneChangeEvents.length);
+    assert(zoneChangeEvents[0].from === "loadingDock", "expected zoneChange.from === loadingDock");
+    assert(zoneChangeEvents[0].to === "warehouse", "expected zoneChange.to === warehouse");
+
+    assert(engine.zone.id === "warehouse", "expected engine.zone to be warehouse, got " + engine.zone.id);
+    assert(engine.snapshot().zoneId === "warehouse", "expected snapshot().zoneId === warehouse");
+
+    var entrance = warehouse.entrances.fromLoadingDock;
+    assert(
+      engine.player.x === entrance.x && engine.player.y === entrance.y,
+      "expected player at warehouse.entrances.fromLoadingDock, got " + JSON.stringify({ x: engine.player.x, y: engine.player.y })
+    );
+    assert(engine.player.stance === "crouch", "expected player stance preserved across the transition");
+    assert(engine.player.facing === 1.23, "expected player facing preserved across the transition");
+
+    assert(engine.guards.length === 2, "expected 2 guards in warehouse, got " + engine.guards.length);
+    var ids = engine.guards.map(function (g) {
+      return g.id;
+    });
+    assert(ids.indexOf("w1") !== -1 && ids.indexOf("w2") !== -1, "expected warehouse guards w1/w2, got " + JSON.stringify(ids));
+
+    assert(engine.squad.phase === "INFILTRATION", "expected a fresh squad starting INFILTRATION, got " + engine.squad.phase);
+    assert(engine.squad.alertCount === 0, "expected a fresh squad with alertCount 0, got " + engine.squad.alertCount);
+
+    // A further tick in the new zone should just work (world/vision/guards
+    // fully wired for warehouse).
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.zone.id === "warehouse", "expected engine to keep ticking fine in warehouse");
+  },
+});
+
+// 5. No zone-changing mid-alert: teleport the player next to a guard until
+// ALERT fires, then stand in the exit region for 60 ticks -- still
+// loadingDock the whole time.
+Game.selfTests.push({
+  name: "engine zone transition: no transition during ALERT (stand in exit region while ALERT)",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var engine = Game.createEngine({
+      seed: 1,
+      zoneData: dock,
+      guardConfigs: [{ id: "alert-g1", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    engine.player.x = 22;
+    engine.player.y = 5;
+    var reachedAlert = false;
+    var MAX_SETUP_TICKS = Math.round(6 / DT);
+    for (var t = 0; t < MAX_SETUP_TICKS && !reachedAlert; t++) {
+      engine.tick();
+      engine.player.x = 22;
+      engine.player.y = 5;
+      if (engine.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT");
+
+    // Now stand in the exit trigger region for 60 ticks. squad.phase will
+    // most likely be leaving ALERT (the player is no longer near the exit's
+    // sightline) but the whole point is it's never INFILTRATION-and-in-the-
+    // exit at the same moment as a successful cross, since the transition
+    // must not happen until the squad is fully stood down AND even then only
+    // takes effect the tick the player is actually in the region again.
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    for (var i = 0; i < 60; i++) {
+      engine.tick({ moveX: 0, moveY: 0, stance: "stand" });
+      engine.player.x = dock.exit.x + dock.exit.w / 2;
+      engine.player.y = dock.exit.y + dock.exit.h / 2;
+      assert(
+        engine.zone.id === "loadingDock",
+        "expected to stay in loadingDock while ALERT/EVASION/CAUTION, left at tick " + i + " (phase=" + engine.squad.phase + ")"
+      );
+    }
+  },
+});
+
+// 6. Round trip: loadingDock -> warehouse -> loadingDock.
+Game.selfTests.push({
+  name: "engine zone transition: round trip loadingDock -> warehouse -> loadingDock",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 2, zoneData: dock });
+
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    engine.tick();
+    assert(engine.zone.id === "warehouse", "expected warehouse after the first crossing, got " + engine.zone.id);
+
+    var southExit = warehouse.exits[0]; // to: loadingDock
+    assert(southExit.to === "loadingDock", "setup: expected warehouse.exits[0] to lead back to loadingDock");
+    engine.player.x = southExit.x + southExit.w / 2;
+    engine.player.y = southExit.y + southExit.h / 2;
+    engine.tick();
+
+    assert(engine.zone.id === "loadingDock", "expected loadingDock again after the return crossing, got " + engine.zone.id);
+    var backEvents = engine.events.filter(function (e) {
+      return e.type === "zoneChange";
+    });
+    assert(backEvents.length === 1 && backEvents[0].from === "warehouse" && backEvents[0].to === "loadingDock", "expected exactly one warehouse->loadingDock zoneChange, got " + JSON.stringify(backEvents));
+
+    var entrance = dock.entrances.fromWarehouse;
+    assert(
+      engine.player.x === entrance.x && engine.player.y === entrance.y,
+      "expected player at loadingDock.entrances.fromWarehouse"
+    );
+    assert(engine.guards.length === 1 && engine.guards[0].id === "g1", "expected the single default loadingDock guard g1 back");
+  },
+});
+
+// 7. Laboratory stub: standing in warehouse's north exit emits zoneBlocked
+// exactly once (region-entry edge, not per tick), engine stays in warehouse,
+// and keeps ticking fine afterward.
+Game.selfTests.push({
+  name: "engine zone transition: laboratory stub emits zoneBlocked once and stays in warehouse",
+  fn: function () {
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 3, zoneData: warehouse });
+
+    var northExit = warehouse.exits[1]; // to: laboratory
+    assert(northExit.to === "laboratory", "setup: expected warehouse.exits[1] to be the laboratory stub");
+
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+
+    var blockedCount = 0;
+    var TOTAL_TICKS = 60;
+    for (var i = 0; i < TOTAL_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      // Re-pin the player in the trigger region every tick (null-input ticks
+      // don't move the player anyway, but this guards against that changing).
+      engine.player.x = northExit.x + northExit.w / 2;
+      engine.player.y = northExit.y + northExit.h / 2;
+      engine.events.forEach(function (e) {
+        if (e.type === "zoneBlocked") blockedCount++;
+      });
+      assert(engine.zone.id === "warehouse", "expected to stay in warehouse at tick " + i + ", got " + engine.zone.id);
+    }
+
+    assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
+
+    // Leave the region and re-enter: the edge should re-arm and fire once more.
+    engine.player.x = warehouse.entrances.fromLoadingDock.x;
+    engine.player.y = warehouse.entrances.fromLoadingDock.y;
+    engine.tick({ moveX: 0, moveY: 0 });
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+    engine.tick({ moveX: 0, moveY: 0 });
+    var reentryBlocked = engine.events.filter(function (e) {
+      return e.type === "zoneBlocked";
+    });
+    assert(reentryBlocked.length === 1, "expected zoneBlocked to re-arm after leaving and re-entering the trigger, got " + reentryBlocked.length);
+  },
+});
+
+// 8. Determinism across a transition: two engines, same seed + identical
+// scripted inputs driving the player across a real zone crossing ->
+// identical snapshot() at the end.
+Game.selfTests.push({
+  name: "engine zone transition: determinism holds across a real zone crossing",
+  fn: function () {
+    function scriptedInput(tick) {
+      return {
+        moveX: Math.sin(tick * 0.041),
+        moveY: Math.cos(tick * 0.029),
+        run: tick % 11 === 0,
+        stance: tick % 150 < 50 ? "crouch" : "stand",
+      };
+    }
+
+    function runCrossing(seed) {
+      var engine = Game.createEngine({ seed: seed });
+      var dock = Game.ZONES.loadingDock;
+      for (var t = 0; t < 200; t++) {
+        engine.tick(scriptedInput(t));
+      }
+      // Force the crossing deterministically (identical direct teleport on
+      // both engines) rather than relying on the scripted walk to find the
+      // gap, then let a further identical scripted run play out post-switch.
+      // The crossing tick itself uses zero movement input so player.update()
+      // doesn't walk the teleported position off the exit trigger before
+      // engine.js's end-of-tick zone-transition check reads it.
+      engine.player.x = dock.exit.x + dock.exit.w / 2;
+      engine.player.y = dock.exit.y + dock.exit.h / 2;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      // Confirm the crossing actually happened (setup validity) BEFORE the
+      // further scripted ticks below, which may wander the player back and
+      // forth across the (nearby) warehouse south exit one or more times --
+      // that's fine and expected for a small random walk landing 1m from its
+      // own return trigger; it's exactly the kind of churn this test wants
+      // to prove stays deterministic, not something to prevent.
+      if (engine.zone.id !== "warehouse") {
+        throw new Error("setup failed: expected engine to have crossed into warehouse right after the crossing tick");
+      }
+      for (var t2 = 201; t2 < 400; t2++) {
+        engine.tick(scriptedInput(t2));
+      }
+      return engine;
+    }
+
+    var a = runCrossing(999);
+    var b = runCrossing(999);
+
+    var snapA = JSON.stringify(a.snapshot());
+    var snapB = JSON.stringify(b.snapshot());
+    assert(snapA === snapB, "expected identical snapshots across a transition for identical seed+input, got:\n" + snapA + "\nvs\n" + snapB);
   },
 });
 

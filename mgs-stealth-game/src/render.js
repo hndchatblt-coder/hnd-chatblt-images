@@ -14,6 +14,20 @@
 //     from the live engine state. Safe to call every frame; the "build once"
 //     part is idempotent (guarded by an internal flag), the "update" part is
 //     not (it always re-reads engine.player/engine.guards/engine.squad).
+//
+//   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
+//   it differs from the last-seen id (an engine.js zone transition happened —
+//   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
+//   (floor/walls/wall-edges/darkzones/exit quad) and every guard actor
+//   (body/nose/marker/vision-cone/cone-edge — the old zone's guard roster,
+//   e.g. loadingDock's "g1", is a different set of ids than warehouse's
+//   "w1"/"w2") are removed from the scene and their owned geometries AND
+//   materials disposed (see disposeStatic/disposeGuardActors below — nothing
+//   from the old zone is kept around leaking GPU resources), the camera is
+//   re-centered on the new zone's bounds, and the static scene is rebuilt
+//   fresh for the new zone before any dynamic sync happens this call. The
+//   player actor is NOT rebuilt (its mesh isn't zone-specific, only its
+//   position/stance are) — it's simply repositioned like any other frame.
 //   renderer.render(engine) — syncScene(engine) then draws exactly one frame.
 //   renderer.resize() — re-reads container.clientWidth/clientHeight, resizes
 //     the WebGL canvas and recomputes the orthographic frustum so the whole
@@ -233,9 +247,13 @@
       });
     });
 
-    // ---- static scene (built once) ---------------------------------------------
+    // ---- static scene (built once per zone) -------------------------------------
 
     var built = false;
+    // Every THREE.Object3D added by buildStatic(), so a zone change can remove
+    // + dispose them all without hunting through `scene.children` (see
+    // disposeStatic below and the ZONE CHANGES note in the file header).
+    var staticObjects = [];
 
     function buildFlatQuad(x, y, w, h, yOffset, material) {
       var geo = new THREE.PlaneGeometry(w, h);
@@ -245,13 +263,19 @@
       return mesh;
     }
 
+    function addStatic(obj) {
+      scene.add(obj);
+      staticObjects.push(obj);
+      return obj;
+    }
+
     function buildStatic() {
       var floorMat = new THREE.MeshLambertMaterial({ color: FLOOR_COLOR });
-      scene.add(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
+      addStatic(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
 
       var darkMat = new THREE.MeshLambertMaterial({ color: DARKZONE_COLOR });
       (zone.darkZones || []).forEach(function (dz) {
-        scene.add(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
+        addStatic(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
       });
 
       (zone.walls || []).forEach(function (wall) {
@@ -263,7 +287,7 @@
         });
         var mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
-        scene.add(mesh);
+        addStatic(mesh);
 
         var edges = new THREE.EdgesGeometry(geo);
         var line = new THREE.LineSegments(
@@ -271,7 +295,7 @@
           new THREE.LineBasicMaterial({ color: WALL_EDGE_COLOR })
         );
         line.position.copy(mesh.position);
-        scene.add(line);
+        addStatic(line);
       });
 
       if (zone.exit) {
@@ -279,10 +303,22 @@
           color: 0x003318,
           emissive: EXIT_COLOR,
         });
-        scene.add(
+        addStatic(
           buildFlatQuad(zone.exit.x, zone.exit.y, zone.exit.w, zone.exit.h, 0.03, exitMat)
         );
       }
+    }
+
+    // Removes + disposes every object buildStatic() created (geometry AND
+    // material — none of these are shared with anything else, unlike the
+    // guard actor materials handled by disposeGuardActors below).
+    function disposeStatic() {
+      staticObjects.forEach(function (obj) {
+        scene.remove(obj);
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      });
+      staticObjects = [];
     }
 
     // ---- dynamic actors (player, guards) ---------------------------------------
@@ -346,6 +382,31 @@
       };
       guardActors[guard.id] = actor;
       return actor;
+    }
+
+    // Removes + disposes every live guard actor (see ZONE CHANGES in the file
+    // header — a zone change means a brand-new guard roster with different
+    // ids, e.g. loadingDock's "g1" vs warehouse's "w1"/"w2", so the old
+    // actors would otherwise sit around invisible-but-never-freed forever).
+    // body/nose geometry+material and cone/coneEdge geometry are each owned
+    // exclusively by their actor (fresh THREE.Material/Geometry per
+    // makeActor()/updateVisionCone() call) and are disposed here; cone/
+    // coneEdge MATERIALS and the marker's material come from the shared
+    // CONE_MATERIALS/EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard
+    // state, reused across every guard and every zone) and must NOT be
+    // disposed, or the next zone's guards would render with dead materials.
+    function disposeGuardActors() {
+      Object.keys(guardActors).forEach(function (id) {
+        var actor = guardActors[id];
+        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge);
+        actor.body.geometry.dispose();
+        actor.body.material.dispose();
+        actor.nose.geometry.dispose();
+        actor.nose.material.dispose();
+        actor.cone.geometry.dispose();
+        actor.coneEdge.geometry.dispose();
+      });
+      guardActors = {};
     }
 
     // Rebuilds a guard's vision-cone geometry this frame, clipped by
@@ -490,7 +551,25 @@
 
     // ---- per-frame sync ---------------------------------------------------------
 
+    // Tracks the zone id the static scene was last built for (see ZONE
+    // CHANGES in the file header). null until the first syncScene() call.
+    var currentZoneId = null;
+
     function syncScene(engine) {
+      if (engine.zone && engine.zone.id !== currentZoneId) {
+        if (built) {
+          disposeStatic();
+          disposeGuardActors();
+          built = false;
+        }
+        zone = engine.zone;
+        zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
+        camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
+        camera.lookAt(zoneCenter.x, 0, zoneCenter.y);
+        resize(); // refit the orthographic frustum to the new zone's bounds
+        currentZoneId = zone.id;
+      }
+
       if (!built) {
         buildStatic();
         built = true;

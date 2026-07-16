@@ -1,14 +1,44 @@
 // src/world.js
 // PUBLIC API:
-//   Game.ZONES.loadingDock — first facility zone, plain-object level data:
+//   Game.ZONES.loadingDock / Game.ZONES.warehouse — facility zones, plain-object
+//   level data (SCHEMA — both zones conform to this shape; fields added this
+//   cycle are marked NEW):
 //     {
 //       id, name,
 //       bounds: { w, h },                 // meters, origin top-left, +x right, +y down
 //       walls: [ { x, y, w, h }, ... ],    // AABBs: perimeter + interior obstacles
-//       playerSpawn: { x, y },
-//       exit: { x, y, w, h },              // trigger AABB leading to the next zone
-//       waypoints: [ { x, y }, ... ],       // patrol loop, open floor
+//       playerSpawn: { x, y },             // default spawn if this zone is booted directly
+//       exit: { x, y, w, h },              // BACK-COMPAT ALIAS: always === exits[0].
+//                                          // hud/radar/render/existing scenarios read
+//                                          // zone.exit directly — kept working verbatim.
+//       exits: [ { x, y, w, h, to, entranceKey }, ... ], // NEW — replaces the old
+//                                          // single `exit` prop as the source of truth.
+//                                          // `to` is a Game.ZONES key (or a not-yet-built
+//                                          // zone id, e.g. "laboratory" — a deliberate stub;
+//                                          // engine.js handles an unresolvable `to` by
+//                                          // staying put + emitting `zoneBlocked`, never by
+//                                          // throwing). `entranceKey` indexes the TARGET
+//                                          // zone's `entrances` map (below) to find where the
+//                                          // player appears after crossing.
+//       entrances: { [fromZoneId]: { x, y }, ... }, // NEW — spawn points keyed by the
+//                                          // zone the player is arriving FROM, e.g.
+//                                          // warehouse.entrances.fromLoadingDock. Looked up
+//                                          // via the crossed exit's `entranceKey`, not the
+//                                          // literal source zone id, so a zone can expose
+//                                          // more than one path in from the same neighbor.
+//       waypoints: [ { x, y }, ... ],       // patrol loop #1, open floor
+//       waypoints2: [ { x, y }, ... ],       // NEW — patrol loop #2 (a second guard's
+//                                          // route, e.g. a cross-aisle sweep); OPTIONAL —
+//                                          // only zones with a second patrolling guard
+//                                          // define it (see warehouse below). Same shape/
+//                                          // rules as `waypoints`: closed loop, every leg
+//                                          // must be walkable at r=0.6 (see world.test.js).
 //       darkZones: [ { x, y, w, h }, ... ], // shadowed regions (vision uses these)
+//       lockers: [ { x, y, facing }, ... ], // NEW — data only this cycle (no collision/
+//                                          // interaction yet; the future items cycle makes
+//                                          // these functional hiding spots). `facing`
+//                                          // radians, same atan2 convention as
+//                                          // player.facing/guard.facing (0 = +x).
 //     }
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
@@ -192,7 +222,13 @@
       { x: 25, y: 23, w: 3, h: 3 }, // small crates, S center-right
     ],
     playerSpawn: { x: 20, y: 27 },
-    exit: { x: 18, y: 0, w: 4, h: 3 },
+    // exits/entrances: the only path out of the Loading Dock is north into the
+    // Warehouse through the perimeter gap at x:18-22. entrances.fromWarehouse
+    // sits just south of that gap (y:4, one meter clear of the y:0-3 trigger
+    // AABB) so a player crossing back in from the Warehouse doesn't spawn
+    // standing on top of the trigger and immediately re-cross.
+    exits: [{ x: 18, y: 0, w: 4, h: 3, to: "warehouse", entranceKey: "fromLoadingDock" }],
+    entrances: { fromWarehouse: { x: 20, y: 4 } },
     waypoints: [
       { x: 3, y: 2 }, // NW corner (above all obstacles for clear north leg)
       { x: 37, y: 2 }, // NE corner
@@ -203,10 +239,112 @@
       { x: 2, y: 9, w: 5, h: 11 }, // shadow west of the container, along the left flank
       { x: 23, y: 13, w: 3, h: 5 }, // shadow between the crate stack and the east container
     ],
+    // Data only this cycle (see schema note above) — placed in the west dark
+    // zone, plausible near-term hiding spots for the future items cycle.
+    lockers: [
+      { x: 2, y: 9, facing: 0 },
+      { x: 2, y: 20, facing: 0 },
+    ],
   };
+  loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
+
+  // ---- zone data: WAREHOUSE --------------------------------------------------
+  // 40x30m, industrial interior. Perimeter is the same 4-conceptual-wall
+  // pattern as the Loading Dock, but BOTH the top and bottom walls are split
+  // around a 4m gap at x:18-22: south leads back to the Loading Dock, north is
+  // a stub toward the (not yet built) Laboratory zone — engine.js resolves
+  // unknown `to` targets by staying put and emitting `zoneBlocked` rather than
+  // throwing, so this stub is safe to ship ahead of the zone it points to.
+  // That shared x:18-22 column is kept deliberately free of shelving, so it
+  // reads as the main north-south spine connecting both exits; three shelving
+  // rows (six long thin AABBs, each split top/bottom around a shared y:14-16
+  // gap so the aisles are still crossable) sit on either side of that spine,
+  // forming four aisles west-to-east: the far-west aisle (x:1-8), between rows
+  // 1/2 (x:9.5-14), the wide center aisle (x:15.5-28, containing the spine),
+  // and the far-east aisle (x:29.5-39). Crate clusters give cover/patrol
+  // targets inside the aisles; two dark zones sit at aisle ends (unlit
+  // shelving corners), well clear of every wall.
+  var warehouse = {
+    id: "warehouse",
+    name: "WAREHOUSE",
+    bounds: { w: 40, h: 30 },
+    walls: [
+      // perimeter (6 segments: top split around the north stub, bottom split
+      // around the south exit, left, right)
+      { x: 0, y: 0, w: 18, h: 1 }, // top-left
+      { x: 22, y: 0, w: 18, h: 1 }, // top-right (gap: x 18-22, stub to laboratory)
+      { x: 0, y: 29, w: 18, h: 1 }, // bottom-left
+      { x: 22, y: 29, w: 18, h: 1 }, // bottom-right (gap: x 18-22, exit to loadingDock)
+      { x: 0, y: 0, w: 1, h: 30 }, // left
+      { x: 39, y: 0, w: 1, h: 30 }, // right
+      // shelving row 1 (x 8-9.5), split around the y:14-16 cross-aisle gap
+      { x: 8, y: 4, w: 1.5, h: 10 },
+      { x: 8, y: 16, w: 1.5, h: 10 },
+      // shelving row 2 (x 14-15.5), same gap
+      { x: 14, y: 4, w: 1.5, h: 10 },
+      { x: 14, y: 16, w: 1.5, h: 10 },
+      // shelving row 3 (x 28-29.5), same gap
+      { x: 28, y: 4, w: 1.5, h: 10 },
+      { x: 28, y: 16, w: 1.5, h: 10 },
+      // crate clusters, one per aisle
+      { x: 4, y: 10, w: 2, h: 2 }, // far-west aisle, north
+      { x: 11, y: 20, w: 2, h: 2 }, // row1/row2 aisle, south
+      { x: 24, y: 9, w: 2, h: 2 }, // center aisle, north (east side, clear of the spine)
+      { x: 33, y: 19, w: 2, h: 2 }, // far-east aisle, south
+    ],
+    // Booting directly into the Warehouse (e.g. a headless test with no
+    // transition) spawns at the same spot a player arrives at via the south
+    // exit from the Loading Dock.
+    playerSpawn: { x: 20, y: 25 },
+    exits: [
+      // South: back to the Loading Dock. Trigger sits against the bottom
+      // perimeter gap (y:26-29); entrances.fromLoadingDock (below) is 1m
+      // clear north of it so arriving players don't stand on the trigger.
+      { x: 18, y: 26, w: 4, h: 3, to: "loadingDock", entranceKey: "fromWarehouse" },
+      // North: stub toward the Laboratory. Not yet a real zone — see file
+      // header note above. entranceKey names the entry the Laboratory would
+      // expose for arrivals FROM the Warehouse, once it exists.
+      { x: 18, y: 0, w: 4, h: 3, to: "laboratory", entranceKey: "fromWarehouse" },
+    ],
+    entrances: { fromLoadingDock: { x: 20, y: 25 } },
+    // Primary loop: the same clear perimeter-corridor shape as loadingDock's
+    // waypoints (y~2 north / y~27 south bands sit above/below every shelving
+    // row, and x~3 / x~37 columns run clear down each flank) — guard w1 walks
+    // the outer ring.
+    waypoints: [
+      { x: 3, y: 2 },
+      { x: 37, y: 2 },
+      { x: 37, y: 27 },
+      { x: 3, y: 27 },
+    ],
+    // Second loop: guard w2's cross-aisle sweep, a rectangle confined to the
+    // wide center aisle (x:15.5-28) — clear of every shelving row and both
+    // crate clusters that flank it, giving a patrol that reads as genuinely
+    // different ground from the perimeter loop above.
+    waypoints2: [
+      { x: 17, y: 5 },
+      { x: 22, y: 5 },
+      { x: 22, y: 25 },
+      { x: 17, y: 25 },
+    ],
+    darkZones: [
+      { x: 2, y: 4, w: 4, h: 8 }, // far-west aisle, unlit north corner
+      { x: 31, y: 20, w: 6, h: 6 }, // far-east aisle, unlit south corner
+    ],
+    // Data only this cycle (see schema note above) — tucked along shelving
+    // ends and aisle margins, clear of every wall/crate.
+    lockers: [
+      { x: 2, y: 6, facing: 0 },
+      { x: 11, y: 6, facing: Math.PI },
+      { x: 30, y: 22, facing: 0 },
+      { x: 37, y: 22, facing: Math.PI },
+      { x: 2, y: 24, facing: 0 },
+    ],
+  };
+  warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
   Game.createWorld = createWorld;
-  Game.ZONES = { loadingDock: loadingDock };
+  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse };
   if (typeof module !== "undefined")
     module.exports = { createWorld: createWorld, ZONES: Game.ZONES };
 })(typeof window !== "undefined"

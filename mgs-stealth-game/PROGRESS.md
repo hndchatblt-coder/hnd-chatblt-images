@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.14 (cycle 14 — music)
+**Version:** v0.15 (cycle 15 — Warehouse + transitions)
 
 ## Module status
 
@@ -8,7 +8,7 @@
 |----------------|-------------|------------------------------------------|
 | rng            | stub        | seeded RNG single source                 |
 | boot           | v1          | self-test gate, title, input, fixed-step loop |
-| world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
+| world          | v2          | 2 zones (dock, warehouse), exits[]/entrances{}, lockers data |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 15: Warehouse zone (aisle maze, 2 guards, 2 loops) + INFILTRATION-gated
+  zone transitions, cross-zone determinism (87/87, 10/10)
 - cycle 14: music — sneak/combat/evasion/caution beds + sting/resolve
   one-shots, 1.5s crossfades, permanent-no-op audio isolation (79/79, 9/9)
 - cycle 13: polish — cone fills brightened + crisp rims (same clipped verts),

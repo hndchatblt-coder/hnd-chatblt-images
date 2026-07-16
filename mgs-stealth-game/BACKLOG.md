@@ -23,7 +23,8 @@ content rotation) take over. L items must be split before selection.
 8. ~~HUD~~ DONE cycle 12.
 9. ~~Music~~ DONE cycle 14 (needs human ear pass — see FEEDBACK request in TESTLOG).
 9b. Mute key + volume | polish | S | Readability | M toggles mute (suspend master gain); persists in-session; title legend updated.
-10. Remaining zones (Warehouse, Laboratory, Comms Tower) | content | L→split | Expression | one zone per cycle; zone transitions; cameras + lasers + keycards in Lab; heavy patrols in Tower.
+10. Remaining zones | content | L→split | Expression | ~~Warehouse~~ DONE cycle 15. Next: (a) Laboratory (cameras + laser sensors + keycards L1-L3 — needs camera entity in guard/vision system first), (b) Comms Tower (heavy patrols, finale).
+10b. Departed-zone state persistence | feature | M | Consequence | stash squad/guard state per zone on exit, restore on re-entry (alerted zones stay hot); replaces v1 discard semantics; determinism preserved.
 11. Items/CQC/tranq | feature | L→split | Expression | box, tranq pistol (12 darts, sleep 60s, headshot instant), CQC grab→choke/throw, drag bodies, lockers (stuff + hide), ration, chaff; split per verb-group.
 12. Codec | feature | M | Toybox | overlay, two procedural pixel portraits, scrolling text + blips, frequency dial; calls: mission open, first body, first alert, low darts.
 13. SaveState | feature | S | Consequence | serialize/restore full sim state; deterministic resume proven by replay test.
