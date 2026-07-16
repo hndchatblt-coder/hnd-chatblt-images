@@ -1548,6 +1548,1509 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== tests/guardAI-partB.test.js ====
+(function (global) {
+// tests/guardAI-partB.test.js — headless assertions for FSM part B (ALERT/
+// EVASION/CAUTION + squad coordination) added to src/guardAI.js. Same
+// registry pattern as tests/guardAI.test.js: push onto the shared
+// Game.selfTests list; test.js runs every entry and reports ok/FAIL with real
+// exit codes. Does NOT touch tests/guardAI.test.js (part-A tests stay as-is).
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function angleWrapDiff(a, b) {
+  var TWO_PI = Math.PI * 2;
+  var r = (a - b) % TWO_PI;
+  if (r > Math.PI) r -= TWO_PI;
+  if (r < -Math.PI) r += TWO_PI;
+  return r;
+}
+
+function dist(x1, y1, x2, y2) {
+  var dx = x2 - x1;
+  var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+var zone = Game.ZONES.loadingDock;
+var world = Game.createWorld(zone);
+var vision = Game.createVision({ world: world });
+var rng = Game.createRng(1);
+var DT = 1 / 60;
+
+function scriptedPlayer(x, y) {
+  return {
+    x: x,
+    y: y,
+    visionProfile: function () {
+      return 1.0;
+    },
+  };
+}
+
+function farPlayer() {
+  return scriptedPlayer(-1000, -1000);
+}
+
+// A guard whose single "waypoint" is 1000m out along `facing` — walks a
+// stable straight line without arriving during these short tests, isolating
+// FSM/perception behavior from patrol-loop bookkeeping (same helper shape as
+// tests/guardAI.test.js's straightGuard).
+function straightGuard(gx, gy, facing, id, extraDeps) {
+  var farX = gx + Math.cos(facing) * 1000;
+  var farY = gy + Math.sin(facing) * 1000;
+  var deps = {
+    world: world,
+    vision: vision,
+    rng: rng,
+    spawn: { x: gx, y: gy },
+    waypoints: [{ x: farX, y: farY }],
+    id: id,
+  };
+  if (extraDeps) {
+    for (var k in extraDeps) deps[k] = extraDeps[k];
+  }
+  return Game.createGuard(deps);
+}
+
+// Drives a squad-wide tick after every guard's update, exactly as the file
+// header documents the future engine will: guards.forEach(update), then
+// squad.tick(dt, guards.some(g => g.hasLOS)). Shared by every multi-guard
+// test below so the "reference loop" only needs to be written once.
+function tickAll(guards, squad, player, dt) {
+  for (var i = 0; i < guards.length; i++) {
+    guards[i].update(dt, { player: player });
+  }
+  var anyLOS = guards.some(function (g) {
+    return g.hasLOS;
+  });
+  squad.tick(dt, anyLOS);
+}
+
+// 1. Confirmed sight -> guard ALERT, squad.phase ALERT, alertCount 1,
+// lastKnown ~= player pos.
+Game.selfTests.push({
+  name: "guardAI partB: confirmed sight drives guard+squad to ALERT with alertCount 1 and lastKnown set",
+  fn: function () {
+    var squad = Game.createSquad();
+    var g = straightGuard(20, 5, 0, "alert-entry", { squad: squad });
+    var player = scriptedPlayer(22, 5); // 2m ahead, close range -> fills fast
+
+    var reachedAlert = false;
+    for (var i = 0; i < 240 && !reachedAlert; i++) {
+      g.update(DT, { player: player });
+      if (g.state === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "guard never reached ALERT under continuous close-range sighting");
+    assert(squad.phase === "ALERT", "expected squad.phase ALERT, got " + squad.phase);
+    assert(squad.alertCount === 1, "expected alertCount 1, got " + squad.alertCount);
+    assert(squad.lastKnown !== null, "expected lastKnown to be set");
+    assert(
+      dist(squad.lastKnown.x, squad.lastKnown.y, player.x, player.y) < 0.01,
+      "expected lastKnown ~= player pos, got " + JSON.stringify(squad.lastKnown)
+    );
+
+    // Re-broadcasting while already ALERT must not bump alertCount again.
+    g.update(DT, { player: player });
+    assert(squad.alertCount === 1, "alertCount must not increment on re-broadcast during ALERT");
+  },
+});
+
+// 2. Radio call: two guards share a squad; only guard A sees the player ->
+// guard B leaves PATROL for ALERT and moves toward lastKnown.
+Game.selfTests.push({
+  name: "guardAI partB: radio call moves an unsighted squadmate from PATROL into ALERT toward lastKnown",
+  fn: function () {
+    var squad = Game.createSquad();
+    var gA = straightGuard(20, 5, 0, "radio-A", { squad: squad });
+    // gB spawns far away, facing away from everything -> never itself sees the player.
+    var gB = straightGuard(2, 2, Math.PI, "radio-B", { squad: squad });
+    var player = scriptedPlayer(22, 5); // only within gA's view
+
+    var aAlertTick = null;
+    var TICKS = 300;
+    var bStartDistToLastKnown = null;
+    for (var i = 0; i < TICKS; i++) {
+      gA.update(DT, { player: player });
+      if (aAlertTick === null && gA.state === "ALERT") aAlertTick = i;
+      gB.update(DT, { player: player });
+      squad.tick(DT, gA.hasLOS || gB.hasLOS);
+
+      if (aAlertTick !== null && bStartDistToLastKnown === null && gB.state === "ALERT") {
+        bStartDistToLastKnown = dist(gB.x, gB.y, squad.lastKnown.x, squad.lastKnown.y);
+      }
+      if (bStartDistToLastKnown !== null) break;
+    }
+    assert(aAlertTick !== null, "guard A never reached ALERT — setup invalid");
+    assert(gB.state === "ALERT", "expected radioed-in guard B to be ALERT, got " + gB.state);
+    assert(bStartDistToLastKnown !== null, "guard B never joined ALERT");
+
+    // Run further ticks and confirm B is actually closing the distance to lastKnown.
+    for (var j = 0; j < 120; j++) {
+      gA.update(DT, { player: player });
+      gB.update(DT, { player: player });
+      squad.tick(DT, gA.hasLOS || gB.hasLOS);
+    }
+    var laterDist = dist(gB.x, gB.y, squad.lastKnown.x, squad.lastKnown.y);
+    assert(
+      laterDist < bStartDistToLastKnown,
+      "expected guard B to move toward lastKnown: start=" + bStartDistToLastKnown + " later=" + laterDist
+    );
+  },
+});
+
+// 3. ALERT pursuit: player visible and moving — guard closes distance at
+// ALERT_SPEED and stops within ARREST_DIST, never overlapping the player.
+Game.selfTests.push({
+  name: "guardAI partB: ALERT pursuit closes to ARREST_DIST and never overlaps a moving, visible player",
+  fn: function () {
+    var squad = Game.createSquad();
+    var g = straightGuard(20, 5, 0, "pursuit", { squad: squad });
+    var px = 23,
+      py = 5; // 3m ahead, in plain sight (open floor, same line part-A tests use)
+
+    var reachedAlert = false;
+    var minDist = Infinity;
+    var TICKS = 900; // 15s
+    for (var i = 0; i < TICKS; i++) {
+      // Player drifts slowly along y, always within cone/range of the guard's
+      // general facing (guard tracks it once ALERT).
+      px += 0.01; // ~0.6 m/s drift, well under ALERT_SPEED (3.2 m/s)
+      var player = scriptedPlayer(px, py);
+      g.update(DT, { player: player });
+      if (g.state === "ALERT") reachedAlert = true;
+      if (reachedAlert) {
+        var d = dist(g.x, g.y, px, py);
+        if (d < minDist) minDist = d;
+        assert(
+          d >= Game.GUARD.ARREST_DIST - 1e-6,
+          "guard overlapped ARREST_DIST: dist=" + d + " at tick " + i
+        );
+      }
+    }
+    assert(reachedAlert, "guard never reached ALERT");
+    assert(
+      minDist <= Game.GUARD.ARREST_DIST + 0.2,
+      "expected guard to close to ~ARREST_DIST, min dist was " + minDist
+    );
+  },
+});
+
+// 4. Lost contact: player teleports behind a wall -> squad flips to EVASION
+// after the tick with no LOS; guards converge on lastKnown.
+Game.selfTests.push({
+  name: "guardAI partB: losing LOS flips squad ALERT->EVASION and guards converge on lastKnown",
+  fn: function () {
+    var squad = Game.createSquad();
+    var g = straightGuard(20, 5, 0, "lost-contact", { squad: squad });
+    var seenSpot = { x: 22, y: 5 };
+    var player = scriptedPlayer(seenSpot.x, seenSpot.y);
+
+    var i;
+    for (i = 0; i < 240 && g.state !== "ALERT"; i++) {
+      g.update(DT, { player: player });
+      squad.tick(DT, g.hasLOS);
+    }
+    assert(g.state === "ALERT", "setup failed: guard never reached ALERT");
+    var lastKnownAtLoss = squad.lastKnown;
+
+    // Teleport the player far away (stand-in for "behind a wall" — vision's
+    // own wall-LOS behavior is covered in vision.test.js; here we only need
+    // hasLOS to go false this tick).
+    player.x = -1000;
+    player.y = -1000;
+
+    var flippedTick = null;
+    for (i = 0; i < 5; i++) {
+      g.update(DT, { player: player });
+      squad.tick(DT, g.hasLOS);
+      if (squad.phase === "EVASION") {
+        flippedTick = i;
+        break;
+      }
+    }
+    assert(flippedTick !== null, "squad never flipped to EVASION within a few ticks of losing LOS");
+    assert(flippedTick === 0, "expected EVASION on the very first no-LOS tick, flipped at tick " + flippedTick);
+
+    // Guard should now be converging on the remembered lastKnown point.
+    var startDist = dist(g.x, g.y, lastKnownAtLoss.x, lastKnownAtLoss.y);
+    for (i = 0; i < 60; i++) {
+      g.update(DT, { player: player });
+      squad.tick(DT, g.hasLOS);
+    }
+    assert(g.state === "EVASION", "expected guard state EVASION, got " + g.state);
+    var laterDist = dist(g.x, g.y, lastKnownAtLoss.x, lastKnownAtLoss.y);
+    assert(
+      laterDist < startDist,
+      "expected guard to converge on lastKnown: start=" + startDist + " later=" + laterDist
+    );
+  },
+});
+
+// 5. EVASION sweep staggering: two guards at the same lastKnown sweep
+// different arcs (facings differ by a sane margin over the sweep).
+Game.selfTests.push({
+  name: "guardAI partB: two guards sweeping the same lastKnown point stagger their facing arcs",
+  fn: function () {
+    var squad = Game.createSquad();
+    squad.phase = "EVASION";
+    squad.phaseTime = 0;
+    squad.lastKnown = { x: 10, y: 10 };
+
+    // Both guards start already AT lastKnown (within ARRIVE_DIST) so they
+    // skip the travel leg and sweep immediately.
+    var gA = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      spawn: { x: 10, y: 10 },
+      waypoints: [{ x: 1010, y: 10 }],
+      id: "sweep-A",
+      squad: squad,
+    });
+    var gB = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      spawn: { x: 10.1, y: 10 },
+      waypoints: [{ x: 1010, y: 10 }],
+      id: "sweep-B-totally-different-id",
+      squad: squad,
+    });
+    var player = farPlayer();
+
+    var maxFacingDiff = 0;
+    var TICKS = 300; // 5s, several sweep cycles at SEARCH_SWEEP_HZ ~0.5Hz
+    for (var i = 0; i < TICKS; i++) {
+      gA.update(DT, { player: player });
+      gB.update(DT, { player: player });
+      squad.tick(DT, gA.hasLOS || gB.hasLOS);
+      assert(gA.state === "EVASION" && gB.state === "EVASION", "both guards should stay EVASION");
+      var diff = Math.abs(angleWrapDiff(gA.facing, gB.facing));
+      if (diff > maxFacingDiff) maxFacingDiff = diff;
+    }
+    assert(
+      maxFacingDiff > 0.3,
+      "expected staggered sweep facings to diverge by a sane margin, max diff was " + maxFacingDiff
+    );
+  },
+});
+
+// 6. Ladder timing: EVASION -> CAUTION after ~30s no re-sighting; CAUTION ->
+// INFILTRATION after ~45s more; guards back to PATROL with normal cone/speed.
+Game.selfTests.push({
+  name: "guardAI partB: full ladder EVASION->CAUTION->INFILTRATION times out and returns guards to PATROL",
+  fn: function () {
+    var squad = Game.createSquad();
+    squad.phase = "EVASION";
+    squad.phaseTime = 0;
+    squad.lastKnown = { x: 20, y: 5 };
+    var g = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      spawn: { x: 20, y: 5 },
+      waypoints: zone.waypoints,
+      id: "ladder",
+      squad: squad,
+    });
+    var player = farPlayer(); // never re-sighted for the whole run
+
+    var toCautionTick = null;
+    var toInfiltrationTick = null;
+    var TICKS = Math.round((Game.GUARD.EVASION_S + Game.GUARD.CAUTION_S + 5) / DT);
+    for (var i = 0; i < TICKS; i++) {
+      g.update(DT, { player: player });
+      squad.tick(DT, g.hasLOS);
+      if (toCautionTick === null && squad.phase === "CAUTION") toCautionTick = i;
+      if (toInfiltrationTick === null && squad.phase === "INFILTRATION") toInfiltrationTick = i;
+    }
+    assert(toCautionTick !== null, "squad never reached CAUTION");
+    var toCautionS = toCautionTick * DT;
+    assert(
+      Math.abs(toCautionS - Game.GUARD.EVASION_S) < 1.0,
+      "expected CAUTION at ~" + Game.GUARD.EVASION_S + "s, got " + toCautionS.toFixed(2) + "s"
+    );
+
+    assert(toInfiltrationTick !== null, "squad never returned to INFILTRATION");
+    var toInfiltrationS = toInfiltrationTick * DT;
+    var expectedInfiltrationS = Game.GUARD.EVASION_S + Game.GUARD.CAUTION_S;
+    assert(
+      Math.abs(toInfiltrationS - expectedInfiltrationS) < 1.0,
+      "expected INFILTRATION at ~" + expectedInfiltrationS + "s, got " + toInfiltrationS.toFixed(2) + "s"
+    );
+
+    assert(g.state === "PATROL", "expected guard back in PATROL, got " + g.state);
+  },
+});
+
+// 7. Re-sighting during CAUTION escalates straight to ALERT (no SUSPICIOUS
+// detour) and alertCount increments.
+Game.selfTests.push({
+  name: "guardAI partB: re-sighting during CAUTION escalates straight to ALERT, skipping SUSPICIOUS",
+  fn: function () {
+    var squad = Game.createSquad();
+    squad.phase = "CAUTION";
+    squad.phaseTime = 0;
+    squad.lastKnown = { x: 5, y: 5 };
+    squad.alertCount = 1; // simulate a prior alert cycle already happened
+
+    var g = straightGuard(5, 5, 0, "caution-resight", { squad: squad });
+    var player = scriptedPlayer(7, 5); // 2m ahead, close range
+
+    var sawSuspicious = false;
+    var reachedAlert = false;
+    for (var i = 0; i < 240 && !reachedAlert; i++) {
+      g.update(DT, { player: player });
+      if (g.state === "SUSPICIOUS") sawSuspicious = true;
+      if (g.state === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "guard never escalated to ALERT during CAUTION re-sighting");
+    assert(!sawSuspicious, "guard should never pass through SUSPICIOUS while squad is CAUTION");
+    assert(squad.phase === "ALERT", "expected squad.phase ALERT, got " + squad.phase);
+    assert(squad.alertCount === 2, "expected alertCount to increment to 2, got " + squad.alertCount);
+  },
+});
+
+// 8. CAUTION cone is wider: a target at 15.5m (inside 14*1.2=16.8, outside
+// 14) fills the meter in CAUTION but not in INFILTRATION at identical geometry.
+Game.selfTests.push({
+  name: "guardAI partB: CAUTION widens the detection cone/range beyond the normal 14m limit",
+  fn: function () {
+    // y=28 is a verified-clear open-floor line across the whole zone width
+    // (same row tests/guardAI.test.js's PATROL-loop test walks straight
+    // across), well clear of the guard hut / crate obstacles that sit
+    // between y=3 and y=26.
+    var gx = 3,
+      gy = 28;
+    var player = scriptedPlayer(gx + 15.5, gy); // 15.5m ahead: >14, <16.8
+
+    var squadNormal = Game.createSquad(); // stays INFILTRATION
+    var gNormal = straightGuard(gx, gy, 0, "cone-normal", { squad: squadNormal });
+
+    var squadCaution = Game.createSquad();
+    squadCaution.phase = "CAUTION";
+    squadCaution.phaseTime = 0;
+    var gCaution = straightGuard(gx, gy, 0, "cone-caution", { squad: squadCaution });
+
+    for (var i = 0; i < 30; i++) {
+      gNormal.update(DT, { player: player });
+      gCaution.update(DT, { player: player });
+    }
+
+    assert(
+      gNormal.meter === 0,
+      "expected meter to stay 0 at 15.5m under normal 14m range, got " + gNormal.meter
+    );
+    assert(
+      gCaution.meter > 0,
+      "expected CAUTION's widened range (16.8m) to pick up a target at 15.5m, meter was " + gCaution.meter
+    );
+  },
+});
+
+// 9. Determinism: identical seeds -> identical 600-tick traces with a
+// 2-guard squad.
+Game.selfTests.push({
+  name: "guardAI partB: identical seeds/squad/scripted player produce identical 2-guard 600-tick traces",
+  fn: function () {
+    function scriptedPlayerAt(t) {
+      return scriptedPlayer(20 + 6 * Math.cos(t * 0.5), 15 + 6 * Math.sin(t * 0.5));
+    }
+    function makeRun(seed) {
+      var w = Game.createWorld(zone);
+      var v = Game.createVision({ world: w });
+      var squad = Game.createSquad();
+      var gA = Game.createGuard({
+        world: w,
+        vision: v,
+        rng: Game.createRng(seed),
+        waypoints: zone.waypoints,
+        id: "det-A",
+        squad: squad,
+      });
+      var gB = Game.createGuard({
+        world: w,
+        vision: v,
+        rng: Game.createRng(seed + 1),
+        spawn: { x: 30, y: 20 },
+        waypoints: [{ x: 3, y: 27 }],
+        id: "det-B",
+        squad: squad,
+      });
+      return { gA: gA, gB: gB, squad: squad };
+    }
+
+    var runA = makeRun(4242);
+    var runB = makeRun(4242);
+    var TICKS = 600;
+    for (var i = 0; i < TICKS; i++) {
+      var t = i / 60;
+      var player = scriptedPlayerAt(t);
+      tickAll([runA.gA, runA.gB], runA.squad, player, DT);
+      tickAll([runB.gA, runB.gB], runB.squad, player, DT);
+
+      assert(
+        runA.gA.x === runB.gA.x &&
+          runA.gA.y === runB.gA.y &&
+          runA.gA.state === runB.gA.state &&
+          runA.gB.x === runB.gB.x &&
+          runA.gB.y === runB.gB.y &&
+          runA.gB.state === runB.gB.state &&
+          runA.squad.phase === runB.squad.phase,
+        "trace diverged at tick " + i
+      );
+    }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/guardAI.test.js ====
+(function (global) {
+// tests/guardAI.test.js — headless assertions for src/guardAI.js.
+// Same registry pattern as tests/world.test.js / tests/vision.test.js: push
+// onto the shared Game.selfTests list; test.js runs every entry and reports
+// ok/FAIL with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+// Smallest signed angular difference a-b, wrapped to (-PI, PI] — test-local,
+// independent of guardAI's own internal helper (nothing here reaches into
+// the module's closures).
+function angleWrapDiff(a, b) {
+  var TWO_PI = Math.PI * 2;
+  var r = (a - b) % TWO_PI;
+  if (r > Math.PI) r -= TWO_PI;
+  if (r < -Math.PI) r += TWO_PI;
+  return r;
+}
+
+function dist(x1, y1, x2, y2) {
+  var dx = x2 - x1;
+  var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+var zone = Game.ZONES.loadingDock;
+var world = Game.createWorld(zone);
+var vision = Game.createVision({ world: world });
+var rng = Game.createRng(1);
+var DT = 1 / 60;
+
+function farPlayer() {
+  // Far outside RANGE (14m) and outside the zone entirely: never seen.
+  return {
+    x: -1000,
+    y: -1000,
+    visionProfile: function () {
+      return 1.0;
+    },
+  };
+}
+
+// A guard whose single "waypoint" is 1000m out along `facing` from (gx,gy).
+// Over the short horizons these tests run, the guard walks a straight line
+// in that direction (facing locked, since the target direction never
+// changes) and never arrives — isolating detection/FSM behavior from real
+// patrol-loop bookkeeping (tests 1 and 2 cover the loop itself).
+function straightGuard(gx, gy, facing, id) {
+  var farX = gx + Math.cos(facing) * 1000;
+  var farY = gy + Math.sin(facing) * 1000;
+  return Game.createGuard({
+    world: world,
+    vision: vision,
+    rng: rng,
+    spawn: { x: gx, y: gy },
+    waypoints: [{ x: farX, y: farY }],
+    id: id,
+  });
+}
+
+// 1. Patrol loop: over a generous horizon, the guard visits every waypoint
+// and never leaves PATROL while nothing is ever seen.
+//
+// NOTE: this uses a custom 4-point loop rather than zone.waypoints directly.
+// zone.waypoints's real NW(4,5)->NE(36,5) leg runs straight through the
+// guard-hut wall ({x:9,y:3,w:6,h:5} spans y:3-8, squarely on y=5) — a
+// pre-existing level-data fact in src/world.js (out of scope here; guardAI
+// does no pathfinding per its contract, so a guard sent straight down that
+// leg wedges against the hut and never arrives). This loop's 4 points sit on
+// verified-clear consecutive lines within the SAME loadingDock world/walls,
+// isolating the PATROL loop/visit mechanic under test from that unrelated
+// level-geometry issue (worth a BACKLOG item to fix the zone data).
+var openLoop = [
+  { x: 3, y: 28 },
+  { x: 37, y: 28 },
+  { x: 37, y: 2.2 },
+  { x: 3, y: 2.2 },
+];
+Game.selfTests.push({
+  name: "guardAI: PATROL walks the full waypoint loop and never leaves PATROL when nothing is seen",
+  fn: function () {
+    var g = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      waypoints: openLoop,
+      id: "patrol-loop",
+    });
+    var player = farPlayer();
+    var visited = openLoop.map(function () {
+      return false;
+    });
+    var TICKS = 6000; // 100s @ 60Hz — full loop is ~4700 travel ticks + 4 pauses (~86s)
+    for (var i = 0; i < TICKS; i++) {
+      g.update(DT, { player: player });
+      assert(g.state === "PATROL", "expected state to stay PATROL, got " + g.state + " at tick " + i);
+      for (var w = 0; w < openLoop.length; w++) {
+        var wp = openLoop[w];
+        if (dist(g.x, g.y, wp.x, wp.y) <= Game.GUARD.ARRIVE_DIST) visited[w] = true;
+      }
+    }
+    visited.forEach(function (v, i) {
+      assert(v, "waypoint " + i + " (" + JSON.stringify(openLoop[i]) + ") was never visited");
+    });
+  },
+});
+
+// 2. Waypoint pause: the guard dwells ~WAYPOINT_PAUSE seconds at a waypoint
+// before advancing, and its facing oscillates (head sweep) during the dwell.
+Game.selfTests.push({
+  name: "guardAI: dwells ~WAYPOINT_PAUSE at a waypoint with an oscillating facing sweep",
+  fn: function () {
+    var wp0 = zone.waypoints[0];
+    var g = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      spawn: { x: wp0.x, y: wp0.y },
+      waypoints: zone.waypoints,
+      id: "pause",
+    });
+    var player = farPlayer();
+    var startIndex = g.waypointIndex;
+    var seenFacings = [];
+    var pauseTicks = 0;
+    var advanced = false;
+    var TICKS = 400; // 6.67s — comfortably more than WAYPOINT_PAUSE (2s)
+    for (var i = 0; i < TICKS; i++) {
+      g.update(DT, { player: player });
+      if (g.waypointIndex !== startIndex) {
+        advanced = true;
+        break;
+      }
+      assert(g.state === "PATROL", "expected PATROL throughout the pause, got " + g.state);
+      pauseTicks++;
+      seenFacings.push(g.facing);
+    }
+    assert(advanced, "guard never advanced off the starting waypoint within " + TICKS + " ticks");
+
+    var pauseSeconds = pauseTicks / 60;
+    assert(
+      pauseSeconds >= Game.GUARD.WAYPOINT_PAUSE * 0.9 && pauseSeconds <= Game.GUARD.WAYPOINT_PAUSE * 1.5,
+      "expected pause ~" + Game.GUARD.WAYPOINT_PAUSE + "s, measured " + pauseSeconds + "s"
+    );
+
+    var minF = Math.min.apply(null, seenFacings);
+    var maxF = Math.max.apply(null, seenFacings);
+    assert(maxF - minF > 0.1, "expected facing to oscillate during the pause, range was " + (maxF - minF));
+  },
+});
+
+// 3. A player 3m ahead on the patrol line is sighted: meter climbs and the
+// guard reaches SUSPICIOUS quickly, then turns to face the stimulus.
+Game.selfTests.push({
+  name: "guardAI: sighting a nearby player raises the meter into SUSPICIOUS and turns to face them",
+  fn: function () {
+    var g = straightGuard(20, 5, 0, "suspicious-detect");
+    var player = { x: 23, y: 5, visionProfile: function () { return 1.0; } };
+
+    var ticksToSuspicious = null;
+    var MAX_TICKS = 90; // 1.5s ceiling — spec expects SUSPICIOUS within ~0.5s
+    for (var i = 0; i < MAX_TICKS && ticksToSuspicious === null; i++) {
+      g.update(DT, { player: player });
+      if (g.state === "SUSPICIOUS") ticksToSuspicious = i + 1;
+    }
+    assert(ticksToSuspicious !== null, "guard never reached SUSPICIOUS within 1.5s of first sight");
+    var seconds = ticksToSuspicious / 60;
+    assert(seconds <= 1.0, "expected SUSPICIOUS well within 1s of first sight, took " + seconds + "s");
+
+    // Give it time to turn and confirm it settles facing the stimulus.
+    for (var j = 0; j < 60; j++) g.update(DT, { player: player });
+    var expected = Math.atan2(player.y - g.y, player.x - g.x);
+    assert(
+      Math.abs(angleWrapDiff(g.facing, expected)) < 0.05,
+      "expected guard facing to converge on the player, facing=" + g.facing + " expected=" + expected
+    );
+  },
+});
+
+// 4. Continued close-range sighting fills the meter all the way to ALERT,
+// which then has no exit (placeholder for part B).
+Game.selfTests.push({
+  name: "guardAI: continued close-range sighting fills the meter to ALERT (no exit yet)",
+  fn: function () {
+    var g = straightGuard(20, 5, 0, "alert-fill");
+    var player = { x: 22, y: 5, visionProfile: function () { return 1.0; } };
+
+    var reachedAlert = false;
+    var TICKS = 240; // 4s ceiling — generous vs the "~1.2s more" spec
+    for (var i = 0; i < TICKS; i++) {
+      g.update(DT, { player: player });
+      if (g.state === "ALERT") {
+        reachedAlert = true;
+        break;
+      }
+    }
+    assert(reachedAlert, "expected guard to reach ALERT under continuous close-range sighting");
+    assert(g.meter === 1, "expected meter pinned at 1 in ALERT, got " + g.meter);
+
+    g.update(DT, { player: player });
+    assert(g.state === "ALERT", "ALERT should have no exit in this version");
+  },
+});
+
+// 5. Losing sight right after entering SUSPICIOUS: the guard returns to
+// PATROL once the stare completes, resuming the SAME waypointIndex.
+Game.selfTests.push({
+  name: "guardAI: losing sight during SUSPICIOUS returns to PATROL at the same waypointIndex",
+  fn: function () {
+    var g = straightGuard(20, 5, 0, "lose-sight");
+    var startIndex = g.waypointIndex;
+    var player = { x: 23, y: 5, visionProfile: function () { return 1.0; } };
+
+    var i;
+    for (i = 0; i < 90 && g.state !== "SUSPICIOUS"; i++) g.update(DT, { player: player });
+    assert(g.state === "SUSPICIOUS", "setup failed: guard never reached SUSPICIOUS");
+
+    // Duck out of sight immediately.
+    player.x = -1000;
+    player.y = -1000;
+
+    var backToPatrol = false;
+    var CEILING = Math.ceil(Game.GUARD.MAX_STATE_S.SUSPICIOUS * 60) + 60;
+    for (i = 0; i < CEILING; i++) {
+      g.update(DT, { player: player });
+      assert(g.state !== "ALERT", "guard should not escalate to ALERT after losing sight");
+      if (g.state === "PATROL") {
+        backToPatrol = true;
+        break;
+      }
+    }
+    assert(backToPatrol, "guard never returned to PATROL after losing sight");
+    assert(
+      g.waypointIndex === startIndex,
+      "expected waypointIndex to be preserved (" + startIndex + "), got " + g.waypointIndex
+    );
+  },
+});
+
+// 6. hearNoise("faint") triggers immediate SUSPICIOUS facing the noise
+// origin; with no player ever in sight, it decays back to PATROL.
+Game.selfTests.push({
+  name: "guardAI: hearNoise('faint') triggers SUSPICIOUS facing the noise, decaying back to PATROL",
+  fn: function () {
+    var g = straightGuard(5, 5, 0, "faint-noise");
+    var player = farPlayer();
+    var nx = 5;
+    var ny = 10; // due south of the guard
+
+    g.hearNoise(nx, ny, "faint");
+    assert(g.state === "SUSPICIOUS", "expected immediate SUSPICIOUS on faint noise, got " + g.state);
+    assert(g.stimulus.x === nx && g.stimulus.y === ny, "expected stimulus set to the noise origin");
+
+    for (var i = 0; i < 60; i++) g.update(DT, { player: player });
+    var expected = Math.atan2(ny - g.y, nx - g.x);
+    assert(
+      Math.abs(angleWrapDiff(g.facing, expected)) < 0.1,
+      "expected facing to turn toward the noise, facing=" + g.facing + " expected=" + expected
+    );
+
+    var backToPatrol = false;
+    for (i = 0; i < 300; i++) {
+      g.update(DT, { player: player });
+      if (g.state === "PATROL") {
+        backToPatrol = true;
+        break;
+      }
+    }
+    assert(backToPatrol, "guard never decayed back to PATROL after the faint-noise stare completed");
+  },
+});
+
+// 7. hearNoise("strong") sends the guard straight to INVESTIGATE; it walks
+// to the stimulus, searches for ~INVESTIGATE_SEARCH seconds, then returns to
+// PATROL.
+Game.selfTests.push({
+  name: "guardAI: hearNoise('strong') drives INVESTIGATE to arrival, search, then back to PATROL",
+  fn: function () {
+    var g = straightGuard(5, 5, 0, "strong-noise");
+    var player = farPlayer();
+    var nx = 8;
+    var ny = 5; // 3m away; INVESTIGATE_SPEED 2.0 m/s -> ~1.5s travel
+
+    g.hearNoise(nx, ny, "strong");
+    assert(g.state === "INVESTIGATE", "expected immediate INVESTIGATE on strong noise, got " + g.state);
+
+    var minDist = Infinity;
+    var backToPatrol = false;
+    var TICKS = 900; // 15s: ~1.5s travel + 8s search + buffer
+    for (var i = 0; i < TICKS; i++) {
+      g.update(DT, { player: player });
+      var d = dist(g.x, g.y, nx, ny);
+      if (d < minDist) minDist = d;
+      if (g.state === "PATROL") {
+        backToPatrol = true;
+        break;
+      }
+    }
+    assert(minDist <= Game.GUARD.ARRIVE_DIST, "guard never got within ARRIVE_DIST of the stimulus, min dist " + minDist);
+    assert(backToPatrol, "guard never returned to PATROL after the investigate search completed");
+  },
+});
+
+// 8. Full determinism: two guards built from identical seeds/world and fed
+// an identical scripted (non-random) player trajectory produce byte-for-byte
+// identical (x, y, state) traces over 600 ticks.
+Game.selfTests.push({
+  name: "guardAI: identical seeds/world/scripted player produce identical (x,y,state) traces",
+  fn: function () {
+    function scriptedPlayerAt(t) {
+      return {
+        x: 20 + 6 * Math.cos(t * 0.5),
+        y: 15 + 6 * Math.sin(t * 0.5),
+        visionProfile: function () {
+          return 1.0;
+        },
+      };
+    }
+    function makeGuard(seed) {
+      var w = Game.createWorld(zone);
+      return Game.createGuard({
+        world: w,
+        vision: Game.createVision({ world: w }),
+        rng: Game.createRng(seed),
+        waypoints: zone.waypoints,
+        id: "det",
+      });
+    }
+
+    var gA = makeGuard(777);
+    var gB = makeGuard(777);
+    var TICKS = 600;
+    for (var i = 0; i < TICKS; i++) {
+      var t = i / 60;
+      gA.update(DT, { player: scriptedPlayerAt(t) });
+      gB.update(DT, { player: scriptedPlayerAt(t) });
+      assert(
+        gA.x === gB.x && gA.y === gB.y && gA.state === gB.state,
+        "trace diverged at tick " +
+          i +
+          ": A=" +
+          JSON.stringify({ x: gA.x, y: gA.y, state: gA.state }) +
+          " B=" +
+          JSON.stringify({ x: gB.x, y: gB.y, state: gB.state })
+      );
+    }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/player.test.js ====
+(function (global) {
+// tests/player.test.js — headless assertions for src/player.js.
+// Same registry pattern as src/tests.js: push onto the shared Game.selfTests
+// list; test.js runs every entry and reports ok/FAIL with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+function freshWorld() {
+  return Game.createWorld(Game.ZONES.loadingDock);
+}
+
+function run(player, input, ticks) {
+  for (var i = 0; i < ticks; i++) player.update(input, DT);
+}
+
+function dist(x1, y1, x2, y2) {
+  var dx = x2 - x1;
+  var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// 1. spawns at zone playerSpawn with stand stance.
+Game.selfTests.push({
+  name: "player: spawns at zone playerSpawn with stand stance",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+    var spawn = world.zone.playerSpawn;
+    assert(player.x === spawn.x, "expected x=" + spawn.x + ", got " + player.x);
+    assert(player.y === spawn.y, "expected y=" + spawn.y + ", got " + player.y);
+    assert(player.stance === "stand", "expected initial stance 'stand', got " + player.stance);
+    assert(player.radius === 0.4, "expected radius 0.4, got " + player.radius);
+  },
+});
+
+// 2. walking 60 ticks at full input moves ~3.0m (+/-5%).
+Game.selfTests.push({
+  name: "player: walking 60 ticks at full input moves ~3.0m",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+    var startX = player.x, startY = player.y;
+    run(player, { moveX: 1, moveY: 0, run: false, stance: "stand" }, 60);
+    var d = dist(startX, startY, player.x, player.y);
+    assert(Math.abs(d - 3.0) <= 3.0 * 0.05, "expected ~3.0m walked, got " + d);
+  },
+});
+
+// 3. running ~6.0 m/s; crouch ~1.6; crawl ~0.8 (ordering AND magnitudes).
+Game.selfTests.push({
+  name: "player: run/crouch/crawl speeds match spec and are correctly ordered",
+  fn: function () {
+    var TICKS = 60;
+
+    var runWorld = freshWorld();
+    var runPlayer = Game.createPlayer({ world: runWorld });
+    var runStart = { x: runPlayer.x, y: runPlayer.y };
+    run(runPlayer, { moveX: 1, moveY: 0, run: true, stance: "stand" }, TICKS);
+    var runDist = dist(runStart.x, runStart.y, runPlayer.x, runPlayer.y);
+
+    var crouchWorld = freshWorld();
+    var crouchPlayer = Game.createPlayer({ world: crouchWorld });
+    var crouchStart = { x: crouchPlayer.x, y: crouchPlayer.y };
+    run(crouchPlayer, { moveX: 1, moveY: 0, run: false, stance: "crouch" }, TICKS);
+    var crouchDist = dist(crouchStart.x, crouchStart.y, crouchPlayer.x, crouchPlayer.y);
+
+    var crawlWorld = freshWorld();
+    var crawlPlayer = Game.createPlayer({ world: crawlWorld });
+    var crawlStart = { x: crawlPlayer.x, y: crawlPlayer.y };
+    run(crawlPlayer, { moveX: 1, moveY: 0, run: false, stance: "crawl" }, TICKS);
+    var crawlDist = dist(crawlStart.x, crawlStart.y, crawlPlayer.x, crawlPlayer.y);
+
+    assert(Math.abs(runDist - 6.0) <= 6.0 * 0.05, "expected ~6.0m running, got " + runDist);
+    assert(Math.abs(crouchDist - 1.6) <= 1.6 * 0.05, "expected ~1.6m crouched, got " + crouchDist);
+    assert(Math.abs(crawlDist - 0.8) <= 0.8 * 0.05, "expected ~0.8m crawling, got " + crawlDist);
+
+    assert(runDist > crouchDist, "run should cover more distance than crouch");
+    assert(crouchDist > crawlDist, "crouch should cover more distance than crawl");
+  },
+});
+
+// 4. run flag while crouched does NOT give run speed (uses crouch speed).
+Game.selfTests.push({
+  name: "player: run flag while crouched uses crouch speed, not run speed",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+    var start = { x: player.x, y: player.y };
+    run(player, { moveX: 1, moveY: 0, run: true, stance: "crouch" }, 60);
+    var d = dist(start.x, start.y, player.x, player.y);
+    assert(Math.abs(d - 1.6) <= 1.6 * 0.05, "expected crouch speed (~1.6m) despite run=true, got " + d);
+    assert(player.running === false, "player.running should be false in crouch even with run=true");
+  },
+});
+
+// 5. diagonal input (1,1) does not exceed the stance speed (normalized).
+Game.selfTests.push({
+  name: "player: diagonal input is normalized, not faster than axis movement",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+    var start = { x: player.x, y: player.y };
+    // moveX=1, moveY=-1 (up-right, away from the bottom perimeter wall and
+    // nearby crate clusters) so the full second of movement stays clear of
+    // any wall and isolates normalization from collision.
+    run(player, { moveX: 1, moveY: -1, run: false, stance: "stand" }, 60);
+    var d = dist(start.x, start.y, player.x, player.y);
+    assert(Math.abs(d - 3.0) <= 3.0 * 0.05, "expected ~3.0m (walk speed) on diagonal input, got " + d);
+    assert(d <= 3.0 * 1.05, "diagonal input must not exceed the stance speed");
+  },
+});
+
+// 6. walking into a perimeter wall for 120 ticks: never overlapping, stays
+// within zone bounds.
+Game.selfTests.push({
+  name: "player: walking into a perimeter wall never overlaps and stays in bounds",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+    var bounds = world.zone.bounds;
+    for (var i = 0; i < 120; i++) {
+      player.update({ moveX: 0, moveY: 1, run: false, stance: "stand" }, DT);
+      assert(
+        !world.isBlockedCircle(player.x, player.y, player.radius),
+        "tick " + i + ": player overlaps a wall at (" + player.x + "," + player.y + ")"
+      );
+      assert(player.x >= 0 && player.x <= bounds.w, "tick " + i + ": x out of zone bounds: " + player.x);
+      assert(player.y >= 0 && player.y <= bounds.h, "tick " + i + ": y out of zone bounds: " + player.y);
+    }
+  },
+});
+
+// 7. facing: move +x then stop -> facing ~0 retained while idle; move +y ->
+// facing ~PI/2.
+Game.selfTests.push({
+  name: "player: facing tracks last nonzero movement and is retained while idle",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+
+    player.update({ moveX: 1, moveY: 0, run: false, stance: "stand" }, DT);
+    assert(Math.abs(player.facing - 0) < 1e-6, "expected facing ~0 after +x move, got " + player.facing);
+
+    player.update({ moveX: 0, moveY: 0, run: false, stance: "stand" }, DT);
+    assert(Math.abs(player.facing - 0) < 1e-6, "facing should be retained while idle, got " + player.facing);
+    assert(player.moving === false, "player.moving should be false with zero input");
+
+    player.update({ moveX: 0, moveY: 1, run: false, stance: "stand" }, DT);
+    assert(Math.abs(player.facing - Math.PI / 2) < 1e-6, "expected facing ~PI/2 after +y move, got " + player.facing);
+  },
+});
+
+// 8. visionProfile and noiseRadius across stance/motion combos, including
+// stationary -> 0.
+Game.selfTests.push({
+  name: "player: visionProfile and noiseRadius match spec tables for every stance/motion combo",
+  fn: function () {
+    var world = freshWorld();
+    var player = Game.createPlayer({ world: world });
+
+    // Stationary: noiseRadius is 0 regardless of stance; visionProfile still
+    // reflects the current stance.
+    player.update({ moveX: 0, moveY: 0, run: false, stance: "stand" }, DT);
+    assert(player.visionProfile() === 1.0, "stand visionProfile should be 1.0");
+    assert(player.noiseRadius() === 0, "stationary noiseRadius should be 0 (stand)");
+
+    player.update({ moveX: 0, moveY: 0, run: false, stance: "crouch" }, DT);
+    assert(player.visionProfile() === 0.6, "crouch visionProfile should be 0.6");
+    assert(player.noiseRadius() === 0, "stationary noiseRadius should be 0 (crouch)");
+
+    player.update({ moveX: 0, moveY: 0, run: false, stance: "crawl" }, DT);
+    assert(player.visionProfile() === 0.3, "crawl visionProfile should be 0.3");
+    assert(player.noiseRadius() === 0, "stationary noiseRadius should be 0 (crawl)");
+
+    // Walking (stand, no run): noiseRadius 3.
+    player.update({ moveX: 1, moveY: 0, run: false, stance: "stand" }, DT);
+    assert(player.visionProfile() === 1.0, "stand visionProfile should be 1.0 while walking");
+    assert(player.noiseRadius() === 3, "walking noiseRadius should be 3");
+
+    // Running (stand + run): noiseRadius 8.
+    player.update({ moveX: 1, moveY: 0, run: true, stance: "stand" }, DT);
+    assert(player.visionProfile() === 1.0, "stand visionProfile should be 1.0 while running");
+    assert(player.noiseRadius() === 8, "running noiseRadius should be 8");
+
+    // Moving crouched: noiseRadius 1.
+    player.update({ moveX: 1, moveY: 0, run: false, stance: "crouch" }, DT);
+    assert(player.visionProfile() === 0.6, "crouch visionProfile should be 0.6 while moving");
+    assert(player.noiseRadius() === 1, "moving-crouched noiseRadius should be 1");
+
+    // Moving crawling: noiseRadius 0.
+    player.update({ moveX: 1, moveY: 0, run: false, stance: "crawl" }, DT);
+    assert(player.visionProfile() === 0.3, "crawl visionProfile should be 0.3 while moving");
+    assert(player.noiseRadius() === 0, "moving-crawling noiseRadius should be 0");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/regressions/waypoint-loop.test.js ====
+(function (global) {
+// tests/regressions/waypoint-loop.test.js — regression test for cycle 5: guard
+// walks the real loadingDock waypoint loop without wedging.
+// Tests that all consecutive waypoint legs are traversable by a real guard
+// under live patrol simulation.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function dist(x1, y1, x2, y2) {
+  var dx = x2 - x1;
+  var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+Game.selfTests.push({
+  name: "regression(cycle5): guard walks the real loadingDock waypoint loop without wedging",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(555);
+    var DT = 1 / 60;
+
+    var wp0 = zone.waypoints[0];
+    var guard = Game.createGuard({
+      world: world,
+      vision: vision,
+      rng: rng,
+      spawn: { x: wp0.x, y: wp0.y },
+      waypoints: zone.waypoints,
+      id: "reg5",
+    });
+
+    var player = { x: -1000, y: -1000, visionProfile: function () { return 1; } };
+
+    // Track which waypoints have been visited (within ARRIVE_DIST).
+    var visited = zone.waypoints.map(function () {
+      return false;
+    });
+
+    // Run for 180s of game time (10800 ticks @ 60Hz).
+    var TICKS = 10800;
+    for (var i = 0; i < TICKS; i++) {
+      guard.update(DT, { player: player });
+
+      // Check state remains PATROL throughout.
+      assert(
+        guard.state === "PATROL",
+        "guard entered state " + guard.state + " at tick " + i + " (expected PATROL)"
+      );
+
+      // Track waypoint visits.
+      for (var w = 0; w < zone.waypoints.length; w++) {
+        var wp = zone.waypoints[w];
+        if (dist(guard.x, guard.y, wp.x, wp.y) <= Game.GUARD.ARRIVE_DIST) {
+          visited[w] = true;
+        }
+      }
+    }
+
+    // Verify all waypoints were visited.
+    for (var w = 0; w < visited.length; w++) {
+      assert(
+        visited[w],
+        "waypoint " + w + " (" + zone.waypoints[w].x + "," + zone.waypoints[w].y + ") was never visited in 180s"
+      );
+    }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/vision.test.js ====
+(function (global) {
+// tests/vision.test.js — headless assertions for src/vision.js.
+// Same registry pattern as tests/world.test.js: push onto the shared
+// Game.selfTests list; test.js runs every entry and reports ok/FAIL with real
+// exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function approx(a, b, tol) {
+  return Math.abs(a - b) <= tol;
+}
+
+var DEG = Math.PI / 180;
+
+// A tiny custom zone (per vision.js contract, createWorld accepts any
+// zoneData): a big open room, one occlusion wall far from every other test's
+// coordinates (used only by the LOS tests), and one darkZone far from that
+// wall (used only by the darkness modifier test). Real loadingDock geometry
+// is exercised elsewhere (world.test.js, guardAI); this file needs precise,
+// uncluttered geometry.
+var customZone = {
+  bounds: { w: 100, h: 100 },
+  walls: [
+    { x: 49, y: 5, w: 2, h: 10 }, // occlusion wall for the LOS tests
+  ],
+  darkZones: [
+    { x: 70, y: 70, w: 4, h: 4 }, // for the darkness modifier test
+  ],
+};
+var world = Game.createWorld(customZone);
+var vision = Game.createVision({ world: world });
+var VISION = Game.VISION;
+
+// 1. target directly ahead at 5m, open floor: inCone, hasLOS, factor > 0.
+Game.selfTests.push({
+  name: "vision: target directly ahead at 5m in the open is seen",
+  fn: function () {
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var target = { x: 10, y: 5 };
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(approx(sight.dist, 5, 1e-9), "expected dist 5, got " + sight.dist);
+    assert(sight.inCone, "expected target dead ahead to be inCone");
+    assert(sight.hasLOS, "expected clear LOS on open floor");
+    assert(sight.factor > 0, "expected factor > 0, got " + sight.factor);
+  },
+});
+
+// 2. target at same dist but 40deg off facing (> 35deg half-angle): inCone
+// false, factor 0.
+Game.selfTests.push({
+  name: "vision: target 40deg off facing (outside 35deg half-FOV) is not seen",
+  fn: function () {
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var ang = 40 * DEG;
+    var target = { x: 5 + 5 * Math.cos(ang), y: 5 + 5 * Math.sin(ang) };
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(!sight.inCone, "expected 40deg off-center to be outside the cone");
+    assert(sight.factor === 0, "expected factor 0, got " + sight.factor);
+  },
+});
+
+// 3. target at 34deg off facing: inCone true (cone edge inclusive-ish).
+// Documented choice: the half-FOV comparison is `<=`, so a target exactly at
+// the edge (35deg for a 70deg FOV) would also count; 34deg is safely inside
+// either way and demonstrates the near-edge case is seen.
+Game.selfTests.push({
+  name: "vision: target 34deg off facing (inside 35deg half-FOV) is seen",
+  fn: function () {
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var ang = 34 * DEG;
+    var target = { x: 5 + 5 * Math.cos(ang), y: 5 + 5 * Math.sin(ang) };
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(sight.inCone, "expected 34deg off-center to be inside the cone");
+  },
+});
+
+// 4. target beyond 14m: factor 0.
+Game.selfTests.push({
+  name: "vision: target beyond RANGE (14m) is not seen",
+  fn: function () {
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var target = { x: 5 + 15, y: 5 };
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(approx(sight.dist, 15, 1e-9), "expected dist 15, got " + sight.dist);
+    assert(!sight.inCone, "expected beyond-range target to be outside the cone");
+    assert(sight.factor === 0, "expected factor 0, got " + sight.factor);
+  },
+});
+
+// 5. angle wrap: viewer facing PI, target across the +/-PI seam at a small
+// angular offset must still register as inCone (naive subtraction without
+// wrapping would report a ~2*PI difference here instead of ~0.05 rad).
+Game.selfTests.push({
+  name: "vision: angle wrap across the +/-PI seam is handled correctly",
+  fn: function () {
+    var viewer = { x: 10, y: 10, facing: Math.PI };
+    var ang = -Math.PI + 0.05; // just past the seam from PI's perspective
+    var target = { x: 10 + 5 * Math.cos(ang), y: 10 + 5 * Math.sin(ang) };
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(sight.inCone, "expected small angular offset across the seam to be inCone");
+    assert(sight.factor > 0, "expected factor > 0 across the seam, got " + sight.factor);
+  },
+});
+
+// 6. wall between viewer and target: hasLOS false, factor 0.
+Game.selfTests.push({
+  name: "vision: a wall between viewer and target blocks LOS",
+  fn: function () {
+    var viewer = { x: 45, y: 10, facing: 0 };
+    var target = { x: 55, y: 10 }; // dist 10, wall spans x:49-51,y:5-15
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(sight.inCone, "expected dead-ahead target within range to be inCone");
+    assert(!sight.hasLOS, "expected the wall to block LOS");
+    assert(sight.factor === 0, "expected factor 0 when LOS is blocked, got " + sight.factor);
+  },
+});
+
+// 7. target just IN FRONT of a wall (viewer-target clear, wall behind
+// target): hasLOS true.
+Game.selfTests.push({
+  name: "vision: target standing in front of a wall (wall behind it) has clear LOS",
+  fn: function () {
+    var viewer = { x: 45, y: 10, facing: 0 };
+    var target = { x: 48, y: 10 }; // dist 3, wall starts at x=49 - just behind target
+    var sight = vision.computeSight(viewer, target, { profile: 1.0 });
+    assert(sight.inCone, "expected dead-ahead target within range to be inCone");
+    assert(sight.hasLOS, "expected LOS to be clear up to the target, wall is behind it");
+    assert(sight.factor > 0, "expected factor > 0, got " + sight.factor);
+  },
+});
+
+// 8. modifiers: crawl profile (0.3) and darkness (0.5) each reduce factor by
+// the right ratio vs the standing/lit baseline at identical geometry;
+// extraMult 0.05 stacks multiplicatively.
+Game.selfTests.push({
+  name: "vision: crawl, darkness, and extraMult modifiers scale factor by the right ratio",
+  fn: function () {
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var target = { x: 10, y: 5 }; // dist 5, open + lit
+    var base = vision.computeSight(viewer, target, { profile: 1.0 }).factor;
+    assert(base > 0, "expected a positive baseline factor");
+
+    var crawl = vision.computeSight(viewer, target, { profile: 0.3 }).factor;
+    assert(approx(crawl, base * 0.3, 1e-9), "expected crawl factor === base * 0.3, got " + crawl + " vs " + base * 0.3);
+
+    var extra = vision.computeSight(viewer, target, { profile: 1.0, extraMult: 0.05 }).factor;
+    assert(approx(extra, base * 0.05, 1e-9), "expected extraMult 0.05 to scale factor by 0.05, got " + extra + " vs " + base * 0.05);
+
+    // Darkness: same distance (5m) from the viewer to the darkZone rect
+    // {x:70,y:70,w:4,h:4} (center 72,72), same profile, clear LOS.
+    var darkViewer = { x: 67, y: 72, facing: 0 };
+    var darkTarget = { x: 72, y: 72 };
+    assert(vision.isInDarkZone(darkTarget.x, darkTarget.y), "expected target center inside the darkZone");
+    var dark = vision.computeSight(darkViewer, darkTarget, { profile: 1.0 }).factor;
+    assert(approx(dark, base * VISION.DARKNESS_MULT, 1e-9), "expected darkness factor === base * DARKNESS_MULT, got " + dark + " vs " + base * VISION.DARKNESS_MULT);
+  },
+});
+
+// 9. meter timing: standing target at 2m (FILL_NEAR_DIST) reaches
+// SUSPICIOUS_AT within ~0.3s and ALERT_AT (1.0) in 0.8s +/-15%; crawling the
+// same geometry takes >=3x longer; factor 0 drains a full meter to 0 in ~2s
+// +/-10%; meter never leaves [0,1].
+Game.selfTests.push({
+  name: "vision: tickMeter timing matches SPEC (0.35 by ~0.3s, 1.0 by 0.8s+/-15%, crawl >=3x, drain ~2s+/-10%)",
+  fn: function () {
+    var dt = 1 / 60;
+    var viewer = { x: 5, y: 5, facing: 0 };
+    var target = { x: 7, y: 5 }; // dist 2 === FILL_NEAR_DIST
+
+    var standFactor = vision.computeSight(viewer, target, { profile: 1.0 }).factor;
+    assert(approx(standFactor, VISION.FILL_BASE, 1e-9), "expected factor === FILL_BASE at NEAR_DIST, got " + standFactor);
+
+    function fillTime(factor, threshold) {
+      var meter = 0;
+      var t = 0;
+      var crossed = null;
+      for (var i = 0; i < 100000; i++) {
+        meter = vision.tickMeter(meter, factor, dt);
+        assert(meter >= 0 && meter <= 1, "meter left [0,1]: " + meter);
+        t += dt;
+        if (crossed === null && meter >= threshold) {
+          crossed = t;
+          if (threshold >= 1) break;
+        }
+        if (crossed !== null) break;
+      }
+      assert(crossed !== null, "meter never reached threshold " + threshold);
+      return crossed;
+    }
+
+    var tSuspicious = fillTime(standFactor, VISION.SUSPICIOUS_AT);
+    assert(tSuspicious <= 0.35, "expected SUSPICIOUS_AT within ~0.3s, took " + tSuspicious + "s");
+    assert(tSuspicious >= 0.2, "SUSPICIOUS_AT crossed suspiciously fast: " + tSuspicious + "s");
+
+    var tAlertStand = fillTime(standFactor, VISION.ALERT_AT);
+    assert(
+      tAlertStand >= 0.8 * 0.85 && tAlertStand <= 0.8 * 1.15,
+      "expected ALERT_AT in 0.8s +/-15%, took " + tAlertStand + "s"
+    );
+
+    var crawlFactor = vision.computeSight(viewer, target, { profile: 0.3 }).factor;
+    var tAlertCrawl = fillTime(crawlFactor, VISION.ALERT_AT);
+    assert(
+      tAlertCrawl >= 3 * tAlertStand * 0.95,
+      "expected crawl fill to take >=3x as long as standing: crawl=" + tAlertCrawl + " stand=" + tAlertStand
+    );
+
+    // Drain: factor 0 from a full meter down to 0 in ~2s +/-10%.
+    var meter = 1.0;
+    var t = 0;
+    var drainedAt = null;
+    for (var i = 0; i < 100000; i++) {
+      meter = vision.tickMeter(meter, 0, dt);
+      assert(meter >= 0 && meter <= 1, "meter left [0,1] during drain: " + meter);
+      t += dt;
+      if (meter <= 0) {
+        drainedAt = t;
+        break;
+      }
+    }
+    assert(drainedAt !== null, "meter never drained to 0");
+    assert(
+      drainedAt >= 2 * 0.9 && drainedAt <= 2 * 1.1,
+      "expected full drain in ~2s +/-10%, took " + drainedAt + "s"
+    );
+
+    // Clamping sanity: overshoot in either direction stays inside [0,1].
+    assert(vision.tickMeter(0.99, 100, 1) === 1, "expected meter to clamp at 1");
+    assert(vision.tickMeter(0.01, 0, 100) === 0, "expected meter to clamp at 0");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/world.test.js ====
+(function (global) {
+// tests/world.test.js — headless assertions for src/world.js.
+// Same registry pattern as src/tests.js: push onto the shared Game.selfTests
+// list; test.js runs every entry and reports ok/FAIL with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var zone = Game.ZONES.loadingDock;
+var world = Game.createWorld(zone);
+
+// 1. isBlocked true inside a perimeter wall, false at playerSpawn.
+Game.selfTests.push({
+  name: "world: isBlocked true in perimeter wall, false at playerSpawn",
+  fn: function () {
+    assert(world.isBlocked(0.5, 15), "expected left perimeter wall to block (0.5, 15)");
+    assert(
+      !world.isBlocked(zone.playerSpawn.x, zone.playerSpawn.y),
+      "playerSpawn should be open floor"
+    );
+  },
+});
+
+// 2. isBlockedCircle detects overlap when the point is clear but the circle
+// clips a wall.
+Game.selfTests.push({
+  name: "world: isBlockedCircle catches circle clipping a wall the point misses",
+  fn: function () {
+    // (7.7, 14) is just west of the west container (x:8-14, y:9-20): the point
+    // itself is open floor, but a radius-0.5 circle there overlaps the wall.
+    assert(!world.isBlocked(7.7, 14), "point should be clear of the container");
+    assert(
+      world.isBlockedCircle(7.7, 14, 0.5),
+      "circle of radius 0.5 at (7.7,14) should clip the west container"
+    );
+  },
+});
+
+// 3. raycast across the zone hits a wall and returns a sensible hit point.
+Game.selfTests.push({
+  name: "world: raycast hits the west container and reports a sane hit point",
+  fn: function () {
+    var hit = world.raycast(2, 14, 38, 14);
+    assert(hit !== null, "expected a hit against the west container");
+    assert(hit.dist > 0, "hit distance should be positive: " + hit.dist);
+    assert(
+      hit.x >= 2 && hit.x <= 38 && hit.y >= 14 - 1e-6 && hit.y <= 14 + 1e-6,
+      "hit point should lie on the segment: " + JSON.stringify(hit)
+    );
+    // The west container starts at x:8 — that should be the first thing hit.
+    assert(Math.abs(hit.x - 8) < 1e-6, "expected first hit at x=8, got " + hit.x);
+  },
+});
+
+// 4. raycast between two nearby open-floor points returns null.
+Game.selfTests.push({
+  name: "world: raycast between nearby open-floor points is clear",
+  fn: function () {
+    var hit = world.raycast(4, 5, 4, 8);
+    assert(hit === null, "expected a clear line of sight, got " + JSON.stringify(hit));
+  },
+});
+
+// 5. raycast from playerSpawn center to exit center is NOT null (layout
+// forces routing decisions).
+Game.selfTests.push({
+  name: "world: playerSpawn to exit has no straight unobstructed line",
+  fn: function () {
+    var sx = zone.playerSpawn.x;
+    var sy = zone.playerSpawn.y;
+    var ex = zone.exit.x + zone.exit.w / 2;
+    var ey = zone.exit.y + zone.exit.h / 2;
+    var hit = world.raycast(sx, sy, ex, ey);
+    assert(hit !== null, "expected the center crate stack to block the direct line");
+  },
+});
+
+// 6. moveCircle into a wall stops/slides: final position never overlaps a wall.
+Game.selfTests.push({
+  name: "world: moveCircle into a wall stops without overlapping it",
+  fn: function () {
+    // Open corridor just west of the west container; drive straight into it.
+    var start = { x: 6, y: 14 };
+    assert(!world.isBlockedCircle(start.x, start.y, 0.5), "start position should be open");
+    var res = world.moveCircle(start.x, start.y, 5, 0, 0.5);
+    assert(
+      !world.isBlockedCircle(res.x, res.y, 0.5),
+      "final position should never overlap a wall: " + JSON.stringify(res)
+    );
+    assert(res.x < 11, "movement into the wall should have been rejected, got x=" + res.x);
+  },
+});
+
+// 7. moveCircle sliding: moving diagonally into a wall face still makes
+// progress along the unblocked axis.
+Game.selfTests.push({
+  name: "world: moveCircle slides along the free axis when the other is blocked",
+  fn: function () {
+    var start = { x: 6, y: 14 };
+    var res = world.moveCircle(start.x, start.y, 5, 3, 0.5);
+    assert(!world.isBlockedCircle(res.x, res.y, 0.5), "final position should be clear");
+    assert(res.x === start.x, "x axis (blocked by the container) should not have moved");
+    assert(res.y === start.y + 3, "y axis (unblocked) should still have made progress");
+  },
+});
+
+// 8. Zone data sanity.
+Game.selfTests.push({
+  name: "world: loadingDock zone data sanity (spawn/waypoints/darkZones open, wall/waypoint counts)",
+  fn: function () {
+    assert(!world.isBlocked(zone.playerSpawn.x, zone.playerSpawn.y), "playerSpawn must be open");
+
+    assert(zone.waypoints.length >= 4, "expected at least 4 waypoints, got " + zone.waypoints.length);
+    zone.waypoints.forEach(function (wp, i) {
+      assert(!world.isBlocked(wp.x, wp.y), "waypoint " + i + " should be open floor: " + JSON.stringify(wp));
+    });
+
+    assert(zone.darkZones.length >= 1, "expected at least 1 dark zone");
+    zone.darkZones.forEach(function (dz, i) {
+      var cx = dz.x + dz.w / 2;
+      var cy = dz.y + dz.h / 2;
+      assert(!world.isBlocked(cx, cy), "darkZone " + i + " center should be open floor: " + JSON.stringify(dz));
+    });
+
+    // 5 perimeter segments (top split in two around the exit gap) + interior
+    // obstacles; require at least 6 interior walls beyond those 5.
+    var PERIMETER_SEGMENTS = 5;
+    var interior = zone.walls.length - PERIMETER_SEGMENTS;
+    assert(interior >= 6, "expected at least 6 interior walls, got " + interior);
+  },
+});
+
+// 9. Every consecutive waypoint leg is walkably clear (r=0.6 sampled, raycast also clear).
+Game.selfTests.push({
+  name: "world: every consecutive waypoint leg is walkably clear (r=0.6 sampled)",
+  fn: function () {
+    var waypoints = zone.waypoints;
+    assert(waypoints.length >= 4, "expected at least 4 waypoints for patrol loop");
+
+    for (var i = 0; i < waypoints.length; i++) {
+      var a = waypoints[i];
+      var b = waypoints[(i + 1) % waypoints.length];
+      var legLabel = "leg " + i + " (" + i + "->" + ((i + 1) % waypoints.length) + ")";
+
+      // Sample every 0.25m along the segment and verify no collision.
+      var dx = b.x - a.x;
+      var dy = b.y - a.y;
+      var legLen = Math.sqrt(dx * dx + dy * dy);
+      var samples = Math.ceil(legLen / 0.25);
+
+      for (var s = 0; s <= samples; s++) {
+        var t = samples > 0 ? s / samples : 0;
+        var px = a.x + dx * t;
+        var py = a.y + dy * t;
+        assert(
+          !world.isBlockedCircle(px, py, 0.6),
+          legLabel + " blocked at sample (" + px.toFixed(2) + "," + py.toFixed(2) + ")"
+        );
+      }
+
+      // Also verify raycast is clear.
+      var hit = world.raycast(a.x, a.y, b.x, b.y);
+      assert(
+        hit === null,
+        legLabel + " raycast hit at (" + (hit ? hit.x.toFixed(2) : "?") + "," + (hit ? hit.y.toFixed(2) : "?") + ")"
+      );
+    }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
 // ==== src/boot.js ====
 // src/boot.js
 // PUBLIC API:

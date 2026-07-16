@@ -1,5 +1,29 @@
 # TESTLOG.md
 
+## Cycle 7 (bugfix: boot self-test parity)
+
+`node build.js && node test.js` 47/47; `node sim.js` 6/6; screenshot verified
+by eye: in-browser gate now reports 47/47 (was 3/3). build.js bundles
+tests/**/*.js wrapped in an IIFE shadowing `global` → window; boot.js is
+appended last so it gates after all registrations. game.html now 126KB.
+
+**3 problems:**
+1. Artifact size will grow linearly with the test corpus (tests ship in the
+   deliverable by mandate). Fine at 126KB; if it ever matters, minify-comments
+   at build time — NOT test exclusion. → note only.
+2. In-browser suite includes the 10800-tick regression walk — boot cost is
+   still imperceptible, but boot time should be watched at the cycle-20 audit.
+3. Stale "v0.0 — nothing to play yet" line remains (separate backlog item;
+   real title screen arrives with the render cycle).
+
+**3 delights:**
+1. The architecture mandate ("same suite runs in-browser") is now literally
+   true — a bad CDN copy of Three or a browser-only quirk gets caught at boot.
+2. IIFE-shadowing `global` needed zero changes to any test file — the node
+   test pattern was browser-compatible by accident of discipline.
+3. The screenshot loop caught this bug and verified the fix — the every-5-
+   cycles eyeball rule pays for itself.
+
 ## Cycle 6 (guardAI part B: ALERT/EVASION/CAUTION + squad)
 
 `node build.js && node test.js` 47/47; `node sim.js` 6/6. 9 new tests, 2 new

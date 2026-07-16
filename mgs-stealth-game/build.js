@@ -35,10 +35,43 @@ if (unknown.length) {
 }
 
 const parts = [];
+// Concatenate src modules in ORDER, but exclude boot.js (it must run after all tests register).
 for (const f of ORDER) {
+  if (f === "boot.js") continue; // boot.js is appended last, after test files
   const p = path.join(srcDir, f);
   if (!fs.existsSync(p)) continue;
   parts.push(`// ==== src/${f} ====\n` + fs.readFileSync(p, "utf8"));
+}
+
+// Recursively collect test files from tests/ and tests/regressions/, wrapped so they work in browser.
+// Matches the order used by test.js: reads each dir sorted, recurses into subdirs in sorted order.
+let testFileCount = 0;
+function collectTestFiles(dir, relPath = "") {
+  if (!fs.existsSync(dir)) return;
+  for (const f of fs.readdirSync(dir).sort()) {
+    const p = path.join(dir, f);
+    const rel = relPath ? path.join(relPath, f) : f;
+    if (f.endsWith(".js")) {
+      const content = fs.readFileSync(p, "utf8");
+      // Wrap test file so it works in browser: global.Game becomes window.Game in browser.
+      parts.push(
+        `// ==== tests/${rel} ====\n` +
+          `(function (global) {\n` +
+          content +
+          `\n})(typeof window !== "undefined" ? window : global);`
+      );
+      testFileCount++;
+    } else if (fs.statSync(p).isDirectory()) {
+      collectTestFiles(p, rel);
+    }
+  }
+}
+collectTestFiles(path.join(__dirname, "tests"));
+
+// Finally, append boot.js which runs Game.selfTests after all tests have registered.
+const bootPath = path.join(srcDir, "boot.js");
+if (fs.existsSync(bootPath)) {
+  parts.push(`// ==== src/boot.js ====\n` + fs.readFileSync(bootPath, "utf8"));
 }
 
 const html = `<!DOCTYPE html>
@@ -64,7 +97,8 @@ ${parts.join("\n")}
 `;
 
 fs.writeFileSync(path.join(__dirname, "game.html"), html);
+const moduleCount = ORDER.length - 1; // Exclude boot.js from module count (it's appended after tests)
 console.log(
   `build.js: wrote game.html (${(html.length / 1024).toFixed(1)} KB, ` +
-    `${parts.length} modules)`
+    `${moduleCount} modules + ${testFileCount} test files)`
 );

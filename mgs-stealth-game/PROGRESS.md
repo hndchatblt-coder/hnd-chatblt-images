@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.6 (cycle 6 — guardAI part B)
+**Version:** v0.7 (cycle 7 — boot self-test parity)
 
 ## Module status
 
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 7: bugfix — full test suite (47) now bundled into game.html; in-browser
+  boot gate runs the same suite as node (was 3/3, now 47/47)
 - cycle 6: guardAI part B — ALERT pursuit/arrest, EVASION staggered sweep,
   CAUTION widened cones, createSquad phase controller, meter-bounce bug fixed
   (47/47, 6/6)
