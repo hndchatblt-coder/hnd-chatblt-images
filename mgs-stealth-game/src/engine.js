@@ -2448,7 +2448,11 @@
 
       // Ration verb: edge-triggered (false->true only), same shape as knock/
       // fire above (see file header RATION VERB). No wall-adjacency gate, no
-      // noise, no interaction with box/drag/locker — always available.
+      // noise, no interaction with box/drag/locker — ALWAYS ALLOWED, even while
+      // hidden-in-locker, dragging, or boxed. Eating a ration is quiet and
+      // small; MGS convention makes this a deliberate design choice, not a gap
+      // in the gating matrix. See src/items.js's BOX / DRAG / LOCKER INTERACTION
+      // MATRIX for the full verb-gating contract.
       var rationEdge = normalized.ration && !prevRation;
       prevRation = normalized.ration;
       if (rationEdge) {
@@ -2463,10 +2467,16 @@
       // Chaff verb: edge-triggered (false->true only), same shape as knock/
       // fire above (see file header CHAFF VERB). The pop is a SHARP noise at
       // the player's OWN position — same noiseHeard fan-out loop shape as
-      // the knock/fire verbs above.
+      // the knock/fire verbs above. BLOCKED while engine.playerHidden
+      // (can't throw a grenade from inside a locker — both hands occupied),
+      // but ALLOWED while dragging (one hand free) and while boxed (see
+      // src/items.js's BOX / DRAG / LOCKER INTERACTION MATRIX).
       var chaffEdge = normalized.chaff && !prevChaff;
       prevChaff = normalized.chaff;
-      if (chaffEdge) {
+      if (chaffEdge && engine.playerHidden) {
+        // BLOCKED while hidden-in-locker — both hands are full.
+        engine.events.push({ type: "busy" });
+      } else if (chaffEdge) {
         var chaffResult = inventory.useChaff();
         if (chaffResult.used) {
           engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S;

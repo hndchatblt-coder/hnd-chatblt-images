@@ -46,7 +46,7 @@ content rotation) take over. L items must be split before selection.
 ## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
 
 - ~~A1: box doesn't gate fire/CQC~~ FIXED cycle 21 (regression test in tests/regressions/).
-- A2: ration/chaff ungated while hidden/dragging | bugfix | S | Readability | decide semantics explicitly (ration-always-ok may stand), document, test.
+- ~~A2~~ FIXED cycle 36 (ration always; chaff locker-gated; regression).
 - ~~A3~~ FIXED cycle 30. ~~A4~~ FIXED cycle 30 (chaff HUD + regressions).
 - A5: radar blind to hidden/dragging (dup of existing item — merged) | polish | S | Readability.
 - ~~A6~~ FIXED cycle 22 (renamed + separate crawl scenario).

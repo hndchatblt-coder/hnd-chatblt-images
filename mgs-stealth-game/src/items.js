@@ -113,9 +113,14 @@
 //         same as dragging.
 //       - K (knock) is ALWAYS ALLOWED while inv.boxOn — reaching out to tap
 //         a wall is tactically interesting and feasible.
-//       - R (ration) and C (chaff) are ALWAYS ALLOWED while inv.boxOn —
-//         consumables do not conflict with the disguise.
-//       Because of the two rules above, boxOn and (dragging || playerHidden)
+//       - R (ration) is ALWAYS ALLOWED — consumable, quiet, small. Never
+//         gated by box/drag/playerHidden. MGS convention: eating a ration
+//         is always feasible, even mid-drag or tucked in a locker.
+//       - C (chaff) is BLOCKED while playerHidden (can't throw from inside a
+//         locker — both hands occupied), but ALLOWED while engine.dragging
+//         (one hand free) and while inv.boxOn (consumables do not conflict
+//         with disguise). See engine.js's CHAFF VERB contract.
+//       Because of the rules above, boxOn and (dragging || playerHidden)
 //       can never be true at the same time — there is no live "box mid-drag"
 //       state to transition OUT of, so no separate "auto-off when a drag/
 //       locker starts" rule is needed (it would never fire).

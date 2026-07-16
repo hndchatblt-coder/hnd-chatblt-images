@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.35 (cycle 35 — EVASION locker checks)
+**Version:** v0.36 (cycle 36 — audit A2 closed; all audit-20 actionables done)
 
 ## Module status
 
@@ -38,6 +38,8 @@
 
 ## Changelog (last 5)
 
+- cycle 36: bugfix — A2 verb gating (ration always; chaff blocked in locker)
+  (232/232, 24/24). Audit-20 actionables complete.
 - cycle 35: EVASION locker checks — near-lastKnown lockers get checked
   (dedup, one per guard, wedge-safe); camping punished, distance rewarded
   (231/231, 24/24)

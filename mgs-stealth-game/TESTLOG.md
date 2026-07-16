@@ -1,5 +1,13 @@
 # TESTLOG.md
 
+## Cycle 36 (bugfix: audit A2 — verb gating semantics)
+
+232/232; 24/24; 5/5 shots. Ration explicitly always-allowed (documented);
+chaff blocked while hidden-in-locker (busy event), allowed while dragging/
+boxed; interaction matrix extended; regression test covers all six combos.
+ALL ACTIONABLE AUDIT-20 FINDINGS NOW CLOSED (A1-A6, A8, A10-A12 fixed;
+A5 merged; A7/A9 watch items for audit-40).
+
 ## Cycle 35 (EVASION locker checks)
 
 231/231; 24/24; 5/5 shots. Sweeping guards check the nearest unchecked
