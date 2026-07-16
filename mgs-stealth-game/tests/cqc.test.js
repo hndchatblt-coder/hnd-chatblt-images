@@ -425,17 +425,33 @@ Game.selfTests.push({
   },
 });
 
-// ---- 13. hudModel.status is additive -- item placeholder untouched --------
+// ---- 13. hudModel.status is additive -- item box is a separate field ------
 
 Game.selfTests.push({
-  name: "hud: status reflects DRAGGING/HIDDEN additively -- the item placeholder is untouched",
+  name: "hud: status reflects DRAGGING/HIDDEN additively -- the item box is a field DRAGGING/HIDDEN never touch",
   fn: function () {
     if (typeof require !== "undefined") require("../src/hud.js");
 
+    // NOTE (box/chaff/ration cycle): the three item.name/item.count
+    // assertions below originally read `item.name === "---" && item.count
+    // === null` (the pre-items-cycle placeholder). That premise is now
+    // factually wrong -- src/items.js's Game.createInventory() now starts
+    // with a real ration count, and src/hud.js's own contract requires
+    // hudModel.item = {name:"RATION", count: rations} whenever
+    // engine.inventory exists (see its file header). Per CLAUDE.md's ratchet
+    // rule 2 ("a wrong test is replaced by a stricter one"), the SAME
+    // sanctioned replacement tests/hud.test.js's fresh-engine assertion just
+    // got is applied here too -- driven off Game.ITEMS.STARTING_RATIONS so it
+    // can't drift from the tunable. This test's actual subject (status stays
+    // additive -- DRAGGING/HIDDEN never mutate the item box) is UNCHANGED;
+    // only the item box's own expected shape is updated to match reality.
     var freshEngine = Game.createEngine();
     var freshModel = Game.hudModel(freshEngine);
     assert(freshModel.status === null, "expected status null on a fresh engine, got " + freshModel.status);
-    assert(freshModel.item.name === "---" && freshModel.item.count === null, "expected item placeholder untouched");
+    assert(
+      freshModel.item.name === "RATION" && freshModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected real item shape {RATION, " + Game.ITEMS.STARTING_RATIONS + "}, got " + JSON.stringify(freshModel.item)
+    );
 
     var dragEngine = Game.createEngine({
       guardConfigs: [{ id: "sleeper-hud", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
@@ -447,7 +463,10 @@ Game.selfTests.push({
     assert(dragEngine.dragging === "sleeper-hud", "setup failed: drag never attached");
     var dragModel = Game.hudModel(dragEngine);
     assert(dragModel.status === "DRAGGING", "expected status 'DRAGGING', got " + dragModel.status);
-    assert(dragModel.item.name === "---" && dragModel.item.count === null, "expected item placeholder untouched while dragging");
+    assert(
+      dragModel.item.name === "RATION" && dragModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected the item box untouched by DRAGGING, got " + JSON.stringify(dragModel.item)
+    );
 
     var zone = Game.ZONES.loadingDock;
     var locker = zone.lockers[0];
@@ -458,7 +477,10 @@ Game.selfTests.push({
     assert(hideEngine.playerHidden === true, "setup failed: player never hid");
     var hideModel = Game.hudModel(hideEngine);
     assert(hideModel.status === "HIDDEN", "expected status 'HIDDEN', got " + hideModel.status);
-    assert(hideModel.item.name === "---" && hideModel.item.count === null, "expected item placeholder untouched while hidden");
+    assert(
+      hideModel.item.name === "RATION" && hideModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected the item box untouched by HIDDEN, got " + JSON.stringify(hideModel.item)
+    );
   },
 });
 

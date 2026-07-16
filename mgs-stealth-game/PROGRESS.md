@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.18 (cycle 18 — CQC/drag/lockers)
+**Version:** v0.19 (cycle 19 — box/ration/chaff; SPEC item set complete)
 
 ## Module status
 
@@ -13,7 +13,7 @@
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
 | soundEvents    | v1          | emit radii, analytic wall attenuation, knock verb |
-| items          | v2          | tranq + CQC + drag + lockers; box/chaff/ration pending |
+| items          | v3          | full SPEC set: tranq, CQC, drag, lockers, box, ration, chaff |
 | director       | not started | reinforcements, radio check-ins          |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | not started | snapshot() groundwork exists in engine   |
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 19: box (0.05 stationary/blown moving), ration (+0.35, x3), chaff
+  (15s radar jam, noisy pop) — item set complete (131/131, 14/14; 4
+  placeholder assertions replaced-stricter, see TESTLOG)
 - cycle 18: CQC from behind, body drag (0.55 speed, 0.9m trail), lockers
   (stuff bodies — discovery-exempt; hide player via decoy gating), wake-and-
   step-out (117/117, 13/13)

@@ -6,6 +6,14 @@
 //       DART_RANGE: 14,       // meters, max travel distance of a fired dart
 //       DART_HIT_PERP: 0.5,   // meters, max perpendicular distance from the
 //                             // shot ray for a guard to count as hit
+//       STARTING_RATIONS: 3,  // Game.createInventory()'s starting ration count
+//       RATION_HEAL: 0.35,    // hp fraction a ration restores (see useRation)
+//       STARTING_CHAFF: 2,    // Game.createInventory()'s starting chaff-grenade count
+//       CHAFF_S: 15,          // seconds a chaff pop keeps the radar/cameras jammed
+//       BOX_FACTOR: 0.05,     // vision-profile multiplier while boxOn && stationary
+//                             // (boxOn && moving uses a flat 1.0 instead — no
+//                             // discount, "blown if seen moving" — see engine.js's
+//                             // BOX VERB contract for where this is actually applied)
 //     }
 //
 //   Game.createInventory() -> inv
@@ -16,6 +24,64 @@
 //       consumes a dart, hit or miss) — see fireTranq below. Carries over a
 //       zone transition unchanged (engine.js never resets/rebuilds inventory
 //       on switchZone — darts are mission-scoped, not zone-scoped).
+//
+//     inv.rations — mutable count, starts at ITEMS.STARTING_RATIONS (3).
+//       Decremented only by a successful useRation() call (see below) — a
+//       call that would be a no-op (no rations left, or hp already full)
+//       spends nothing. Mission-scoped like darts (untouched by switchZone).
+//
+//     inv.useRation(player) -> { used: false } | { used: true, healAmount }
+//       `player` is read-only here (same ENGINE-AGNOSTIC posture as
+//       fireTranq below) — this function never sets player.hp itself, it
+//       only decides WHETHER a ration would help and reports how much.
+//       No-op ({ used: false }, inv.rations untouched) if inv.rations <= 0
+//       OR player.hp >= 1 (a ration is never wasted topping off a full bar,
+//       and pressing the key with none left does nothing — mirrors
+//       fireTranq's "no darts left -> no-op" rule). Otherwise: inv.rations--
+//       and returns { used: true, healAmount: ITEMS.RATION_HEAL }. The
+//       CALLER (engine.js's RATION VERB) is responsible for actually
+//       applying player.hp = Math.min(1, player.hp + healAmount) and
+//       emitting the { type: "ration", hp } event — same division of labor
+//       as fireTranq/guard.tranq() below: this module computes, engine.js
+//       mutates anything outside its own `inv` object.
+//
+//     inv.chaff — mutable count, starts at ITEMS.STARTING_CHAFF (2).
+//       Decremented only by a successful useChaff() call. Mission-scoped
+//       like darts/rations.
+//
+//     inv.useChaff() -> { used: false } | { used: true }
+//       No-op ({ used: false }, inv.chaff untouched) if inv.chaff <= 0.
+//       Otherwise: inv.chaff-- and returns { used: true }. Pure inventory
+//       bookkeeping only — starting the CHAFF_S jam timer, emitting the
+//       chaff-pop noise, and pushing the { type: "chaff" } event are all
+//       engine.js's job (see its CHAFF VERB contract), same ENGINE-AGNOSTIC
+//       split as everything else in this file.
+//
+//     inv.hasBox — boolean, always true this cycle (no pickup system yet —
+//       same "not yet a real loadout system" caveat as inv.weapon above; a
+//       future cycle could make this pickup-gated without changing the
+//       boxOn toggle's own shape).
+//     inv.boxOn — mutable boolean, starts false. Toggled by engine.js's BOX
+//       VERB (B key, edge-triggered) — this module never flips it itself;
+//       it's a plain readable/writable flag, same shape as inv.darts being
+//       a plain counter engine.js/fireTranq both touch.
+//
+//     BOX / DRAG / LOCKER INTERACTION MATRIX ("one disguise at a time" — the
+//     full gating logic lives in engine.js's tick(), see its BOX VERB / DRAG
+//     VERB / LOCKER VERB contracts; documented here per this cycle's design
+//     brief since this is where boxOn/hasBox themselves are defined):
+//       - B (box toggle) is a no-op while engine.dragging is set OR
+//         engine.playerHidden is true — you can't pull a box over your head
+//         mid-drag or while already tucked in a locker.
+//       - G (drag attach/release, locker hide/exit) is ENTIRELY a no-op
+//         while inv.boxOn is true — dressed as a box, both hands are full,
+//         so no branch of engine.js's handleDragKey() runs at all (not
+//         "attach is blocked but release still works" — the whole key is
+//         dead while boxed).
+//       Because of the two rules above, boxOn and (dragging || playerHidden)
+//       can never be true at the same time — there is no live "box mid-drag"
+//       state to transition OUT of, so no separate "auto-off when a drag/
+//       locker starts" rule is needed (it would never fire).
 //
 //     inv.fireTranq(engine) -> { fired, hit, guardId?, headshot?, impact:{x,y} }
 //       `engine` is a live Game.createEngine() instance (or anything shaped
@@ -89,13 +155,42 @@
     STARTING_DARTS: 12,
     DART_RANGE: 14,
     DART_HIT_PERP: 0.5,
+    STARTING_RATIONS: 3,
+    RATION_HEAL: 0.35,
+    STARTING_CHAFF: 2,
+    CHAFF_S: 15,
+    BOX_FACTOR: 0.05,
   };
 
   function createInventory() {
     var inv = {
       weapon: "tranq",
       darts: ITEMS.STARTING_DARTS,
+      rations: ITEMS.STARTING_RATIONS,
+      chaff: ITEMS.STARTING_CHAFF,
+      hasBox: true,
+      boxOn: false,
     };
+
+    // See file header: pure "would this help, and by how much" calculator —
+    // never touches player.hp itself (engine.js's RATION VERB applies the
+    // actual heal + pushes the event). The only mutation here is inv.rations,
+    // same posture as fireTranq's inv.darts-- below.
+    function useRation(player) {
+      if (inv.rations <= 0 || player.hp >= 1) return { used: false };
+      inv.rations--;
+      return { used: true, healAmount: ITEMS.RATION_HEAL };
+    }
+
+    // See file header: pure inventory bookkeeping only — starting the jam
+    // timer, emitting the pop noise, and pushing the event are engine.js's
+    // job (see its CHAFF VERB contract). The only mutation here is
+    // inv.chaff--, same posture as fireTranq's inv.darts-- below.
+    function useChaff() {
+      if (inv.chaff <= 0) return { used: false };
+      inv.chaff--;
+      return { used: true };
+    }
 
     function fireTranq(engine) {
       if (inv.darts <= 0) return { fired: false };
@@ -150,6 +245,8 @@
     }
 
     inv.fireTranq = fireTranq;
+    inv.useRation = useRation;
+    inv.useChaff = useChaff;
     return inv;
   }
 

@@ -2376,6 +2376,14 @@
 //       DART_RANGE: 14,       // meters, max travel distance of a fired dart
 //       DART_HIT_PERP: 0.5,   // meters, max perpendicular distance from the
 //                             // shot ray for a guard to count as hit
+//       STARTING_RATIONS: 3,  // Game.createInventory()'s starting ration count
+//       RATION_HEAL: 0.35,    // hp fraction a ration restores (see useRation)
+//       STARTING_CHAFF: 2,    // Game.createInventory()'s starting chaff-grenade count
+//       CHAFF_S: 15,          // seconds a chaff pop keeps the radar/cameras jammed
+//       BOX_FACTOR: 0.05,     // vision-profile multiplier while boxOn && stationary
+//                             // (boxOn && moving uses a flat 1.0 instead — no
+//                             // discount, "blown if seen moving" — see engine.js's
+//                             // BOX VERB contract for where this is actually applied)
 //     }
 //
 //   Game.createInventory() -> inv
@@ -2386,6 +2394,64 @@
 //       consumes a dart, hit or miss) — see fireTranq below. Carries over a
 //       zone transition unchanged (engine.js never resets/rebuilds inventory
 //       on switchZone — darts are mission-scoped, not zone-scoped).
+//
+//     inv.rations — mutable count, starts at ITEMS.STARTING_RATIONS (3).
+//       Decremented only by a successful useRation() call (see below) — a
+//       call that would be a no-op (no rations left, or hp already full)
+//       spends nothing. Mission-scoped like darts (untouched by switchZone).
+//
+//     inv.useRation(player) -> { used: false } | { used: true, healAmount }
+//       `player` is read-only here (same ENGINE-AGNOSTIC posture as
+//       fireTranq below) — this function never sets player.hp itself, it
+//       only decides WHETHER a ration would help and reports how much.
+//       No-op ({ used: false }, inv.rations untouched) if inv.rations <= 0
+//       OR player.hp >= 1 (a ration is never wasted topping off a full bar,
+//       and pressing the key with none left does nothing — mirrors
+//       fireTranq's "no darts left -> no-op" rule). Otherwise: inv.rations--
+//       and returns { used: true, healAmount: ITEMS.RATION_HEAL }. The
+//       CALLER (engine.js's RATION VERB) is responsible for actually
+//       applying player.hp = Math.min(1, player.hp + healAmount) and
+//       emitting the { type: "ration", hp } event — same division of labor
+//       as fireTranq/guard.tranq() below: this module computes, engine.js
+//       mutates anything outside its own `inv` object.
+//
+//     inv.chaff — mutable count, starts at ITEMS.STARTING_CHAFF (2).
+//       Decremented only by a successful useChaff() call. Mission-scoped
+//       like darts/rations.
+//
+//     inv.useChaff() -> { used: false } | { used: true }
+//       No-op ({ used: false }, inv.chaff untouched) if inv.chaff <= 0.
+//       Otherwise: inv.chaff-- and returns { used: true }. Pure inventory
+//       bookkeeping only — starting the CHAFF_S jam timer, emitting the
+//       chaff-pop noise, and pushing the { type: "chaff" } event are all
+//       engine.js's job (see its CHAFF VERB contract), same ENGINE-AGNOSTIC
+//       split as everything else in this file.
+//
+//     inv.hasBox — boolean, always true this cycle (no pickup system yet —
+//       same "not yet a real loadout system" caveat as inv.weapon above; a
+//       future cycle could make this pickup-gated without changing the
+//       boxOn toggle's own shape).
+//     inv.boxOn — mutable boolean, starts false. Toggled by engine.js's BOX
+//       VERB (B key, edge-triggered) — this module never flips it itself;
+//       it's a plain readable/writable flag, same shape as inv.darts being
+//       a plain counter engine.js/fireTranq both touch.
+//
+//     BOX / DRAG / LOCKER INTERACTION MATRIX ("one disguise at a time" — the
+//     full gating logic lives in engine.js's tick(), see its BOX VERB / DRAG
+//     VERB / LOCKER VERB contracts; documented here per this cycle's design
+//     brief since this is where boxOn/hasBox themselves are defined):
+//       - B (box toggle) is a no-op while engine.dragging is set OR
+//         engine.playerHidden is true — you can't pull a box over your head
+//         mid-drag or while already tucked in a locker.
+//       - G (drag attach/release, locker hide/exit) is ENTIRELY a no-op
+//         while inv.boxOn is true — dressed as a box, both hands are full,
+//         so no branch of engine.js's handleDragKey() runs at all (not
+//         "attach is blocked but release still works" — the whole key is
+//         dead while boxed).
+//       Because of the two rules above, boxOn and (dragging || playerHidden)
+//       can never be true at the same time — there is no live "box mid-drag"
+//       state to transition OUT of, so no separate "auto-off when a drag/
+//       locker starts" rule is needed (it would never fire).
 //
 //     inv.fireTranq(engine) -> { fired, hit, guardId?, headshot?, impact:{x,y} }
 //       `engine` is a live Game.createEngine() instance (or anything shaped
@@ -2459,13 +2525,42 @@
     STARTING_DARTS: 12,
     DART_RANGE: 14,
     DART_HIT_PERP: 0.5,
+    STARTING_RATIONS: 3,
+    RATION_HEAL: 0.35,
+    STARTING_CHAFF: 2,
+    CHAFF_S: 15,
+    BOX_FACTOR: 0.05,
   };
 
   function createInventory() {
     var inv = {
       weapon: "tranq",
       darts: ITEMS.STARTING_DARTS,
+      rations: ITEMS.STARTING_RATIONS,
+      chaff: ITEMS.STARTING_CHAFF,
+      hasBox: true,
+      boxOn: false,
     };
+
+    // See file header: pure "would this help, and by how much" calculator —
+    // never touches player.hp itself (engine.js's RATION VERB applies the
+    // actual heal + pushes the event). The only mutation here is inv.rations,
+    // same posture as fireTranq's inv.darts-- below.
+    function useRation(player) {
+      if (inv.rations <= 0 || player.hp >= 1) return { used: false };
+      inv.rations--;
+      return { used: true, healAmount: ITEMS.RATION_HEAL };
+    }
+
+    // See file header: pure inventory bookkeeping only — starting the jam
+    // timer, emitting the pop noise, and pushing the event are engine.js's
+    // job (see its CHAFF VERB contract). The only mutation here is
+    // inv.chaff--, same posture as fireTranq's inv.darts-- below.
+    function useChaff() {
+      if (inv.chaff <= 0) return { used: false };
+      inv.chaff--;
+      return { used: true };
+    }
 
     function fireTranq(engine) {
       if (inv.darts <= 0) return { fired: false };
@@ -2520,6 +2615,8 @@
     }
 
     inv.fireTranq = fireTranq;
+    inv.useRation = useRation;
+    inv.useChaff = useChaff;
     return inv;
   }
 
@@ -2810,6 +2907,130 @@
 //   any bystander's hearNoise-driven INVESTIGATE) by the time step 3's
 //   guard.update() runs this same tick.
 //
+//   BOX VERB — cardboard box (new this cycle): B key, input.box (boolean),
+//   EDGE-TRIGGERED exactly like drag/cqc (private prevBox closure state,
+//   false->true only) — but unlike every other edge verb, this one is a
+//   TOGGLE of engine.inventory.boxOn rather than a one-shot action. On that
+//   edge: if engine.dragging or engine.playerHidden is set, the press is
+//   silently swallowed (no toggle — see src/items.js's BOX / DRAG / LOCKER
+//   INTERACTION MATRIX: you can't pull the box on mid-drag or while hidden
+//   in a locker). Otherwise: inventory.boxOn = !inventory.boxOn. This is
+//   processed in the same CQC/DRAG/LOCKER block as those verbs, BEFORE
+//   player.update, so a same-tick toggle is reflected in this tick's speed
+//   cap / vision-wrap below.
+//   THE OTHER HALF OF THE MATRIX (see items.js): a dragEdge is only acted
+//   on (handleDragKey() called) while !inventory.boxOn — G is entirely dead
+//   while boxed, covering both its attach/hide AND release/exit branches in
+//   one gate (there is no live "boxed + dragging/hidden" state to carve
+//   exceptions out of, since neither can start while the other holds).
+//   BOX SPEED CAP: identical mechanism/rationale to DRAG SPEED CAP above —
+//   player.js has no speed-cap hook, so this module scales the
+//   ALREADY-normalized input.moveX/moveY by BOX_SPEED_MULT (0.55) whenever
+//   inventory.boxOn is true, before player.update() ever sees it. Mutually
+//   exclusive with the drag cap (boxOn and dragging can never both hold —
+//   see above), so this is a plain else-if, not a stacking multiplier.
+//   BOX PERCEPTION — "visible but discounted" (the box is NOT the same
+//   mechanism as the LOCKER's GUARD PERCEPTION GATE above: a hidden player
+//   is swapped for a decoy at an impossible position, out of every guard's
+//   range entirely; a boxed player's REAL x/y/facing/stance are still
+//   handed to every guard.update() call — a guard can walk right up and
+//   look at the box, it just doesn't read as a person unless it moves).
+//   guardAI.js calls vision.computeSight(viewer, ctx.player) with NO third
+//   `opts` argument (see its own contract) — so vision.js's opts.extraMult
+//   hook (designed with exactly this box in mind, per its own file header)
+//   is UNREACHABLE from here without editing guardAI.js, which is out of
+//   scope for this module. The only lever this module actually has on
+//   guardAI's per-tick sight computation is ctx.player.visionProfile()
+//   itself (target.visionProfile() is what vision.computeSight falls back
+//   to for `profile` when the caller passes no opts.profile — see
+//   src/vision.js contract), so — same "wrap ctx.player" technique the
+//   LOCKER decoy above already uses, just with the REAL x/y instead of an
+//   impossible one — whenever inventory.boxOn is true, every guard.update()
+//   call this tick gets a player object whose visionProfile() is OVERRIDDEN
+//   to ignore player.stance entirely and return a flat constant instead:
+//     Game.ITEMS.BOX_FACTOR (0.05) if !player.moving (stationary — the box
+//       reads as a near-invisible inert prop; SUSPICIOUS_AT (0.35) would
+//       take ~7s of continuous point-blank (2m) sight to reach at this
+//       factor, and proportionally longer at range — see src/vision.js's
+//       FILL FORMULA),
+//     1.0 if player.moving (SPEC: "blown if seen moving" — a moving box is
+//       exactly as visible as a standing, undisguised player; no partial
+//       credit for still wearing the box while walking around in it).
+//   player.moving/facing/stance/x/y on this wrapper are the REAL player's,
+//   unchanged (only visionProfile() is swapped) — so guardAI's OWN combat-
+//   accuracy read of ctx.player.moving/ctx.player.stance (see its ALERT/
+//   COMBAT contract) and squad.updateSighting(ctx.player.x, ctx.player.y)
+//   are completely unaffected by boxing; only the SIGHT FACTOR computation
+//   is discounted. This wrapper only applies while !engine.playerHidden
+//   (hidden already fully replaces ctx.player with the locker decoy above —
+//   the two states can never overlap per the interaction matrix anyway, so
+//   this is a defensive ordering, not a real runtime branch point).
+//   RENDER/HUD: src/render.js swaps the player's mesh for a larger, nose-
+//   less cardboard-brown box while boxOn (see its own file header); hudModel
+//   status is additive "BOX" (see src/hud.js contract) alongside DRAGGING/
+//   HIDDEN. Neither affects the perception math above — cosmetic only.
+//
+//   RATION VERB (new this cycle): R key, input.ration (boolean), EDGE-
+//   TRIGGERED exactly like knock/fire (private prevRation closure state).
+//   On that edge: calls inventory.useRation(player) (see src/items.js
+//   contract — a pure "would this help" calculator that never touches
+//   player.hp itself). If !result.used (no rations left, or hp already at
+//   1), nothing else happens — no event, same "empty inventory is silent"
+//   convention as the fire verb. Otherwise: this module (not items.js) is
+//   what actually applies the heal — player.hp = Math.min(1, player.hp +
+//   result.healAmount) — then pushes { type: "ration", hp: player.hp } (hp
+//   read AFTER the heal, same "report the post-mutation value" convention
+//   as playerHit above). RATION HOOK NOTE: src/engine.js's own file header
+//   used to flag this exact hp-restoration arithmetic as "expected to live
+//   on src/player.js, not engine.js" (a future-cycle aspiration written
+//   before player.js was off-limits for this cycle's task packet) — since
+//   player.js cannot be touched this cycle, the plain
+//   `player.hp = Math.min(1, player.hp + amount)` mutation is done directly
+//   here instead, exactly mirroring player.damage()'s own clamp shape but
+//   in the opposite direction. A future cycle with player.js in scope could
+//   still move this into a real player.heal() method with no change to this
+//   verb's own event/edge behavior. No noise, no speed cap, no interaction
+//   with box/drag/locker — eating a ration is always available.
+//
+//   CHAFF VERB (new this cycle): X key, input.chaff (boolean), EDGE-
+//   TRIGGERED exactly like knock/fire/ration (private prevChaff closure
+//   state). On that edge: calls inventory.useChaff() (see src/items.js
+//   contract). If !result.used (no chaff grenades left), nothing else
+//   happens. Otherwise:
+//     1. engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S (15) — an
+//        absolute sim-time deadline, not a countdown counter, same
+//        "compare against engine.time" convention as every other
+//        deterministic timer in this codebase (no setTimeout, no Date).
+//        Mission-scoped like darts/rations/chaff itself — NOT reset by
+//        switchZone (a thrown chaff grenade's jam outlasts a door).
+//     2. Pushes { type: "chaff" }.
+//     3. Emits a SHARP ("strong") pop at the player's OWN position: it's a
+//        bang, not a stealth tool — soundEvents.emitRadius(player.x,
+//        player.y, 4, true, guards) (4m unattenuated; not one of
+//        soundEvents.js's named RADII kinds, same "bespoke one-off radius"
+//        precedent as the CQC thud's emitRadius(...,3,...) call above).
+//        Any listener that heard it pushes the usual { type: "noiseHeard",
+//        ..., strength: "strong" }. THE TRADEOFF IS THE POINT: jamming the
+//        radar/blinding cameras costs you a guard converging on where you
+//        just stood (INVESTIGATE), exactly the same hearNoise("strong")
+//        pathway a knock or dart impact uses — documented here, not hacked
+//        around, because a chaff pop that was silent would make it strictly
+//        better than a knock with no downside.
+//   RADAR: src/radar.js's radarModel ORs a live engine.chaffUntil > engine.
+//   time signal into its existing phase-based `jammed` check (see its own
+//   CHAFF HOOK comment, written for exactly this) and exposes which kind of
+//   jam is live so the view can render chaff static differently (a bluish
+//   tint + "CHAFF" label) from a phase-driven ALERT/EVASION blackout (red
+//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK (honest gap,
+//   not a silent one — same posture as this file's own VISION STAGGERING
+//   note below): the Laboratory zone's cameras don't exist yet (SPEC.md's
+//   own zone list has them arriving with keycards later), so "cameras die
+//   under chaff" has nothing to wire up to this cycle; whenever a camera
+//   entity exists, it is expected to gate its own perception off this same
+//   engine.chaffUntil > engine.time signal, not a second parallel timer.
+//   Runs in the same NOISE STEP position as fire/knock (step 2), same
+//   same-tick-visible-to-guards rationale as the fire verb above.
+//
 //   COMBAT — guard fire / player damage / game over (new this cycle):
 //     Step 3 (guard update loop) below passes each guard.update() a THIRD ctx
 //     field beyond `player`: onGuardFire(guard, hit), guardAI.js's hook for
@@ -3086,6 +3307,13 @@
       // DRAG VERB / LOCKER VERB in the file header). Defaults to false.
       cqc: !!input.cqc,
       drag: !!input.drag,
+      // box/ration/chaff: same edge-triggered shape as knock/fire/cqc/drag,
+      // but for the cardboard box toggle and the ration/chaff consumables
+      // (see BOX VERB / RATION VERB / CHAFF VERB in the file header).
+      // Defaults to false.
+      box: !!input.box,
+      ration: !!input.ration,
+      chaff: !!input.chaff,
     };
   }
 
@@ -3118,6 +3346,14 @@
   var DRAG_SPEED_MULT = 0.55;
   var LOCKER_INTERACT_DIST = 1.0;
   var LOCKER_STEP_DIST = 1.0;
+  // BOX SPEED CAP (see file header BOX VERB) — identical value/rationale to
+  // DRAG_SPEED_MULT above, kept as its own named constant since the two are
+  // mutually exclusive gates, not the same one reused.
+  var BOX_SPEED_MULT = 0.55;
+  // CHAFF pop noise radius (see file header CHAFF VERB) — a bespoke one-off
+  // radius, same precedent as CQC_NOISE_RADIUS above (not one of
+  // soundEvents.js's named RADII kinds).
+  var CHAFF_NOISE_RADIUS = 4;
   // Decoy position handed to every guard.update() call while
   // engine.playerHidden is true (see LOCKER VERB / GUARD PERCEPTION GATE in
   // the file header) — far enough outside any zone's VISION.RANGE (14m, even
@@ -3199,6 +3435,13 @@
     var prevCqc = false;
     var prevDrag = false;
 
+    // Edge-trigger state for the box toggle / ration / chaff verbs (see
+    // file header BOX VERB / RATION VERB / CHAFF VERB) — same shape/
+    // rationale as prevKnock/prevFire/prevCqc/prevDrag above.
+    var prevBox = false;
+    var prevRation = false;
+    var prevChaff = false;
+
     // The locker (a plain {x,y,facing} from zone.lockers) the player is
     // CURRENTLY hidden in, or null — private mirror of engine.playerHidden
     // that remembers WHICH locker so the exit step (see LOCKER VERB) knows
@@ -3232,6 +3475,12 @@
       gameOver: false,
       dragging: null,
       playerHidden: false,
+      // CHAFF VERB (see file header) — absolute sim-time deadline (compared
+      // against engine.time, never a countdown counter), 0 meaning "never
+      // thrown yet" (engine.time also starts at 0, so 0 > 0 is false — no
+      // spurious jam at boot). Mission-scoped like inventory.darts/rations/
+      // chaff — NOT reset by switchZone.
+      chaffUntil: 0,
     };
 
     // ---- CQC / DRAG / LOCKER helpers (see file header) ------------------------
@@ -3531,7 +3780,11 @@
       // `normalized` before it's ever handed to player.update.
       var dragEdge = normalized.drag && !prevDrag;
       prevDrag = normalized.drag;
-      if (dragEdge) {
+      // BOX / DRAG / LOCKER INTERACTION MATRIX (see file header BOX VERB /
+      // src/items.js's own matrix note): G is entirely dead while boxed —
+      // handleDragKey() covers attach/hide AND release/exit in one call, so
+      // gating the call itself here is enough to block every branch.
+      if (dragEdge && !inventory.boxOn) {
         handleDragKey();
       }
 
@@ -3539,6 +3792,16 @@
       prevCqc = normalized.cqc;
       if (cqcEdge && !engine.playerHidden && !engine.dragging) {
         tryCqc();
+      }
+
+      // BOX VERB (see file header) — B is a TOGGLE, not a one-shot action,
+      // and (per the interaction matrix) only takes effect while neither
+      // dragging nor hidden holds (either from before this tick, or just
+      // set by the dragEdge processing immediately above this same tick).
+      var boxEdge = normalized.box && !prevBox;
+      prevBox = normalized.box;
+      if (boxEdge && inventory.hasBox && !engine.dragging && !engine.playerHidden) {
+        inventory.boxOn = !inventory.boxOn;
       }
 
       // FROZEN INPUT while hidden (see file header LOCKER VERB) — movement
@@ -3552,10 +3815,16 @@
 
       // DRAG SPEED CAP (see file header DRAG VERB) — player.js has no
       // speed-cap hook, so the ALREADY-normalized input vector is scaled
-      // here, before player.update ever sees it.
+      // here, before player.update ever sees it. BOX SPEED CAP is the same
+      // mechanism for inventory.boxOn (see file header BOX VERB) — a plain
+      // else-if, since dragging and boxOn can never both hold (see the
+      // interaction matrix above).
       if (engine.dragging) {
         normalized.moveX *= DRAG_SPEED_MULT;
         normalized.moveY *= DRAG_SPEED_MULT;
+      } else if (inventory.boxOn) {
+        normalized.moveX *= BOX_SPEED_MULT;
+        normalized.moveY *= BOX_SPEED_MULT;
       }
 
       player.update(normalized, DT);
@@ -3663,6 +3932,46 @@
           }
         }
       }
+
+      // Ration verb: edge-triggered (false->true only), same shape as knock/
+      // fire above (see file header RATION VERB). No wall-adjacency gate, no
+      // noise, no interaction with box/drag/locker — always available.
+      var rationEdge = normalized.ration && !prevRation;
+      prevRation = normalized.ration;
+      if (rationEdge) {
+        var rationResult = inventory.useRation(player);
+        if (rationResult.used) {
+          player.hp = Math.min(1, player.hp + rationResult.healAmount);
+          engine.events.push({ type: "ration", hp: player.hp });
+        }
+      }
+
+      // Chaff verb: edge-triggered (false->true only), same shape as knock/
+      // fire above (see file header CHAFF VERB). The pop is a SHARP noise at
+      // the player's OWN position — same noiseHeard fan-out loop shape as
+      // the knock/fire verbs above.
+      var chaffEdge = normalized.chaff && !prevChaff;
+      prevChaff = normalized.chaff;
+      if (chaffEdge) {
+        var chaffResult = inventory.useChaff();
+        if (chaffResult.used) {
+          engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S;
+          engine.events.push({ type: "chaff" });
+
+          var chaffResults = soundEvents.emitRadius(player.x, player.y, CHAFF_NOISE_RADIUS, true, guards);
+          for (var chi = 0; chi < chaffResults.length; chi++) {
+            if (chaffResults[chi].heard) {
+              engine.events.push({
+                type: "noiseHeard",
+                guardId: chaffResults[chi].listenerId,
+                x: player.x,
+                y: player.y,
+                strength: chaffResults[chi].strength,
+              });
+            }
+          }
+        }
+      }
       // ---- END NOISE STEP ---------------------------------------------------
 
       // sleepingGuards snapshot (see file header, tick() step 3) — computed
@@ -3690,16 +3999,40 @@
       // `player`. guardAI.js/vision.js are unaware this substitution ever
       // happens; onGuardFire/damage (below) still close over the REAL
       // `player`, unaffected by this local var.
-      var perceivedPlayer = engine.playerHidden
-        ? {
-            x: HIDDEN_DECOY_POS,
-            y: HIDDEN_DECOY_POS,
-            facing: player.facing,
-            visionProfile: player.visionProfile,
-            moving: false,
-            stance: player.stance,
-          }
-        : player;
+      //
+      // BOX PERCEPTION (see file header BOX VERB) — a DIFFERENT wrap: while
+      // inventory.boxOn, guards still get the player's REAL x/y/facing/
+      // stance/moving (the box is visible, just discounted), only
+      // visionProfile() is overridden to ignore stance entirely and return
+      // a flat Game.ITEMS.BOX_FACTOR (0.05) while stationary, or a flat 1.0
+      // the instant player.moving is true ("blown if seen moving" — no
+      // partial credit). Mutually exclusive with playerHidden (see the
+      // interaction matrix), so this is a plain else-if, not a second
+      // wrapper stacked on top of the decoy.
+      var perceivedPlayer;
+      if (engine.playerHidden) {
+        perceivedPlayer = {
+          x: HIDDEN_DECOY_POS,
+          y: HIDDEN_DECOY_POS,
+          facing: player.facing,
+          visionProfile: player.visionProfile,
+          moving: false,
+          stance: player.stance,
+        };
+      } else if (inventory.boxOn) {
+        perceivedPlayer = {
+          x: player.x,
+          y: player.y,
+          facing: player.facing,
+          stance: player.stance,
+          moving: player.moving,
+          visionProfile: function () {
+            return player.moving ? 1.0 : Game.ITEMS.BOX_FACTOR;
+          },
+        };
+      } else {
+        perceivedPlayer = player;
+      }
 
       for (var i = 0; i < guards.length; i++) {
         guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
@@ -4429,13 +4762,31 @@
 //   undefined fields anywhere in the tree — every field is a primitive, a
 //   plain object, or an array of those):
 //     {
-//       jammed: boolean,      // true iff engine.squad.phase is "ALERT" or
-//                             // "EVASION". CHAFF HOOK: a future jamming
-//                             // item/device should OR its own boolean into
-//                             // this same expression (jammed = phaseJam ||
-//                             // chaffActive) rather than adding a second
-//                             // signal elsewhere -- this line is the single
-//                             // place the view checks "static vs live".
+//       jammed: boolean,      // true iff phaseJam || chaffActive (see both
+//                             // below) -- this is the single place the view
+//                             // checks "static vs live".
+//       phaseJam: boolean,    // true iff engine.squad.phase is "ALERT" or
+//                             // "EVASION".
+//       chaffActive: boolean, // CHAFF HOOK (fulfilled -- src/items.js/
+//                             // src/engine.js's CHAFF VERB): true iff
+//                             // engine.chaffUntil > engine.time (an absolute
+//                             // sim-time deadline set by throwing a chaff
+//                             // grenade, see engine.js's CHAFF VERB
+//                             // contract). Falls back to false when
+//                             // engine.chaffUntil is absent (a bespoke test
+//                             // engine-shaped object predating this cycle),
+//                             // same backward-compat rationale as hud.js's
+//                             // weapon/item placeholder fallbacks. Exposed
+//                             // as its own field (rather than folded silently
+//                             // into `jammed`) so the view can render a
+//                             // chaff-only jam differently from a phase-
+//                             // driven ALERT/EVASION blackout -- see
+//                             // drawStatic/drawBlinkText below. CAMERA HOOK
+//                             // (not this cycle -- the Laboratory zone's
+//                             // cameras don't exist yet): whenever a camera
+//                             // entity exists, it is expected to gate its
+//                             // own perception off this SAME chaffActive
+//                             // signal, not a second parallel timer.
 //       zone: { w, h },       // engine.zone.bounds, copied
 //       walls: [ {x,y,w,h}, ... ],      // engine.zone.walls, copied
 //       darkZones: [ {x,y,w,h}, ... ],  // engine.zone.darkZones, copied
@@ -4489,8 +4840,19 @@
 //       Instead: animated static -- a grid of cells, each cell's brightness
 //       a deterministic hash of (cellIndex, engine.tickCount >> 2) so it
 //       visibly crawls over time without ever calling Math.random -- plus a
-//       blinking "ALERT" text overlay (visibility toggles on
-//       engine.tickCount, see BLINK_TICKS).
+//       blinking text overlay (visibility toggles on engine.tickCount, see
+//       BLINK_TICKS). CHAFF LOOKS DIFFERENT FROM ALERT (new -- see
+//       radarModel's chaffActive field above): while model.phaseJam is true
+//       the static renders in the usual green tint with a blinking red
+//       "ALERT" label (unchanged from before); while jammed only because
+//       model.chaffActive is true (phaseJam false -- squad is still
+//       INFILTRATION, just chaff-blinded), the static renders in a bluish
+//       tint instead and the blinking label reads "CHAFF" in blue -- same
+//       deterministic hash/blink mechanics, different palette/text, so a
+//       glance at the radar tells you WHY it's dark (a squad actually onto
+//       you vs. a self-inflicted few seconds of blindness you chose to
+//       trade for a distracted guard -- see engine.js's CHAFF VERB "the
+//       tradeoff is the point" note).
 //     THREE is never referenced anywhere in this file (canvas 2D only).
 //
 // Pure logic (radarModel) + browser view (createRadar) in one file, split so
@@ -4527,7 +4889,13 @@
     var zone = engine.zone;
     var player = engine.player;
 
-    var jammed = squad.phase === "ALERT" || squad.phase === "EVASION";
+    var phaseJam = squad.phase === "ALERT" || squad.phase === "EVASION";
+    // CHAFF HOOK (fulfilled -- see file header): OR'd into the same `jammed`
+    // expression the view checks, exactly as the original hook comment
+    // asked for. engine.chaffUntil may be absent on a bespoke pre-cycle test
+    // engine -- falls back to false, never throws.
+    var chaffActive = typeof engine.chaffUntil === "number" && engine.chaffUntil > engine.time;
+    var jammed = phaseJam || chaffActive;
 
     var guards = jammed
       ? []
@@ -4546,6 +4914,8 @@
 
     return {
       jammed: jammed,
+      phaseJam: phaseJam,
+      chaffActive: chaffActive,
       zone: { w: zone.bounds.w, h: zone.bounds.h },
       walls: zone.walls.map(copyRect),
       darkZones: zone.darkZones.map(copyRect),
@@ -4599,7 +4969,12 @@
     ctx.fill();
   }
 
-  function drawStatic(ctx, w, h, tickCount) {
+  // chaffOnly (new -- see file header CHAFF LOOKS DIFFERENT FROM ALERT):
+  // true renders a bluish static tint (chaff-blinded, squad still
+  // INFILTRATION) instead of the usual green-tinted phase-jam static, by
+  // swapping which channel `v` (the deterministic per-cell brightness)
+  // drives -- same hash/crawl mechanics, different palette.
+  function drawStatic(ctx, w, h, tickCount, chaffOnly) {
     var cell = RADAR.STATIC_CELL;
     var cols = Math.ceil(w / cell);
     var rows = Math.ceil(h / cell);
@@ -4609,20 +4984,25 @@
         var idx = ry * cols + rx;
         var n = hash2(idx, noiseKey) % 100;
         var v = 18 + (n % 55); // 18..72 brightness band
-        ctx.fillStyle = "rgba(18," + v + "," + Math.round(v * 0.55) + ",0.92)";
+        var dim = Math.round(v * 0.55);
+        ctx.fillStyle = chaffOnly
+          ? "rgba(18," + dim + "," + v + ",0.92)" // bluish: B channel dominant
+          : "rgba(18," + v + "," + dim + ",0.92)"; // green: G channel dominant
         ctx.fillRect(rx * cell, ry * cell, cell, cell);
       }
     }
   }
 
-  function drawBlinkText(ctx, w, h, tickCount) {
+  // chaffOnly (new -- see file header): swaps the blinking label's text and
+  // color from red "ALERT" to blue "CHAFF" -- same blink cadence/mechanics.
+  function drawBlinkText(ctx, w, h, tickCount, chaffOnly) {
     var on = Math.floor(tickCount / RADAR.BLINK_TICKS) % 2 === 0;
     if (!on) return;
-    ctx.fillStyle = "rgba(255, 45, 64, 0.94)";
+    ctx.fillStyle = chaffOnly ? "rgba(80, 160, 255, 0.94)" : "rgba(255, 45, 64, 0.94)";
     ctx.font = "bold 16px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ALERT", w / 2, h / 2);
+    ctx.fillText(chaffOnly ? "CHAFF" : "ALERT", w / 2, h / 2);
   }
 
   function createRadar(opts) {
@@ -4699,8 +5079,14 @@
       ctx.strokeRect(0.5, 0.5, widthCss - 1, heightCss - 1);
 
       if (model.jammed) {
-        drawStatic(ctx, widthCss, heightCss, engine.tickCount);
-        drawBlinkText(ctx, widthCss, heightCss, engine.tickCount);
+        // chaffOnly: chaff-blinded while the squad is still INFILTRATION
+        // (phaseJam false) -- see file header CHAFF LOOKS DIFFERENT FROM
+        // ALERT. If phaseJam is ALSO true (e.g. chaff thrown mid-firefight),
+        // the phase-jam ALERT/EVASION styling wins -- that's the more
+        // urgent, more informative state to show.
+        var chaffOnly = model.chaffActive && !model.phaseJam;
+        drawStatic(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
+        drawBlinkText(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
         return;
       }
 
@@ -4780,27 +5166,45 @@
 //                               // compatible with anything not wiring up an
 //                               // inventory. The view grays the content text
 //                               // out when ammo === 0 (see drawWeaponBox).
-//       item: { name: "---", count: null },
-//                               // PLACEHOLDER, same shape/rationale as weapon
-//                               // above but for the consumable-item slot.
-//                               // UNCHANGED this cycle (see `status` below —
-//                               // dragging/hiding are surfaced through a
-//                               // DIFFERENT field, deliberately, so every
-//                               // existing item-placeholder assertion in
-//                               // tests/hud.test.js keeps holding verbatim).
-//       status: "DRAGGING" | "HIDDEN" | null,
-//                               // NEW (CQC/locker cycle) — ADDITIVE field,
-//                               // separate from `item` above by design (see
-//                               // the note on `item` — this is what keeps
-//                               // this cycle backward compatible with
-//                               // tests/hud.test.js's untouched assertions).
-//                               // "HIDDEN" while engine.playerHidden, else
-//                               // "DRAGGING" while engine.dragging, else
-//                               // null. Falls back to null when engine
-//                               // exposes neither prop (e.g. a bespoke test
-//                               // engine-shaped object predating this
-//                               // cycle), same backward-compat rationale as
-//                               // the `weapon` placeholder fallback above.
+//       item: { name: "RATION", count: number },
+//                               // REAL as of this cycle (was the "---"/null
+//                               // placeholder -- see the old note this
+//                               // replaces, and tests/hud.test.js's own
+//                               // ratchet-rule-2 NOTE on the one assertion
+//                               // that changed): mirrors engine.inventory
+//                               // when present -- name is always "RATION"
+//                               // (the item slot shows rations; chaff has no
+//                               // HUD slot this cycle, see BACKLOG), count is
+//                               // engine.inventory.rations. Falls back to the
+//                               // original placeholder { name: "---", count:
+//                               // null } if engine.inventory is absent (e.g.
+//                               // a bespoke test engine-shaped object that
+//                               // predates items.js), same backward-compat
+//                               // rationale as `weapon` above. The view grays
+//                               // the content text out when count === 0 (see
+//                               // drawItemBox), reusing the exact same
+//                               // DEPLETED_COLOR gate as the weapon box.
+//       status: "DRAGGING" | "HIDDEN" | "BOX" | null,
+//                               // ADDITIVE field, separate from `item` above
+//                               // by design (see the note on `item` — this
+//                               // is what keeps every cycle backward
+//                               // compatible with tests/hud.test.js's own
+//                               // assertions on `item`). "HIDDEN" while
+//                               // engine.playerHidden, else "DRAGGING" while
+//                               // engine.dragging, else "BOX" (new -- box/
+//                               // chaff/ration cycle) while
+//                               // engine.inventory.boxOn, else null. Falls
+//                               // back to null when engine exposes none of
+//                               // playerHidden/dragging/inventory (e.g. a
+//                               // bespoke test engine-shaped object predating
+//                               // this cycle), same backward-compat rationale
+//                               // as the `weapon` placeholder fallback above.
+//                               // The three are mutually exclusive in
+//                               // practice (see src/items.js's BOX / DRAG /
+//                               // LOCKER INTERACTION MATRIX), so this
+//                               // priority order never actually has to
+//                               // arbitrate a real conflict -- it's just a
+//                               // defensive read order.
 //       maxDetection: number 0..1,
 //                               // max over engine.guards[i].meter (0 if no
 //                               // guards). Drives the screen-edge detection
@@ -4900,9 +5304,12 @@
   };
 
   // New (CQC/locker cycle) — see hudModel's `status` field note above.
+  // BOX (new -- box/chaff/ration cycle): cardboard-brown, matching
+  // src/render.js's box-mesh color family.
   var STATUS_STYLE = {
     DRAGGING: { fill: "rgba(239, 143, 0, 0.85)", border: "#ffc04d" },
     HIDDEN: { fill: "rgba(70, 130, 180, 0.85)", border: "#9fd8ff" },
+    BOX: { fill: "rgba(139, 90, 43, 0.88)", border: "#d9a066" },
   };
 
   // ---- pure model -------------------------------------------------------
@@ -4935,8 +5342,16 @@
       weapon: engine.inventory
         ? { name: "TRANQ", ammo: engine.inventory.darts }
         : { name: "---", ammo: null },
-      item: { name: "---", count: null },
-      status: engine.playerHidden ? "HIDDEN" : engine.dragging ? "DRAGGING" : null,
+      item: engine.inventory
+        ? { name: "RATION", count: engine.inventory.rations }
+        : { name: "---", count: null },
+      status: engine.playerHidden
+        ? "HIDDEN"
+        : engine.dragging
+          ? "DRAGGING"
+          : engine.inventory && engine.inventory.boxOn
+            ? "BOX"
+            : null,
       maxDetection: maxDetection,
     };
   }
@@ -5262,6 +5677,24 @@
 //   same x/y every tick to trail the player — so a dragged body is already
 //   drawn "following the player" for free, with zero render.js changes.
 //
+//   BOX DISGUISE (new — box/chaff/ration cycle, see src/engine.js's BOX VERB
+//   contract): while engine.inventory.boxOn is true, the player's actor is
+//   drawn as a cardboard-brown crate instead of its normal steel-blue body —
+//   a pure cosmetic re-skin of the SAME body mesh every other pose already
+//   uses (no new geometry, same trick as the SLEEPING pose's scale-and-
+//   reposition above): scaled up slightly on X/Z (BOX_FOOTPRINT_SCALE,
+//   "slightly larger than the player") and to a fixed BOX_HEIGHT regardless
+//   of stance (a box has no crouch/crawl pose), body.material.color swapped
+//   to BOX_COLOR, and the nose (facing wedge) HIDDEN — a box gives no
+//   external hint which way the player inside it is actually facing. This
+//   override runs AFTER placeActor() every frame (placeActor's own
+//   stance-driven scale/nose-visible writes are for the un-boxed case) and
+//   is unconditionally reset to the normal PLAYER_COLOR/nose-visible
+//   whenever boxOn is false, so a single frame right after taking the box
+//   off never shows a stale brown tint. Purely cosmetic — see
+//   src/engine.js's BOX VERB contract for the actual perception-discount
+//   mechanics this has no bearing on.
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -5345,6 +5778,12 @@
     var EXIT_COLOR = 0x00ff66;
     var PLAYER_COLOR = 0x4682b4; // steel blue
     var GUARD_COLOR = 0x6b8e23; // olive drab
+    // CARDBOARD BOX (new — box/chaff/ration cycle, see file header BOX
+    // DISGUISE note below): cardboard-brown, matching src/hud.js's BOX
+    // status-pill color family.
+    var BOX_COLOR = 0x8b5a2b;
+    var BOX_HEIGHT = 1.0; // world units — a fixed crate height, stance-independent
+    var BOX_FOOTPRINT_SCALE = 1.45; // "slightly larger than the player" (BODY_W * this)
     var NOSE_COLOR = 0xf2f2f2;
     var BG_COLOR = 0x05070a;
 
@@ -5946,6 +6385,23 @@
       var player = engine.player;
       placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
 
+      // BOX DISGUISE (see file header) — re-skins the SAME body/nose meshes
+      // placeActor just posed above; runs every frame so taking the box off
+      // reliably reverts to the normal color/scale/nose-visible, not just a
+      // one-time swap when boxOn first flips true.
+      var boxOn = !!(engine.inventory && engine.inventory.boxOn);
+      if (boxOn) {
+        // BOX_FOOTPRINT_SCALE scales BODY_W directly (the body mesh's own
+        // scale is relative to its unscaled BODY_W x 1 x BODY_W geometry,
+        // same convention placeActor's `1` X/Z scale already relies on).
+        playerActor.body.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
+        playerActor.body.position.set(0, BOX_HEIGHT / 2, 0);
+        playerActor.body.material.color.setHex(BOX_COLOR);
+        playerActor.nose.visible = false; // a box gives no external facing hint
+      } else {
+        playerActor.body.material.color.setHex(PLAYER_COLOR);
+      }
+
       // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
       // engine.time, never Date.now. Full opacity (1) whenever not hidden.
       var playerOpacity = engine.playerHidden
@@ -6018,6 +6474,430 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== tests/boxChaff.test.js ====
+(function (global) {
+// tests/boxChaff.test.js — headless assertions for the cardboard box, ration,
+// and chaff-grenade item set: the BOX/RATION/CHAFF VERB wiring in
+// src/engine.js, the extended Game.createInventory() shape in src/items.js,
+// the additive hudModel.item/status fields in src/hud.js, and the chaff-jam
+// signal in src/radar.js's radarModel. Same registry pattern as every other
+// tests/*.js file: push onto the shared Game.selfTests list; test.js runs
+// every entry and reports ok/FAIL with real exit codes. Follows
+// tests/cqc.test.js's own conventions (real engines, teleport-a-guard/
+// teleport-the-player tricks, a dedicated low-level harness for scenarios
+// too fiddly to script through a full engine).
+//
+// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
+// not yet list src/hud.js or src/radar.js, and this file sorts alphabetically
+// BEFORE tests/hud.test.js and tests/radar.test.js (see test.js's loadDir,
+// which requires tests/*.js in sorted filename order) — so this file must do
+// its own self-require of both, the exact same guard tests/hud.test.js and
+// tests/radar.test.js each already carry (safe in node; a complete no-op in
+// the browser build, where build.js already concatenates every src module
+// ahead of any tests/*.js content).
+if (typeof require !== "undefined") {
+  require("../src/hud.js");
+  require("../src/radar.js");
+}
+
+const Game = global.Game;
+const DT = 1 / 60;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function approx(a, b, eps) {
+  return Math.abs(a - b) < eps;
+}
+
+// ---- 1. Box toggle: edge-triggered, holding the key doesn't re-toggle -----
+
+Game.selfTests.push({
+  name: "box: B toggles inventory.boxOn on a fresh edge; holding it does not re-toggle",
+  fn: function () {
+    var engine = Game.createEngine();
+    assert(engine.inventory.boxOn === false, "expected boxOn false on a fresh engine");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === true, "expected boxOn true after the B edge");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === true, "expected boxOn to stay true while B is held (no re-toggle)");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: false });
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === false, "expected a fresh B edge to toggle boxOn back off");
+  },
+});
+
+// ---- 2. Box toggle blocked while dragging ----------------------------------
+
+Game.selfTests.push({
+  name: "box: B is a no-op while engine.dragging is set",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-box-drag", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+    engine.guards[0].tranq(true);
+    engine.player.x = 20.5;
+    engine.player.y = 5;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.dragging === "sleeper-box-drag", "setup failed: drag never attached");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === false, "expected the box toggle to be swallowed while dragging");
+  },
+});
+
+// ---- 3. Box toggle blocked while hidden in a locker ------------------------
+
+Game.selfTests.push({
+  name: "box: B is a no-op while engine.playerHidden is true",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var locker = zone.lockers[0];
+    var engine = Game.createEngine({ zoneData: zone });
+    engine.player.x = locker.x;
+    engine.player.y = locker.y;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(engine.playerHidden === true, "setup failed: player never hid");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === false, "expected the box toggle to be swallowed while hidden");
+  },
+});
+
+// ---- 4. G-key interactions are entirely blocked while boxed ---------------
+
+Game.selfTests.push({
+  name: "box: G (drag attach / locker hide) is entirely a no-op while boxOn",
+  fn: function () {
+    // 4a. Drag attach blocked.
+    var dragEngine = Game.createEngine({
+      guardConfigs: [{ id: "sleeper-boxed-g", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+    dragEngine.guards[0].tranq(true);
+    dragEngine.player.x = 20.5;
+    dragEngine.player.y = 5;
+    dragEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(dragEngine.inventory.boxOn === true, "setup failed: box never toggled on");
+
+    dragEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(dragEngine.dragging === null, "expected G (attach) to be a no-op while boxed");
+
+    // 4b. Locker hide blocked.
+    var zone = Game.ZONES.loadingDock;
+    var locker = zone.lockers[0];
+    var hideEngine = Game.createEngine({ zoneData: zone });
+    hideEngine.player.x = locker.x;
+    hideEngine.player.y = locker.y;
+    hideEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(hideEngine.inventory.boxOn === true, "setup failed: box never toggled on");
+
+    hideEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true });
+    assert(hideEngine.playerHidden === false, "expected G (hide) to be a no-op while boxed");
+  },
+});
+
+// ---- 5. Box speed cap ~0.55x, measured against an unboxed baseline ---------
+
+Game.selfTests.push({
+  name: "box: reduces player speed to ~0.55x, measured over 60 ticks against a baseline",
+  fn: function () {
+    var boxEngine = Game.createEngine();
+    boxEngine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(boxEngine.inventory.boxOn === true, "setup failed: box never toggled on");
+
+    var startX = boxEngine.player.x;
+    for (var i = 0; i < 60; i++) {
+      boxEngine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand", box: true });
+    }
+    var boxedDisplacement = boxEngine.player.x - startX;
+
+    var baselineEngine = Game.createEngine();
+    var startXb = baselineEngine.player.x;
+    for (var j = 0; j < 60; j++) {
+      baselineEngine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand" });
+    }
+    var baselineDisplacement = baselineEngine.player.x - startXb;
+
+    assert(baselineDisplacement > 0, "setup failed: baseline player never moved");
+    var ratio = boxedDisplacement / baselineDisplacement;
+    assert(
+      Math.abs(ratio - 0.55) < 0.02,
+      "expected boxed/baseline displacement ratio ~0.55, got " + ratio.toFixed(4) +
+        " (boxed=" + boxedDisplacement.toFixed(3) + ", baseline=" + baselineDisplacement.toFixed(3) + ")"
+    );
+  },
+});
+
+// ---- helpers for the vision-discount tests (6, 7) --------------------------
+// loadingDock's y=2 band is documented (see src/world.js) as clear of every
+// obstacle ("NW corner (above all obstacles for clear north leg)") -- guard
+// spawns at (10,2) facing a waypoint far to the east so it never "arrives"
+// and its facing self-corrects to ~due-east every tick (dy stays exactly 0
+// since the waypoint shares guard.y); re-pinning guard.x/y/facing and
+// player.x/y before every tick.tick() call holds the geometry exactly fixed
+// at dist=5m, isolating "does boxOn's visionProfile override work" from any
+// patrol-movement drift.
+function pinnedBoxEngine() {
+  return Game.createEngine({
+    guardConfigs: [{ id: "tg-box-vision", spawn: { x: 10, y: 2 }, waypoints: [{ x: 10000, y: 2 }] }],
+  });
+}
+
+function pin(engine) {
+  var g = engine.guards[0];
+  g.x = 10;
+  g.y = 2;
+  g.facing = 0;
+  engine.player.y = 2;
+}
+
+// ---- 6. Boxed + stationary in front of a guard at 5m: meter stays low -----
+
+Game.selfTests.push({
+  name: "box: boxed + stationary at 5m in a guard's cone keeps the meter under SUSPICIOUS_AT over 5s",
+  fn: function () {
+    var engine = pinnedBoxEngine();
+    var g = engine.guards[0];
+    pin(engine);
+    engine.player.x = 15; // 5m due east of the guard, dead in its cone
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === true, "setup failed: box never toggled on");
+
+    var maxTicks = Math.round(5 / DT);
+    for (var i = 0; i < maxTicks; i++) {
+      pin(engine);
+      engine.player.x = 15;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+      assert(
+        g.state === "PATROL",
+        "expected the guard to stay PATROL while the boxed player is stationary, tick " + i + " state=" + g.state
+      );
+    }
+    assert(
+      g.meter < Game.VISION.SUSPICIOUS_AT,
+      "expected meter to stay under SUSPICIOUS_AT (" + Game.VISION.SUSPICIOUS_AT + ") after 5s, got " + g.meter
+    );
+  },
+});
+
+// ---- 7. Boxed + moving in front of a guard at 5m: SUSPICIOUS within ~2s ----
+
+Game.selfTests.push({
+  name: "box: boxed + moving at 5m in a guard's cone reaches SUSPICIOUS within ~2s (no discount while moving)",
+  fn: function () {
+    var engine = pinnedBoxEngine();
+    var g = engine.guards[0];
+    pin(engine);
+    engine.player.x = 15;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    assert(engine.inventory.boxOn === true, "setup failed: box never toggled on");
+
+    var maxTicks = Math.round(2 / DT);
+    var reachedAt = null;
+    for (var i = 0; i < maxTicks; i++) {
+      pin(engine);
+      engine.player.x = 15;
+      // moveX nonzero -> player.moving true -> BOX PERCEPTION drops to a flat
+      // 1.0 (no discount) regardless of the tiny actual displacement, which
+      // pin() overwrites back to x=15 every tick anyway (see file header).
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand", box: true });
+      if (g.state === "SUSPICIOUS" || g.state === "INVESTIGATE") {
+        reachedAt = i;
+        break;
+      }
+    }
+    assert(
+      reachedAt !== null,
+      "expected the guard to notice the boxed-but-moving player within 2s, final state=" + g.state + " meter=" + g.meter
+    );
+  },
+});
+
+// ---- 8. Ration: heals +0.35 capped at 1, decrements count ------------------
+
+Game.selfTests.push({
+  name: "ration: heals +0.35 (capped at 1), decrements inventory.rations, reports post-heal hp",
+  fn: function () {
+    var engine = Game.createEngine();
+    engine.player.hp = 0.5;
+    var rationsBefore = engine.inventory.rations;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    var events = engine.events.filter(function (e) { return e.type === "ration"; });
+    assert(events.length === 1, "expected exactly one ration event, got " + JSON.stringify(engine.events));
+    assert(approx(events[0].hp, 0.85, 1e-9), "expected reported hp 0.85, got " + events[0].hp);
+    assert(approx(engine.player.hp, 0.85, 1e-9), "expected player.hp 0.85, got " + engine.player.hp);
+    assert(engine.inventory.rations === rationsBefore - 1, "expected rations decremented by exactly 1");
+
+    // Cap at 1: fresh edge, hp close to full.
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: false });
+    engine.player.hp = 0.9;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    assert(approx(engine.player.hp, 1, 1e-9), "expected hp capped at 1, got " + engine.player.hp);
+  },
+});
+
+// ---- 9. Ration: no-op at full hp (rations untouched, no event) -------------
+
+Game.selfTests.push({
+  name: "ration: pressing R at full hp is a no-op -- no event, rations untouched",
+  fn: function () {
+    var engine = Game.createEngine();
+    assert(engine.player.hp === 1, "setup failed: expected full hp on a fresh engine");
+    var rationsBefore = engine.inventory.rations;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    var events = engine.events.filter(function (e) { return e.type === "ration"; });
+    assert(events.length === 0, "expected no ration event at full hp, got " + JSON.stringify(engine.events));
+    assert(engine.inventory.rations === rationsBefore, "expected rations untouched at full hp");
+  },
+});
+
+// ---- 10. Ration: counts down to 0, then a further press is a no-op --------
+
+Game.selfTests.push({
+  name: "ration: counts down to 0 across successive uses, then a further press is a no-op",
+  fn: function () {
+    var engine = Game.createEngine();
+    var total = Game.ITEMS.STARTING_RATIONS;
+    for (var i = 0; i < total; i++) {
+      engine.player.hp = 0.1; // never full, so every press actually consumes one
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: false }); // fresh edge next tick
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    }
+    assert(engine.inventory.rations === 0, "expected rations at 0 after " + total + " uses, got " + engine.inventory.rations);
+
+    engine.player.hp = 0.1;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: false });
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    var events = engine.events.filter(function (e) { return e.type === "ration"; });
+    assert(events.length === 0, "expected no-op at 0 rations, got " + JSON.stringify(engine.events));
+    assert(engine.inventory.rations === 0, "expected rations to stay at 0, got " + engine.inventory.rations);
+  },
+});
+
+// ---- 11. Chaff: radarModel jams while the timer is live, unjams after 15s --
+
+Game.selfTests.push({
+  name: "chaff: radarModel reads jammed+chaffActive (phaseJam false) while the CHAFF_S timer is live, unjams after",
+  fn: function () {
+    var engine = Game.createEngine();
+    assert(engine.squad.phase === "INFILTRATION", "setup failed: expected squad.phase INFILTRATION");
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: true });
+    var chaffEvents = engine.events.filter(function (e) { return e.type === "chaff"; });
+    assert(chaffEvents.length === 1, "expected exactly one chaff event, got " + JSON.stringify(engine.events));
+
+    var model = Game.radarModel(engine);
+    assert(model.jammed === true, "expected jammed true right after the chaff pop");
+    assert(model.chaffActive === true, "expected chaffActive true right after the chaff pop");
+    assert(model.phaseJam === false, "expected phaseJam false -- squad never left INFILTRATION");
+
+    // Park the player far off-map so no guard can possibly gain LOS and
+    // flip squad.phase mid-wait -- isolates "does the CHAFF_S timer itself
+    // expire" from any patrol/vision interaction.
+    var justUnder = Math.round((Game.ITEMS.CHAFF_S - 0.1) / DT);
+    for (var i = 0; i < justUnder; i++) {
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+    }
+    var stillJammedModel = Game.radarModel(engine);
+    assert(stillJammedModel.jammed === true, "expected still jammed just under CHAFF_S");
+
+    var pastDeadline = Math.round(0.2 / DT);
+    for (var j = 0; j < pastDeadline; j++) {
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+    }
+    var unjammedModel = Game.radarModel(engine);
+    assert(unjammedModel.jammed === false, "expected unjammed after CHAFF_S elapsed, got " + JSON.stringify(unjammedModel));
+    assert(unjammedModel.chaffActive === false, "expected chaffActive false after CHAFF_S elapsed");
+    assert(engine.squad.phase === "INFILTRATION", "expected squad.phase to still read INFILTRATION throughout");
+  },
+});
+
+// ---- 12. Chaff pop is a sharp noise -- a nearby guard INVESTIGATEs it ------
+
+Game.selfTests.push({
+  name: "chaff: the pop is a sharp noise at the player's position -- a nearby guard INVESTIGATEs it",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "tg-chaff-noise", spawn: { x: 5, y: 5 }, waypoints: [{ x: 1005, y: 5 }] }],
+    });
+    // 3m from the guard -- within the chaff pop's 4m unattenuated radius,
+    // clear open floor (west of the guard hut at x:9-15).
+    engine.player.x = 8;
+    engine.player.y = 5;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: true });
+    var chaffEvents = engine.events.filter(function (e) { return e.type === "chaff"; });
+    assert(chaffEvents.length === 1, "expected exactly one chaff event, got " + JSON.stringify(engine.events));
+
+    var heardStrong = engine.events.some(function (e) {
+      return e.type === "noiseHeard" && e.guardId === "tg-chaff-noise" && e.strength === "strong";
+    });
+    assert(heardStrong, "expected the guard to have heard the chaff pop as a strong noise, got " + JSON.stringify(engine.events));
+    assert(
+      engine.guards[0].state === "INVESTIGATE",
+      "expected the guard to INVESTIGATE the chaff pop immediately, got " + engine.guards[0].state
+    );
+  },
+});
+
+// ---- 13. Chaff: counts down to 0, then a further press is a no-op ---------
+
+Game.selfTests.push({
+  name: "chaff: counts down to 0 across successive uses, then a further press is a no-op",
+  fn: function () {
+    var engine = Game.createEngine();
+    var total = Game.ITEMS.STARTING_CHAFF;
+    for (var i = 0; i < total; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: false }); // fresh edge next tick
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: true });
+    }
+    assert(engine.inventory.chaff === 0, "expected chaff at 0 after " + total + " uses, got " + engine.inventory.chaff);
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: false });
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", chaff: true });
+    var events = engine.events.filter(function (e) { return e.type === "chaff"; });
+    assert(events.length === 0, "expected no-op at 0 chaff grenades, got " + JSON.stringify(engine.events));
+    assert(engine.inventory.chaff === 0, "expected chaff to stay at 0, got " + engine.inventory.chaff);
+  },
+});
+
+// ---- 14. HUD: item box shows RATION xN, tracking consumption --------------
+
+Game.selfTests.push({
+  name: "hud: item box shows RATION count, tracking consumption across a ration use",
+  fn: function () {
+    var engine = Game.createEngine();
+    var freshModel = Game.hudModel(engine);
+    assert(
+      freshModel.item.name === "RATION" && freshModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected fresh item shape {RATION, " + Game.ITEMS.STARTING_RATIONS + "}, got " + JSON.stringify(freshModel.item)
+    );
+
+    engine.player.hp = 0.5;
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", ration: true });
+    var afterModel = Game.hudModel(engine);
+    assert(
+      afterModel.item.count === Game.ITEMS.STARTING_RATIONS - 1,
+      "expected item count decremented to " + (Game.ITEMS.STARTING_RATIONS - 1) + ", got " + afterModel.item.count
+    );
+  },
+});
+
+if (typeof module !== "undefined") module.exports = {};
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/combat.test.js ====
 (function (global) {
 // tests/combat.test.js — headless assertions for the new combat consequence
@@ -6817,17 +7697,33 @@ Game.selfTests.push({
   },
 });
 
-// ---- 13. hudModel.status is additive -- item placeholder untouched --------
+// ---- 13. hudModel.status is additive -- item box is a separate field ------
 
 Game.selfTests.push({
-  name: "hud: status reflects DRAGGING/HIDDEN additively -- the item placeholder is untouched",
+  name: "hud: status reflects DRAGGING/HIDDEN additively -- the item box is a field DRAGGING/HIDDEN never touch",
   fn: function () {
     if (typeof require !== "undefined") require("../src/hud.js");
 
+    // NOTE (box/chaff/ration cycle): the three item.name/item.count
+    // assertions below originally read `item.name === "---" && item.count
+    // === null` (the pre-items-cycle placeholder). That premise is now
+    // factually wrong -- src/items.js's Game.createInventory() now starts
+    // with a real ration count, and src/hud.js's own contract requires
+    // hudModel.item = {name:"RATION", count: rations} whenever
+    // engine.inventory exists (see its file header). Per CLAUDE.md's ratchet
+    // rule 2 ("a wrong test is replaced by a stricter one"), the SAME
+    // sanctioned replacement tests/hud.test.js's fresh-engine assertion just
+    // got is applied here too -- driven off Game.ITEMS.STARTING_RATIONS so it
+    // can't drift from the tunable. This test's actual subject (status stays
+    // additive -- DRAGGING/HIDDEN never mutate the item box) is UNCHANGED;
+    // only the item box's own expected shape is updated to match reality.
     var freshEngine = Game.createEngine();
     var freshModel = Game.hudModel(freshEngine);
     assert(freshModel.status === null, "expected status null on a fresh engine, got " + freshModel.status);
-    assert(freshModel.item.name === "---" && freshModel.item.count === null, "expected item placeholder untouched");
+    assert(
+      freshModel.item.name === "RATION" && freshModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected real item shape {RATION, " + Game.ITEMS.STARTING_RATIONS + "}, got " + JSON.stringify(freshModel.item)
+    );
 
     var dragEngine = Game.createEngine({
       guardConfigs: [{ id: "sleeper-hud", spawn: { x: 21, y: 25 }, waypoints: [{ x: 1021, y: 25 }] }],
@@ -6839,7 +7735,10 @@ Game.selfTests.push({
     assert(dragEngine.dragging === "sleeper-hud", "setup failed: drag never attached");
     var dragModel = Game.hudModel(dragEngine);
     assert(dragModel.status === "DRAGGING", "expected status 'DRAGGING', got " + dragModel.status);
-    assert(dragModel.item.name === "---" && dragModel.item.count === null, "expected item placeholder untouched while dragging");
+    assert(
+      dragModel.item.name === "RATION" && dragModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected the item box untouched by DRAGGING, got " + JSON.stringify(dragModel.item)
+    );
 
     var zone = Game.ZONES.loadingDock;
     var locker = zone.lockers[0];
@@ -6850,7 +7749,10 @@ Game.selfTests.push({
     assert(hideEngine.playerHidden === true, "setup failed: player never hid");
     var hideModel = Game.hudModel(hideEngine);
     assert(hideModel.status === "HIDDEN", "expected status 'HIDDEN', got " + hideModel.status);
-    assert(hideModel.item.name === "---" && hideModel.item.count === null, "expected item placeholder untouched while hidden");
+    assert(
+      hideModel.item.name === "RATION" && hideModel.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected the item box untouched by HIDDEN, got " + JSON.stringify(hideModel.item)
+    );
   },
 });
 
@@ -8092,7 +8994,21 @@ Game.selfTests.push({
       model.weapon.name === "TRANQ" && model.weapon.ammo === Game.ITEMS.STARTING_DARTS,
       "expected real weapon shape {TRANQ, " + Game.ITEMS.STARTING_DARTS + "}, got " + JSON.stringify(model.weapon)
     );
-    assert(model.item.name === "---" && model.item.count === null, "expected item placeholder shape");
+    // NOTE (box/chaff/ration cycle): this assertion originally read
+    // model.item.name === "---" && model.item.count === null (the item
+    // placeholder). That premise is now factually wrong -- Game.createEngine()
+    // wires up a real Game.createInventory() with a starting ration count
+    // (see src/items.js), and src/hud.js's own contract now requires
+    // hudModel.item = {name:"RATION", count: rations} whenever
+    // engine.inventory exists (see its file header). Per CLAUDE.md's ratchet
+    // rule 2 ("a wrong test is replaced by a stricter one"), this assertion
+    // is replaced with the stricter real shape below, driven off
+    // Game.ITEMS.STARTING_RATIONS rather than a hardcoded 3 so it can't drift
+    // from the tunable; every other assertion in this test is untouched.
+    assert(
+      model.item.name === "RATION" && model.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected real item shape {RATION, " + Game.ITEMS.STARTING_RATIONS + "}, got " + JSON.stringify(model.item)
+    );
 
     assert(model.maxDetection === 0, "expected maxDetection 0 at boot, got " + model.maxDetection);
   },
@@ -10525,6 +11441,9 @@ Game.selfTests.push({
     // KeyQ/KeyG: NEW (CQC/body-drag/lockers cycle) — see src/engine.js's CQC
     // VERB / DRAG VERB / LOCKER VERB contract for what each edge does.
     KeyQ: true, KeyG: true,
+    // KeyB/KeyR/KeyX: NEW (box/chaff/ration cycle) — see src/engine.js's BOX
+    // VERB / RATION VERB / CHAFF VERB contract for what each edge does.
+    KeyB: true, KeyR: true, KeyX: true,
     Enter: true,
   };
 
@@ -10582,6 +11501,14 @@ Game.selfTests.push({
     // DOM-keydown-repeat guard, same as every other verb here.
     var pendingCqc = false; // set true on a Q keydown edge, consumed once
     var pendingDrag = false; // set true on a G keydown edge, consumed once
+    // pendingBox/pendingRation/pendingChaff: NEW (box/chaff/ration cycle) —
+    // same one-shot-per-keydown-edge shape as pendingCqc/pendingDrag above;
+    // the engine itself does its OWN edge-detection on top of this (see
+    // src/engine.js's BOX VERB / RATION VERB / CHAFF VERB contract), so
+    // holding B/R/X down only ever registers as a single press either way.
+    var pendingBox = false; // set true on a B keydown edge, consumed once
+    var pendingRation = false; // set true on an R keydown edge, consumed once
+    var pendingChaff = false; // set true on an X keydown edge, consumed once
 
     function onKeyDown(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
@@ -10599,6 +11526,12 @@ Game.selfTests.push({
         pendingCqc = true;
       } else if (e.code === "KeyG") {
         pendingDrag = true;
+      } else if (e.code === "KeyB") {
+        pendingBox = true;
+      } else if (e.code === "KeyR") {
+        pendingRation = true;
+      } else if (e.code === "KeyX") {
+        pendingChaff = true;
       }
     }
 
@@ -10632,6 +11565,9 @@ Game.selfTests.push({
         fire: pendingFire,
         cqc: pendingCqc,
         drag: pendingDrag,
+        box: pendingBox,
+        ration: pendingRation,
+        chaff: pendingChaff,
       };
     }
 
@@ -10657,6 +11593,9 @@ Game.selfTests.push({
         pendingFire = false; // consumed — only true for the tick right after the edge
         pendingCqc = false; // consumed — only true for the tick right after the edge
         pendingDrag = false; // consumed — only true for the tick right after the edge
+        pendingBox = false; // consumed — only true for the tick right after the edge
+        pendingRation = false; // consumed — only true for the tick right after the edge
+        pendingChaff = false; // consumed — only true for the tick right after the edge
         acc -= DT;
       }
 
@@ -10735,7 +11674,7 @@ Game.selfTests.push({
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

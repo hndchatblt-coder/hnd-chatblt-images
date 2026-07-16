@@ -67,6 +67,9 @@
     // KeyQ/KeyG: NEW (CQC/body-drag/lockers cycle) — see src/engine.js's CQC
     // VERB / DRAG VERB / LOCKER VERB contract for what each edge does.
     KeyQ: true, KeyG: true,
+    // KeyB/KeyR/KeyX: NEW (box/chaff/ration cycle) — see src/engine.js's BOX
+    // VERB / RATION VERB / CHAFF VERB contract for what each edge does.
+    KeyB: true, KeyR: true, KeyX: true,
     Enter: true,
   };
 
@@ -124,6 +127,14 @@
     // DOM-keydown-repeat guard, same as every other verb here.
     var pendingCqc = false; // set true on a Q keydown edge, consumed once
     var pendingDrag = false; // set true on a G keydown edge, consumed once
+    // pendingBox/pendingRation/pendingChaff: NEW (box/chaff/ration cycle) —
+    // same one-shot-per-keydown-edge shape as pendingCqc/pendingDrag above;
+    // the engine itself does its OWN edge-detection on top of this (see
+    // src/engine.js's BOX VERB / RATION VERB / CHAFF VERB contract), so
+    // holding B/R/X down only ever registers as a single press either way.
+    var pendingBox = false; // set true on a B keydown edge, consumed once
+    var pendingRation = false; // set true on an R keydown edge, consumed once
+    var pendingChaff = false; // set true on an X keydown edge, consumed once
 
     function onKeyDown(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
@@ -141,6 +152,12 @@
         pendingCqc = true;
       } else if (e.code === "KeyG") {
         pendingDrag = true;
+      } else if (e.code === "KeyB") {
+        pendingBox = true;
+      } else if (e.code === "KeyR") {
+        pendingRation = true;
+      } else if (e.code === "KeyX") {
+        pendingChaff = true;
       }
     }
 
@@ -174,6 +191,9 @@
         fire: pendingFire,
         cqc: pendingCqc,
         drag: pendingDrag,
+        box: pendingBox,
+        ration: pendingRation,
+        chaff: pendingChaff,
       };
     }
 
@@ -199,6 +219,9 @@
         pendingFire = false; // consumed — only true for the tick right after the edge
         pendingCqc = false; // consumed — only true for the tick right after the edge
         pendingDrag = false; // consumed — only true for the tick right after the edge
+        pendingBox = false; // consumed — only true for the tick right after the edge
+        pendingRation = false; // consumed — only true for the tick right after the edge
+        pendingChaff = false; // consumed — only true for the tick right after the edge
         acc -= DT;
       }
 
@@ -277,7 +300,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

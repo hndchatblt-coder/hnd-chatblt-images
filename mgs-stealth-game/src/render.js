@@ -59,6 +59,24 @@
 //   same x/y every tick to trail the player — so a dragged body is already
 //   drawn "following the player" for free, with zero render.js changes.
 //
+//   BOX DISGUISE (new — box/chaff/ration cycle, see src/engine.js's BOX VERB
+//   contract): while engine.inventory.boxOn is true, the player's actor is
+//   drawn as a cardboard-brown crate instead of its normal steel-blue body —
+//   a pure cosmetic re-skin of the SAME body mesh every other pose already
+//   uses (no new geometry, same trick as the SLEEPING pose's scale-and-
+//   reposition above): scaled up slightly on X/Z (BOX_FOOTPRINT_SCALE,
+//   "slightly larger than the player") and to a fixed BOX_HEIGHT regardless
+//   of stance (a box has no crouch/crawl pose), body.material.color swapped
+//   to BOX_COLOR, and the nose (facing wedge) HIDDEN — a box gives no
+//   external hint which way the player inside it is actually facing. This
+//   override runs AFTER placeActor() every frame (placeActor's own
+//   stance-driven scale/nose-visible writes are for the un-boxed case) and
+//   is unconditionally reset to the normal PLAYER_COLOR/nose-visible
+//   whenever boxOn is false, so a single frame right after taking the box
+//   off never shows a stale brown tint. Purely cosmetic — see
+//   src/engine.js's BOX VERB contract for the actual perception-discount
+//   mechanics this has no bearing on.
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -142,6 +160,12 @@
     var EXIT_COLOR = 0x00ff66;
     var PLAYER_COLOR = 0x4682b4; // steel blue
     var GUARD_COLOR = 0x6b8e23; // olive drab
+    // CARDBOARD BOX (new — box/chaff/ration cycle, see file header BOX
+    // DISGUISE note below): cardboard-brown, matching src/hud.js's BOX
+    // status-pill color family.
+    var BOX_COLOR = 0x8b5a2b;
+    var BOX_HEIGHT = 1.0; // world units — a fixed crate height, stance-independent
+    var BOX_FOOTPRINT_SCALE = 1.45; // "slightly larger than the player" (BODY_W * this)
     var NOSE_COLOR = 0xf2f2f2;
     var BG_COLOR = 0x05070a;
 
@@ -742,6 +766,23 @@
       }
       var player = engine.player;
       placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
+
+      // BOX DISGUISE (see file header) — re-skins the SAME body/nose meshes
+      // placeActor just posed above; runs every frame so taking the box off
+      // reliably reverts to the normal color/scale/nose-visible, not just a
+      // one-time swap when boxOn first flips true.
+      var boxOn = !!(engine.inventory && engine.inventory.boxOn);
+      if (boxOn) {
+        // BOX_FOOTPRINT_SCALE scales BODY_W directly (the body mesh's own
+        // scale is relative to its unscaled BODY_W x 1 x BODY_W geometry,
+        // same convention placeActor's `1` X/Z scale already relies on).
+        playerActor.body.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
+        playerActor.body.position.set(0, BOX_HEIGHT / 2, 0);
+        playerActor.body.material.color.setHex(BOX_COLOR);
+        playerActor.nose.visible = false; // a box gives no external facing hint
+      } else {
+        playerActor.body.material.color.setHex(PLAYER_COLOR);
+      }
 
       // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
       // engine.time, never Date.now. Full opacity (1) whenever not hidden.

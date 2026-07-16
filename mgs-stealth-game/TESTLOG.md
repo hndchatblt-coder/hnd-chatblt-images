@@ -1,5 +1,34 @@
 # TESTLOG.md
 
+## Cycle 19 (box, ration, chaff — item set complete)
+
+131/131; 14/14; screens clean. Box: 0.05 flat profile stationary, 1.0 the
+instant you move (blown-if-seen-moving per SPEC), 0.55 speed cap, mutually
+exclusive with drag/locker via one gate. Ration: +0.35 hp, 3 carried. Chaff:
+15s radar jam (distinct blue CHAFF static vs alert static), pop emits 4m
+sharp noise — the tradeoff is the point. Camera hook documented for the Lab.
+
+**TEST REPLACEMENTS (ratchet rule 2):** hudModel.item became {RATION, count}
+— made the item-placeholder assertions factually false in tests/hud.test.js
+(1) and tests/cqc.test.js (3, outside the packet's file list — the agent
+flagged the overrun honestly; replacements verified by diff to be stricter,
+constant-driven, inline-documented). Pattern identical to cycle 17's weapon
+box. No other assertions touched.
+
+**3 problems:** (1) placeholder-shape assertions keep breaking as features
+fill them — tests asserting "not yet implemented" are time bombs; audit
+should flag any remaining placeholder assertions for preemptive replacement.
+(2) box has no wear/blow state — once seen moving, toggling B off/on resets
+suspicion cleanly; consider a per-guard box memory (backlog, Tension).
+(3) chaff currently only jams radar — no cameras exist; its 2 charges are
+weak value until the Lab. Sequencing note, not a bug.
+
+**3 delights:** (1) the interaction matrix (box/drag/locker mutually
+exclusive through two gates) stayed simple because each verb was built on
+the same edge-trigger scaffold. (2) blue CHAFF static vs red ALERT static —
+the radar now explains WHY it's broken. (3) box camp scenario: a guard cone
+sweeps a stationary box at 6m and walks on — pure MGS.
+
 ## Cycle 18 (CQC, drag, lockers)
 
 117/117; 13/13; screens clean. CQC from behind (>100° off guard facing,

@@ -132,7 +132,21 @@ Game.selfTests.push({
       model.weapon.name === "TRANQ" && model.weapon.ammo === Game.ITEMS.STARTING_DARTS,
       "expected real weapon shape {TRANQ, " + Game.ITEMS.STARTING_DARTS + "}, got " + JSON.stringify(model.weapon)
     );
-    assert(model.item.name === "---" && model.item.count === null, "expected item placeholder shape");
+    // NOTE (box/chaff/ration cycle): this assertion originally read
+    // model.item.name === "---" && model.item.count === null (the item
+    // placeholder). That premise is now factually wrong -- Game.createEngine()
+    // wires up a real Game.createInventory() with a starting ration count
+    // (see src/items.js), and src/hud.js's own contract now requires
+    // hudModel.item = {name:"RATION", count: rations} whenever
+    // engine.inventory exists (see its file header). Per CLAUDE.md's ratchet
+    // rule 2 ("a wrong test is replaced by a stricter one"), this assertion
+    // is replaced with the stricter real shape below, driven off
+    // Game.ITEMS.STARTING_RATIONS rather than a hardcoded 3 so it can't drift
+    // from the tunable; every other assertion in this test is untouched.
+    assert(
+      model.item.name === "RATION" && model.item.count === Game.ITEMS.STARTING_RATIONS,
+      "expected real item shape {RATION, " + Game.ITEMS.STARTING_RATIONS + "}, got " + JSON.stringify(model.item)
+    );
 
     assert(model.maxDetection === 0, "expected maxDetection 0 at boot, got " + model.maxDetection);
   },

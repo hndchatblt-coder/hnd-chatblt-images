@@ -14,13 +14,31 @@
 //   undefined fields anywhere in the tree — every field is a primitive, a
 //   plain object, or an array of those):
 //     {
-//       jammed: boolean,      // true iff engine.squad.phase is "ALERT" or
-//                             // "EVASION". CHAFF HOOK: a future jamming
-//                             // item/device should OR its own boolean into
-//                             // this same expression (jammed = phaseJam ||
-//                             // chaffActive) rather than adding a second
-//                             // signal elsewhere -- this line is the single
-//                             // place the view checks "static vs live".
+//       jammed: boolean,      // true iff phaseJam || chaffActive (see both
+//                             // below) -- this is the single place the view
+//                             // checks "static vs live".
+//       phaseJam: boolean,    // true iff engine.squad.phase is "ALERT" or
+//                             // "EVASION".
+//       chaffActive: boolean, // CHAFF HOOK (fulfilled -- src/items.js/
+//                             // src/engine.js's CHAFF VERB): true iff
+//                             // engine.chaffUntil > engine.time (an absolute
+//                             // sim-time deadline set by throwing a chaff
+//                             // grenade, see engine.js's CHAFF VERB
+//                             // contract). Falls back to false when
+//                             // engine.chaffUntil is absent (a bespoke test
+//                             // engine-shaped object predating this cycle),
+//                             // same backward-compat rationale as hud.js's
+//                             // weapon/item placeholder fallbacks. Exposed
+//                             // as its own field (rather than folded silently
+//                             // into `jammed`) so the view can render a
+//                             // chaff-only jam differently from a phase-
+//                             // driven ALERT/EVASION blackout -- see
+//                             // drawStatic/drawBlinkText below. CAMERA HOOK
+//                             // (not this cycle -- the Laboratory zone's
+//                             // cameras don't exist yet): whenever a camera
+//                             // entity exists, it is expected to gate its
+//                             // own perception off this SAME chaffActive
+//                             // signal, not a second parallel timer.
 //       zone: { w, h },       // engine.zone.bounds, copied
 //       walls: [ {x,y,w,h}, ... ],      // engine.zone.walls, copied
 //       darkZones: [ {x,y,w,h}, ... ],  // engine.zone.darkZones, copied
@@ -74,8 +92,19 @@
 //       Instead: animated static -- a grid of cells, each cell's brightness
 //       a deterministic hash of (cellIndex, engine.tickCount >> 2) so it
 //       visibly crawls over time without ever calling Math.random -- plus a
-//       blinking "ALERT" text overlay (visibility toggles on
-//       engine.tickCount, see BLINK_TICKS).
+//       blinking text overlay (visibility toggles on engine.tickCount, see
+//       BLINK_TICKS). CHAFF LOOKS DIFFERENT FROM ALERT (new -- see
+//       radarModel's chaffActive field above): while model.phaseJam is true
+//       the static renders in the usual green tint with a blinking red
+//       "ALERT" label (unchanged from before); while jammed only because
+//       model.chaffActive is true (phaseJam false -- squad is still
+//       INFILTRATION, just chaff-blinded), the static renders in a bluish
+//       tint instead and the blinking label reads "CHAFF" in blue -- same
+//       deterministic hash/blink mechanics, different palette/text, so a
+//       glance at the radar tells you WHY it's dark (a squad actually onto
+//       you vs. a self-inflicted few seconds of blindness you chose to
+//       trade for a distracted guard -- see engine.js's CHAFF VERB "the
+//       tradeoff is the point" note).
 //     THREE is never referenced anywhere in this file (canvas 2D only).
 //
 // Pure logic (radarModel) + browser view (createRadar) in one file, split so
@@ -112,7 +141,13 @@
     var zone = engine.zone;
     var player = engine.player;
 
-    var jammed = squad.phase === "ALERT" || squad.phase === "EVASION";
+    var phaseJam = squad.phase === "ALERT" || squad.phase === "EVASION";
+    // CHAFF HOOK (fulfilled -- see file header): OR'd into the same `jammed`
+    // expression the view checks, exactly as the original hook comment
+    // asked for. engine.chaffUntil may be absent on a bespoke pre-cycle test
+    // engine -- falls back to false, never throws.
+    var chaffActive = typeof engine.chaffUntil === "number" && engine.chaffUntil > engine.time;
+    var jammed = phaseJam || chaffActive;
 
     var guards = jammed
       ? []
@@ -131,6 +166,8 @@
 
     return {
       jammed: jammed,
+      phaseJam: phaseJam,
+      chaffActive: chaffActive,
       zone: { w: zone.bounds.w, h: zone.bounds.h },
       walls: zone.walls.map(copyRect),
       darkZones: zone.darkZones.map(copyRect),
@@ -184,7 +221,12 @@
     ctx.fill();
   }
 
-  function drawStatic(ctx, w, h, tickCount) {
+  // chaffOnly (new -- see file header CHAFF LOOKS DIFFERENT FROM ALERT):
+  // true renders a bluish static tint (chaff-blinded, squad still
+  // INFILTRATION) instead of the usual green-tinted phase-jam static, by
+  // swapping which channel `v` (the deterministic per-cell brightness)
+  // drives -- same hash/crawl mechanics, different palette.
+  function drawStatic(ctx, w, h, tickCount, chaffOnly) {
     var cell = RADAR.STATIC_CELL;
     var cols = Math.ceil(w / cell);
     var rows = Math.ceil(h / cell);
@@ -194,20 +236,25 @@
         var idx = ry * cols + rx;
         var n = hash2(idx, noiseKey) % 100;
         var v = 18 + (n % 55); // 18..72 brightness band
-        ctx.fillStyle = "rgba(18," + v + "," + Math.round(v * 0.55) + ",0.92)";
+        var dim = Math.round(v * 0.55);
+        ctx.fillStyle = chaffOnly
+          ? "rgba(18," + dim + "," + v + ",0.92)" // bluish: B channel dominant
+          : "rgba(18," + v + "," + dim + ",0.92)"; // green: G channel dominant
         ctx.fillRect(rx * cell, ry * cell, cell, cell);
       }
     }
   }
 
-  function drawBlinkText(ctx, w, h, tickCount) {
+  // chaffOnly (new -- see file header): swaps the blinking label's text and
+  // color from red "ALERT" to blue "CHAFF" -- same blink cadence/mechanics.
+  function drawBlinkText(ctx, w, h, tickCount, chaffOnly) {
     var on = Math.floor(tickCount / RADAR.BLINK_TICKS) % 2 === 0;
     if (!on) return;
-    ctx.fillStyle = "rgba(255, 45, 64, 0.94)";
+    ctx.fillStyle = chaffOnly ? "rgba(80, 160, 255, 0.94)" : "rgba(255, 45, 64, 0.94)";
     ctx.font = "bold 16px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ALERT", w / 2, h / 2);
+    ctx.fillText(chaffOnly ? "CHAFF" : "ALERT", w / 2, h / 2);
   }
 
   function createRadar(opts) {
@@ -284,8 +331,14 @@
       ctx.strokeRect(0.5, 0.5, widthCss - 1, heightCss - 1);
 
       if (model.jammed) {
-        drawStatic(ctx, widthCss, heightCss, engine.tickCount);
-        drawBlinkText(ctx, widthCss, heightCss, engine.tickCount);
+        // chaffOnly: chaff-blinded while the squad is still INFILTRATION
+        // (phaseJam false) -- see file header CHAFF LOOKS DIFFERENT FROM
+        // ALERT. If phaseJam is ALSO true (e.g. chaff thrown mid-firefight),
+        // the phase-jam ALERT/EVASION styling wins -- that's the more
+        // urgent, more informative state to show.
+        var chaffOnly = model.chaffActive && !model.phaseJam;
+        drawStatic(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
+        drawBlinkText(ctx, widthCss, heightCss, engine.tickCount, chaffOnly);
         return;
       }
 

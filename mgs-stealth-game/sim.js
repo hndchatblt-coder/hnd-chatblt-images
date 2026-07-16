@@ -1210,6 +1210,96 @@ scenarios.push({
   },
 });
 
+// ---- box/chaff/ration playtest scenario ------------------------------------
+// "box camp": a boxed, stationary player parked just off w1's own patrol lane
+// (NOT on the traveled line itself, and NOT blocking his waypoint arrival --
+// see src/engine.js's BOX VERB contract for why "visible but discounted" is
+// the whole point) is ignored through a full pass; the instant the player
+// starts moving while still in the box, the SAME guard notices within a few
+// seconds ("blown if seen moving"). Engine never throws.
+
+scenarios.push({
+  name: "box camp: boxed player ignored by passing patrol, blown when crawling in view",
+  seed: 20260716021,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    // Single guard on w1's own outer-perimeter loop (see src/world.js:
+    // warehouse.waypoints) -- w2's separate center-aisle sweep is irrelevant
+    // to this scenario and only adds noise, so it's left out via a bespoke
+    // guardConfigs override (see src/engine.js's own opts.guardConfigs
+    // contract) rather than fighting the default two-guard roster.
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: warehouse,
+      guardConfigs: [{ id: "w1", spawn: warehouse.waypoints[0], waypoints: warehouse.waypoints }],
+    });
+    const w1 = engine.guards[0];
+
+    // (20,7): 5m south of w1's y=2 perimeter leg (spawn (3,2) -> (37,2), see
+    // warehouse.waypoints) -- clear open floor (west of the row1/row2 aisle,
+    // east of the far-west aisle, well clear of every shelving row/crate
+    // cluster/dark zone), so w1's cone sweeps over this spot as it walks the
+    // leg without ever colliding with the player's body (the perpendicular
+    // offset keeps the player off the traveled line entirely).
+    engine.player.x = 20;
+    engine.player.y = 7;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+    if (!engine.inventory.boxOn) {
+      throw new Error("setup failed: box never toggled on");
+    }
+
+    // ---- Camp: hold position through w1's full first leg + a buffer ----
+    // 34m at PATROL_SPEED (1.5 m/s) is ~23s; 30s covers the whole leg with
+    // margin. minDist tracks how close w1 actually gets (expected ~5m, the
+    // perpendicular offset above) for the error message below.
+    let minDist = Infinity;
+    const CAMP_TICKS = Math.round(30 / DT);
+    for (let i = 0; i < CAMP_TICKS; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", box: true });
+      const d = Math.hypot(w1.x - engine.player.x, w1.y - engine.player.y);
+      if (d < minDist) minDist = d;
+      if (engine.squad.phase !== "INFILTRATION") {
+        throw new Error(
+          "w1 alerted at tick " + i + " despite the player being boxed and stationary (phase=" +
+            engine.squad.phase + ", minDist so far " + minDist.toFixed(2) + "m)"
+        );
+      }
+    }
+    if (minDist > 6) {
+      throw new Error("setup failed: w1 never passed within 6m of the camped player, min dist " + minDist.toFixed(2));
+    }
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("expected INFILTRATION after the full camp pass, got " + engine.squad.phase);
+    }
+
+    // ---- Reveal: keep the box on but start moving, right in w1's cone ----
+    // Same teleport-2m-ahead-of-the-guard's-CURRENT-facing technique as the
+    // "guard reaches INVESTIGATE within 2s of a strong knock" scenario above
+    // (robust regardless of w1's own independent position/facing at this
+    // point in its patrol) -- this time moveX is nonzero every tick, so
+    // BOX PERCEPTION reads player.moving true and drops the discount to a
+    // flat 1.0 (see engine.js's BOX VERB contract): "blown if seen moving".
+    let revealedAt = null;
+    const REVEAL_TICKS = Math.round(3 / DT);
+    for (let i = 0; i < REVEAL_TICKS; i++) {
+      const ahead = 2;
+      engine.player.x = w1.x + Math.cos(w1.facing) * ahead;
+      engine.player.y = w1.y + Math.sin(w1.facing) * ahead;
+      engine.tick({ moveX: 1, moveY: 0, run: false, stance: "stand", box: true });
+      if (w1.state === "SUSPICIOUS" || w1.state === "INVESTIGATE") {
+        revealedAt = i;
+        break;
+      }
+    }
+    if (revealedAt === null) {
+      throw new Error(
+        "expected w1 to notice the boxed-but-moving player within 3s, final state=" + w1.state + " meter=" + w1.meter
+      );
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

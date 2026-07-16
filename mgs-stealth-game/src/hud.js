@@ -52,27 +52,45 @@
 //                               // compatible with anything not wiring up an
 //                               // inventory. The view grays the content text
 //                               // out when ammo === 0 (see drawWeaponBox).
-//       item: { name: "---", count: null },
-//                               // PLACEHOLDER, same shape/rationale as weapon
-//                               // above but for the consumable-item slot.
-//                               // UNCHANGED this cycle (see `status` below —
-//                               // dragging/hiding are surfaced through a
-//                               // DIFFERENT field, deliberately, so every
-//                               // existing item-placeholder assertion in
-//                               // tests/hud.test.js keeps holding verbatim).
-//       status: "DRAGGING" | "HIDDEN" | null,
-//                               // NEW (CQC/locker cycle) — ADDITIVE field,
-//                               // separate from `item` above by design (see
-//                               // the note on `item` — this is what keeps
-//                               // this cycle backward compatible with
-//                               // tests/hud.test.js's untouched assertions).
-//                               // "HIDDEN" while engine.playerHidden, else
-//                               // "DRAGGING" while engine.dragging, else
-//                               // null. Falls back to null when engine
-//                               // exposes neither prop (e.g. a bespoke test
-//                               // engine-shaped object predating this
-//                               // cycle), same backward-compat rationale as
-//                               // the `weapon` placeholder fallback above.
+//       item: { name: "RATION", count: number },
+//                               // REAL as of this cycle (was the "---"/null
+//                               // placeholder -- see the old note this
+//                               // replaces, and tests/hud.test.js's own
+//                               // ratchet-rule-2 NOTE on the one assertion
+//                               // that changed): mirrors engine.inventory
+//                               // when present -- name is always "RATION"
+//                               // (the item slot shows rations; chaff has no
+//                               // HUD slot this cycle, see BACKLOG), count is
+//                               // engine.inventory.rations. Falls back to the
+//                               // original placeholder { name: "---", count:
+//                               // null } if engine.inventory is absent (e.g.
+//                               // a bespoke test engine-shaped object that
+//                               // predates items.js), same backward-compat
+//                               // rationale as `weapon` above. The view grays
+//                               // the content text out when count === 0 (see
+//                               // drawItemBox), reusing the exact same
+//                               // DEPLETED_COLOR gate as the weapon box.
+//       status: "DRAGGING" | "HIDDEN" | "BOX" | null,
+//                               // ADDITIVE field, separate from `item` above
+//                               // by design (see the note on `item` — this
+//                               // is what keeps every cycle backward
+//                               // compatible with tests/hud.test.js's own
+//                               // assertions on `item`). "HIDDEN" while
+//                               // engine.playerHidden, else "DRAGGING" while
+//                               // engine.dragging, else "BOX" (new -- box/
+//                               // chaff/ration cycle) while
+//                               // engine.inventory.boxOn, else null. Falls
+//                               // back to null when engine exposes none of
+//                               // playerHidden/dragging/inventory (e.g. a
+//                               // bespoke test engine-shaped object predating
+//                               // this cycle), same backward-compat rationale
+//                               // as the `weapon` placeholder fallback above.
+//                               // The three are mutually exclusive in
+//                               // practice (see src/items.js's BOX / DRAG /
+//                               // LOCKER INTERACTION MATRIX), so this
+//                               // priority order never actually has to
+//                               // arbitrate a real conflict -- it's just a
+//                               // defensive read order.
 //       maxDetection: number 0..1,
 //                               // max over engine.guards[i].meter (0 if no
 //                               // guards). Drives the screen-edge detection
@@ -172,9 +190,12 @@
   };
 
   // New (CQC/locker cycle) — see hudModel's `status` field note above.
+  // BOX (new -- box/chaff/ration cycle): cardboard-brown, matching
+  // src/render.js's box-mesh color family.
   var STATUS_STYLE = {
     DRAGGING: { fill: "rgba(239, 143, 0, 0.85)", border: "#ffc04d" },
     HIDDEN: { fill: "rgba(70, 130, 180, 0.85)", border: "#9fd8ff" },
+    BOX: { fill: "rgba(139, 90, 43, 0.88)", border: "#d9a066" },
   };
 
   // ---- pure model -------------------------------------------------------
@@ -207,8 +228,16 @@
       weapon: engine.inventory
         ? { name: "TRANQ", ammo: engine.inventory.darts }
         : { name: "---", ammo: null },
-      item: { name: "---", count: null },
-      status: engine.playerHidden ? "HIDDEN" : engine.dragging ? "DRAGGING" : null,
+      item: engine.inventory
+        ? { name: "RATION", count: engine.inventory.rations }
+        : { name: "---", count: null },
+      status: engine.playerHidden
+        ? "HIDDEN"
+        : engine.dragging
+          ? "DRAGGING"
+          : engine.inventory && engine.inventory.boxOn
+            ? "BOX"
+            : null,
       maxDetection: maxDetection,
     };
   }

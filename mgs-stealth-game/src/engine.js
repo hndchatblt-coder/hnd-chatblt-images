@@ -276,6 +276,130 @@
 //   any bystander's hearNoise-driven INVESTIGATE) by the time step 3's
 //   guard.update() runs this same tick.
 //
+//   BOX VERB — cardboard box (new this cycle): B key, input.box (boolean),
+//   EDGE-TRIGGERED exactly like drag/cqc (private prevBox closure state,
+//   false->true only) — but unlike every other edge verb, this one is a
+//   TOGGLE of engine.inventory.boxOn rather than a one-shot action. On that
+//   edge: if engine.dragging or engine.playerHidden is set, the press is
+//   silently swallowed (no toggle — see src/items.js's BOX / DRAG / LOCKER
+//   INTERACTION MATRIX: you can't pull the box on mid-drag or while hidden
+//   in a locker). Otherwise: inventory.boxOn = !inventory.boxOn. This is
+//   processed in the same CQC/DRAG/LOCKER block as those verbs, BEFORE
+//   player.update, so a same-tick toggle is reflected in this tick's speed
+//   cap / vision-wrap below.
+//   THE OTHER HALF OF THE MATRIX (see items.js): a dragEdge is only acted
+//   on (handleDragKey() called) while !inventory.boxOn — G is entirely dead
+//   while boxed, covering both its attach/hide AND release/exit branches in
+//   one gate (there is no live "boxed + dragging/hidden" state to carve
+//   exceptions out of, since neither can start while the other holds).
+//   BOX SPEED CAP: identical mechanism/rationale to DRAG SPEED CAP above —
+//   player.js has no speed-cap hook, so this module scales the
+//   ALREADY-normalized input.moveX/moveY by BOX_SPEED_MULT (0.55) whenever
+//   inventory.boxOn is true, before player.update() ever sees it. Mutually
+//   exclusive with the drag cap (boxOn and dragging can never both hold —
+//   see above), so this is a plain else-if, not a stacking multiplier.
+//   BOX PERCEPTION — "visible but discounted" (the box is NOT the same
+//   mechanism as the LOCKER's GUARD PERCEPTION GATE above: a hidden player
+//   is swapped for a decoy at an impossible position, out of every guard's
+//   range entirely; a boxed player's REAL x/y/facing/stance are still
+//   handed to every guard.update() call — a guard can walk right up and
+//   look at the box, it just doesn't read as a person unless it moves).
+//   guardAI.js calls vision.computeSight(viewer, ctx.player) with NO third
+//   `opts` argument (see its own contract) — so vision.js's opts.extraMult
+//   hook (designed with exactly this box in mind, per its own file header)
+//   is UNREACHABLE from here without editing guardAI.js, which is out of
+//   scope for this module. The only lever this module actually has on
+//   guardAI's per-tick sight computation is ctx.player.visionProfile()
+//   itself (target.visionProfile() is what vision.computeSight falls back
+//   to for `profile` when the caller passes no opts.profile — see
+//   src/vision.js contract), so — same "wrap ctx.player" technique the
+//   LOCKER decoy above already uses, just with the REAL x/y instead of an
+//   impossible one — whenever inventory.boxOn is true, every guard.update()
+//   call this tick gets a player object whose visionProfile() is OVERRIDDEN
+//   to ignore player.stance entirely and return a flat constant instead:
+//     Game.ITEMS.BOX_FACTOR (0.05) if !player.moving (stationary — the box
+//       reads as a near-invisible inert prop; SUSPICIOUS_AT (0.35) would
+//       take ~7s of continuous point-blank (2m) sight to reach at this
+//       factor, and proportionally longer at range — see src/vision.js's
+//       FILL FORMULA),
+//     1.0 if player.moving (SPEC: "blown if seen moving" — a moving box is
+//       exactly as visible as a standing, undisguised player; no partial
+//       credit for still wearing the box while walking around in it).
+//   player.moving/facing/stance/x/y on this wrapper are the REAL player's,
+//   unchanged (only visionProfile() is swapped) — so guardAI's OWN combat-
+//   accuracy read of ctx.player.moving/ctx.player.stance (see its ALERT/
+//   COMBAT contract) and squad.updateSighting(ctx.player.x, ctx.player.y)
+//   are completely unaffected by boxing; only the SIGHT FACTOR computation
+//   is discounted. This wrapper only applies while !engine.playerHidden
+//   (hidden already fully replaces ctx.player with the locker decoy above —
+//   the two states can never overlap per the interaction matrix anyway, so
+//   this is a defensive ordering, not a real runtime branch point).
+//   RENDER/HUD: src/render.js swaps the player's mesh for a larger, nose-
+//   less cardboard-brown box while boxOn (see its own file header); hudModel
+//   status is additive "BOX" (see src/hud.js contract) alongside DRAGGING/
+//   HIDDEN. Neither affects the perception math above — cosmetic only.
+//
+//   RATION VERB (new this cycle): R key, input.ration (boolean), EDGE-
+//   TRIGGERED exactly like knock/fire (private prevRation closure state).
+//   On that edge: calls inventory.useRation(player) (see src/items.js
+//   contract — a pure "would this help" calculator that never touches
+//   player.hp itself). If !result.used (no rations left, or hp already at
+//   1), nothing else happens — no event, same "empty inventory is silent"
+//   convention as the fire verb. Otherwise: this module (not items.js) is
+//   what actually applies the heal — player.hp = Math.min(1, player.hp +
+//   result.healAmount) — then pushes { type: "ration", hp: player.hp } (hp
+//   read AFTER the heal, same "report the post-mutation value" convention
+//   as playerHit above). RATION HOOK NOTE: src/engine.js's own file header
+//   used to flag this exact hp-restoration arithmetic as "expected to live
+//   on src/player.js, not engine.js" (a future-cycle aspiration written
+//   before player.js was off-limits for this cycle's task packet) — since
+//   player.js cannot be touched this cycle, the plain
+//   `player.hp = Math.min(1, player.hp + amount)` mutation is done directly
+//   here instead, exactly mirroring player.damage()'s own clamp shape but
+//   in the opposite direction. A future cycle with player.js in scope could
+//   still move this into a real player.heal() method with no change to this
+//   verb's own event/edge behavior. No noise, no speed cap, no interaction
+//   with box/drag/locker — eating a ration is always available.
+//
+//   CHAFF VERB (new this cycle): X key, input.chaff (boolean), EDGE-
+//   TRIGGERED exactly like knock/fire/ration (private prevChaff closure
+//   state). On that edge: calls inventory.useChaff() (see src/items.js
+//   contract). If !result.used (no chaff grenades left), nothing else
+//   happens. Otherwise:
+//     1. engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S (15) — an
+//        absolute sim-time deadline, not a countdown counter, same
+//        "compare against engine.time" convention as every other
+//        deterministic timer in this codebase (no setTimeout, no Date).
+//        Mission-scoped like darts/rations/chaff itself — NOT reset by
+//        switchZone (a thrown chaff grenade's jam outlasts a door).
+//     2. Pushes { type: "chaff" }.
+//     3. Emits a SHARP ("strong") pop at the player's OWN position: it's a
+//        bang, not a stealth tool — soundEvents.emitRadius(player.x,
+//        player.y, 4, true, guards) (4m unattenuated; not one of
+//        soundEvents.js's named RADII kinds, same "bespoke one-off radius"
+//        precedent as the CQC thud's emitRadius(...,3,...) call above).
+//        Any listener that heard it pushes the usual { type: "noiseHeard",
+//        ..., strength: "strong" }. THE TRADEOFF IS THE POINT: jamming the
+//        radar/blinding cameras costs you a guard converging on where you
+//        just stood (INVESTIGATE), exactly the same hearNoise("strong")
+//        pathway a knock or dart impact uses — documented here, not hacked
+//        around, because a chaff pop that was silent would make it strictly
+//        better than a knock with no downside.
+//   RADAR: src/radar.js's radarModel ORs a live engine.chaffUntil > engine.
+//   time signal into its existing phase-based `jammed` check (see its own
+//   CHAFF HOOK comment, written for exactly this) and exposes which kind of
+//   jam is live so the view can render chaff static differently (a bluish
+//   tint + "CHAFF" label) from a phase-driven ALERT/EVASION blackout (red
+//   "ALERT" label) — see src/radar.js contract. CAMERA HOOK (honest gap,
+//   not a silent one — same posture as this file's own VISION STAGGERING
+//   note below): the Laboratory zone's cameras don't exist yet (SPEC.md's
+//   own zone list has them arriving with keycards later), so "cameras die
+//   under chaff" has nothing to wire up to this cycle; whenever a camera
+//   entity exists, it is expected to gate its own perception off this same
+//   engine.chaffUntil > engine.time signal, not a second parallel timer.
+//   Runs in the same NOISE STEP position as fire/knock (step 2), same
+//   same-tick-visible-to-guards rationale as the fire verb above.
+//
 //   COMBAT — guard fire / player damage / game over (new this cycle):
 //     Step 3 (guard update loop) below passes each guard.update() a THIRD ctx
 //     field beyond `player`: onGuardFire(guard, hit), guardAI.js's hook for
@@ -552,6 +676,13 @@
       // DRAG VERB / LOCKER VERB in the file header). Defaults to false.
       cqc: !!input.cqc,
       drag: !!input.drag,
+      // box/ration/chaff: same edge-triggered shape as knock/fire/cqc/drag,
+      // but for the cardboard box toggle and the ration/chaff consumables
+      // (see BOX VERB / RATION VERB / CHAFF VERB in the file header).
+      // Defaults to false.
+      box: !!input.box,
+      ration: !!input.ration,
+      chaff: !!input.chaff,
     };
   }
 
@@ -584,6 +715,14 @@
   var DRAG_SPEED_MULT = 0.55;
   var LOCKER_INTERACT_DIST = 1.0;
   var LOCKER_STEP_DIST = 1.0;
+  // BOX SPEED CAP (see file header BOX VERB) — identical value/rationale to
+  // DRAG_SPEED_MULT above, kept as its own named constant since the two are
+  // mutually exclusive gates, not the same one reused.
+  var BOX_SPEED_MULT = 0.55;
+  // CHAFF pop noise radius (see file header CHAFF VERB) — a bespoke one-off
+  // radius, same precedent as CQC_NOISE_RADIUS above (not one of
+  // soundEvents.js's named RADII kinds).
+  var CHAFF_NOISE_RADIUS = 4;
   // Decoy position handed to every guard.update() call while
   // engine.playerHidden is true (see LOCKER VERB / GUARD PERCEPTION GATE in
   // the file header) — far enough outside any zone's VISION.RANGE (14m, even
@@ -665,6 +804,13 @@
     var prevCqc = false;
     var prevDrag = false;
 
+    // Edge-trigger state for the box toggle / ration / chaff verbs (see
+    // file header BOX VERB / RATION VERB / CHAFF VERB) — same shape/
+    // rationale as prevKnock/prevFire/prevCqc/prevDrag above.
+    var prevBox = false;
+    var prevRation = false;
+    var prevChaff = false;
+
     // The locker (a plain {x,y,facing} from zone.lockers) the player is
     // CURRENTLY hidden in, or null — private mirror of engine.playerHidden
     // that remembers WHICH locker so the exit step (see LOCKER VERB) knows
@@ -698,6 +844,12 @@
       gameOver: false,
       dragging: null,
       playerHidden: false,
+      // CHAFF VERB (see file header) — absolute sim-time deadline (compared
+      // against engine.time, never a countdown counter), 0 meaning "never
+      // thrown yet" (engine.time also starts at 0, so 0 > 0 is false — no
+      // spurious jam at boot). Mission-scoped like inventory.darts/rations/
+      // chaff — NOT reset by switchZone.
+      chaffUntil: 0,
     };
 
     // ---- CQC / DRAG / LOCKER helpers (see file header) ------------------------
@@ -997,7 +1149,11 @@
       // `normalized` before it's ever handed to player.update.
       var dragEdge = normalized.drag && !prevDrag;
       prevDrag = normalized.drag;
-      if (dragEdge) {
+      // BOX / DRAG / LOCKER INTERACTION MATRIX (see file header BOX VERB /
+      // src/items.js's own matrix note): G is entirely dead while boxed —
+      // handleDragKey() covers attach/hide AND release/exit in one call, so
+      // gating the call itself here is enough to block every branch.
+      if (dragEdge && !inventory.boxOn) {
         handleDragKey();
       }
 
@@ -1005,6 +1161,16 @@
       prevCqc = normalized.cqc;
       if (cqcEdge && !engine.playerHidden && !engine.dragging) {
         tryCqc();
+      }
+
+      // BOX VERB (see file header) — B is a TOGGLE, not a one-shot action,
+      // and (per the interaction matrix) only takes effect while neither
+      // dragging nor hidden holds (either from before this tick, or just
+      // set by the dragEdge processing immediately above this same tick).
+      var boxEdge = normalized.box && !prevBox;
+      prevBox = normalized.box;
+      if (boxEdge && inventory.hasBox && !engine.dragging && !engine.playerHidden) {
+        inventory.boxOn = !inventory.boxOn;
       }
 
       // FROZEN INPUT while hidden (see file header LOCKER VERB) — movement
@@ -1018,10 +1184,16 @@
 
       // DRAG SPEED CAP (see file header DRAG VERB) — player.js has no
       // speed-cap hook, so the ALREADY-normalized input vector is scaled
-      // here, before player.update ever sees it.
+      // here, before player.update ever sees it. BOX SPEED CAP is the same
+      // mechanism for inventory.boxOn (see file header BOX VERB) — a plain
+      // else-if, since dragging and boxOn can never both hold (see the
+      // interaction matrix above).
       if (engine.dragging) {
         normalized.moveX *= DRAG_SPEED_MULT;
         normalized.moveY *= DRAG_SPEED_MULT;
+      } else if (inventory.boxOn) {
+        normalized.moveX *= BOX_SPEED_MULT;
+        normalized.moveY *= BOX_SPEED_MULT;
       }
 
       player.update(normalized, DT);
@@ -1129,6 +1301,46 @@
           }
         }
       }
+
+      // Ration verb: edge-triggered (false->true only), same shape as knock/
+      // fire above (see file header RATION VERB). No wall-adjacency gate, no
+      // noise, no interaction with box/drag/locker — always available.
+      var rationEdge = normalized.ration && !prevRation;
+      prevRation = normalized.ration;
+      if (rationEdge) {
+        var rationResult = inventory.useRation(player);
+        if (rationResult.used) {
+          player.hp = Math.min(1, player.hp + rationResult.healAmount);
+          engine.events.push({ type: "ration", hp: player.hp });
+        }
+      }
+
+      // Chaff verb: edge-triggered (false->true only), same shape as knock/
+      // fire above (see file header CHAFF VERB). The pop is a SHARP noise at
+      // the player's OWN position — same noiseHeard fan-out loop shape as
+      // the knock/fire verbs above.
+      var chaffEdge = normalized.chaff && !prevChaff;
+      prevChaff = normalized.chaff;
+      if (chaffEdge) {
+        var chaffResult = inventory.useChaff();
+        if (chaffResult.used) {
+          engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S;
+          engine.events.push({ type: "chaff" });
+
+          var chaffResults = soundEvents.emitRadius(player.x, player.y, CHAFF_NOISE_RADIUS, true, guards);
+          for (var chi = 0; chi < chaffResults.length; chi++) {
+            if (chaffResults[chi].heard) {
+              engine.events.push({
+                type: "noiseHeard",
+                guardId: chaffResults[chi].listenerId,
+                x: player.x,
+                y: player.y,
+                strength: chaffResults[chi].strength,
+              });
+            }
+          }
+        }
+      }
       // ---- END NOISE STEP ---------------------------------------------------
 
       // sleepingGuards snapshot (see file header, tick() step 3) — computed
@@ -1156,16 +1368,40 @@
       // `player`. guardAI.js/vision.js are unaware this substitution ever
       // happens; onGuardFire/damage (below) still close over the REAL
       // `player`, unaffected by this local var.
-      var perceivedPlayer = engine.playerHidden
-        ? {
-            x: HIDDEN_DECOY_POS,
-            y: HIDDEN_DECOY_POS,
-            facing: player.facing,
-            visionProfile: player.visionProfile,
-            moving: false,
-            stance: player.stance,
-          }
-        : player;
+      //
+      // BOX PERCEPTION (see file header BOX VERB) — a DIFFERENT wrap: while
+      // inventory.boxOn, guards still get the player's REAL x/y/facing/
+      // stance/moving (the box is visible, just discounted), only
+      // visionProfile() is overridden to ignore stance entirely and return
+      // a flat Game.ITEMS.BOX_FACTOR (0.05) while stationary, or a flat 1.0
+      // the instant player.moving is true ("blown if seen moving" — no
+      // partial credit). Mutually exclusive with playerHidden (see the
+      // interaction matrix), so this is a plain else-if, not a second
+      // wrapper stacked on top of the decoy.
+      var perceivedPlayer;
+      if (engine.playerHidden) {
+        perceivedPlayer = {
+          x: HIDDEN_DECOY_POS,
+          y: HIDDEN_DECOY_POS,
+          facing: player.facing,
+          visionProfile: player.visionProfile,
+          moving: false,
+          stance: player.stance,
+        };
+      } else if (inventory.boxOn) {
+        perceivedPlayer = {
+          x: player.x,
+          y: player.y,
+          facing: player.facing,
+          stance: player.stance,
+          moving: player.moving,
+          visionProfile: function () {
+            return player.moving ? 1.0 : Game.ITEMS.BOX_FACTOR;
+          },
+        };
+      } else {
+        perceivedPlayer = player;
+      }
 
       for (var i = 0; i < guards.length; i++) {
         guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
