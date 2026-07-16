@@ -45,6 +45,20 @@
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
     var radar = Game.createRadar({ container: rootEl });
     var hud = Game.createHud({ container: rootEl });
+    var music = Game.createMusic();
+
+    // AUDIO GESTURE: WebAudio requires a user gesture to construct/resume an
+    // AudioContext. startGame() is only ever invoked synchronously from the
+    // Enter-keydown handler (see onEnter in showTitle below) — so calling
+    // music.update() once right here, still inside that keydown event's call
+    // stack, lazily constructs music's AudioContext (and starts fading in the
+    // "sneak" bed) WHILE the gesture is live, instead of waiting for the
+    // first requestAnimationFrame callback (which runs async, after the
+    // gesture's call stack has already unwound). Every later call from the
+    // frame loop below just reuses this same context — see src/music.js's
+    // own AUDIO ISOLATION note for the try/catch-forever wrapping that makes
+    // this safe even if WebAudio is unavailable/locked.
+    music.update(engine);
 
     // Debug/screenshot hook ONLY — not read by any gameplay code. screenshot.js
     // uses this to teleport the player and inspect guard state for its scenes.
@@ -118,6 +132,7 @@
       renderer.render(engine);
       radar.render(engine);
       hud.render(engine);
+      music.update(engine);
       requestAnimationFrame(frame);
     }
 

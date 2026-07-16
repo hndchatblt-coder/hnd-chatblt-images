@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.13 (cycle 13 — readability polish)
+**Version:** v0.14 (cycle 14 — music)
 
 ## Module status
 
@@ -20,7 +20,7 @@
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
 | hud            | v1          | life/clock/phase/boxes/zone card/vignette; hp+items hooked |
 | codec          | not started |                                          |
-| music          | not started | WebAudio, failure-isolated               |
+| music          | v1          | pure director + synth beds, crossfades, no-op isolation |
 | render         | v1          | iso scene, state-colored wall-clipped cones, meters |
 
 ## Known issues
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 14: music — sneak/combat/evasion/caution beds + sting/resolve
+  one-shots, 1.5s crossfades, permanent-no-op audio isolation (79/79, 9/9)
 - cycle 13: polish — cone fills brightened + crisp rims (same clipped verts),
   markers/meter 2x, SUSPICIOUS amber; state progression legible at 720p
 - cycle 12: HUD — MGS1-style overlay (life, clock, alert counter, phase banner

@@ -21,7 +21,8 @@ content rotation) take over. L items must be split before selection.
 6d. Knock ripple visual | polish | S | Readability | expanding ring at knock point (world-space, ~0.5s) so players see their own sound radius; also faint ring for run footsteps every ~0.5s.
 7. ~~Radar~~ DONE cycle 11 (chaff jam hook documented, wired when chaff lands).
 8. ~~HUD~~ DONE cycle 12.
-9. Music | feature | M | Tension | WebAudio state machine sneak→sting→combat→evasion→caution→resolve, crossfades only, failure-isolated no-op wrapper.
+9. ~~Music~~ DONE cycle 14 (needs human ear pass — see FEEDBACK request in TESTLOG).
+9b. Mute key + volume | polish | S | Readability | M toggles mute (suspend master gain); persists in-session; title legend updated.
 10. Remaining zones (Warehouse, Laboratory, Comms Tower) | content | L→split | Expression | one zone per cycle; zone transitions; cameras + lasers + keycards in Lab; heavy patrols in Tower.
 11. Items/CQC/tranq | feature | L→split | Expression | box, tranq pistol (12 darts, sleep 60s, headshot instant), CQC grab→choke/throw, drag bodies, lockers (stuff + hide), ration, chaff; split per verb-group.
 12. Codec | feature | M | Toybox | overlay, two procedural pixel portraits, scrolling text + blips, frequency dial; calls: mission open, first body, first alert, low darts.

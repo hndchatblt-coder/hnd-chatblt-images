@@ -1,5 +1,24 @@
 # TESTLOG.md
 
+## Cycle 14 (music)
+
+79/79; 9/9; screenshots clean. Pure director (track/sting/resolve semantics
+fully tested, incl. real-engine ladder: exactly one sting + one resolve) +
+lazily-built WebAudio beds crossfaded 1.5s, one-try/catch permanent-no-op
+isolation. AudioContext constructed inside the Enter gesture's call stack.
+
+**3 problems:** (1) can't hear it in CI — audio quality is unverified by
+machine; needs a human ear pass (FEEDBACK.md request). (2) beds run forever
+once started — node counts modest but battery cost on laptops unknown; consider
+suspending silent beds. (3) no volume control / mute key — players will want
+M to mute. → backlog both.
+
+**3 delights:** (1) the "!" sting fires from the same squad transition that
+jams the radar and pops the banner — one source of truth, three senses.
+(2) resolve motif on CAUTION→INFILTRATION rewards surviving the ladder.
+(3) audio noise buffers use a local xorshift, honoring determinism even
+where it's only aesthetic.
+
 ## Cycle 13 (polish: cone/marker readability)
 
 74/74; 9/9; shots eyeballed. Cone fills brightened + LineLoop rims from the
