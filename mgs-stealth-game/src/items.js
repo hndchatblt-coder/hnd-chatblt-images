@@ -57,6 +57,34 @@
 //       engine.js's job (see its CHAFF VERB contract), same ENGINE-AGNOSTIC
 //       split as everything else in this file.
 //
+//     inv.keycards — { L1: boolean, L2: boolean, L3: boolean }, all false at
+//       construction (NEW — Laboratory cycle). Mission-scoped like darts/
+//       rations/chaff (untouched by engine.js's switchZone). Flipped true by
+//       inv.collectPickup("keycardL1"|"keycardL2"|"keycardL3") below — this
+//       module never sets a keycard flag any other way. Read by engine.js's
+//       DOORS step to decide whether a locked door may auto-open (see
+//       src/engine.js's own DOORS contract) and by src/hud.js's additive
+//       `keycards` field for display.
+//
+//     inv.collectPickup(item) -> boolean (true iff this item was actually
+//       applied)
+//       `item` is the opaque string from a zone.pickups[] entry (see
+//       src/world.js's schema note — "keycardL1" | "keycardL2" | "keycardL3"
+//       | "chaff" this cycle). Distance-to-player checking and "has this
+//       specific pickup already been collected" bookkeeping are engine.js's
+//       job (see its own PICKUPS step) — this function is a pure "apply this
+//       named item to the inventory" mutator, called only once engine.js has
+//       already decided the pickup should be collected:
+//         "keycardL1"/"keycardL2"/"keycardL3" -> sets the matching
+//           inv.keycards.L* to true (idempotent — collecting the same
+//           keycard twice, e.g. via a re-triggered pickup, is a harmless
+//           no-op the second time) and returns true.
+//         "chaff" -> inv.chaff++ (a bonus grenade beyond ITEMS.STARTING_CHAFF
+//           — no cap) and returns true.
+//         anything else (an unrecognized item string) -> returns false,
+//         touches nothing. Defensive only; every pickup this cycle's zone
+//         data actually places uses one of the four names above.
+//
 //     inv.hasBox — boolean, always true this cycle (no pickup system yet —
 //       same "not yet a real loadout system" caveat as inv.weapon above; a
 //       future cycle could make this pickup-gated without changing the
@@ -179,7 +207,35 @@
       chaff: ITEMS.STARTING_CHAFF,
       hasBox: true,
       boxOn: false,
+      // NEW — Laboratory cycle (see file header). All false until collected
+      // via inv.collectPickup(...) below; mission-scoped like every other
+      // inventory field in this object.
+      keycards: { L1: false, L2: false, L3: false },
     };
+
+    // See file header: pure "apply this named pickup" mutator — engine.js
+    // owns the distance check and the "already collected" bookkeeping (see
+    // its own PICKUPS step contract). Returns whether anything was actually
+    // applied, mirroring useRation/useChaff's own boolean-result posture.
+    function collectPickup(item) {
+      if (item === "keycardL1") {
+        inv.keycards.L1 = true;
+        return true;
+      }
+      if (item === "keycardL2") {
+        inv.keycards.L2 = true;
+        return true;
+      }
+      if (item === "keycardL3") {
+        inv.keycards.L3 = true;
+        return true;
+      }
+      if (item === "chaff") {
+        inv.chaff++;
+        return true;
+      }
+      return false;
+    }
 
     // See file header: pure "would this help, and by how much" calculator —
     // never touches player.hp itself (engine.js's RATION VERB applies the
@@ -256,6 +312,7 @@
     inv.fireTranq = fireTranq;
     inv.useRation = useRation;
     inv.useChaff = useChaff;
+    inv.collectPickup = collectPickup;
     return inv;
   }
 

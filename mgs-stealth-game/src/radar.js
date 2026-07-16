@@ -83,6 +83,33 @@
 //         // engine.director may be absent on a bespoke pre-cycle test engine
 //         // object -- falls back to [], same backward-compat posture as
 //         // chaffActive's own fallback above.
+//       doors: [ { x, y, w, h, lock, open }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.zone.doors, same
+//         // order, `open` from engine.world.isDoorOpen(id) (read fresh every
+//         // render() call), x/y/w/h/lock copied through verbatim. UNLIKE
+//         // guards/cameras this is NOT emptied while jammed -- a door's
+//         // lock color/open-state is structural level geometry, not moment-
+//         // to-moment tactical intel the same way a live guard/camera
+//         // position is, so it stays visible even mid-ALERT (matching how
+//         // `walls`/`darkZones` themselves are never hidden by `jammed`
+//         // either). engine.zone.doors/engine.world may be absent on a
+//         // bespoke pre-cycle test engine -- falls back to [].
+//       lasers: [ { x1, y1, x2, y2, active }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.director.
+//         // laserStates(), same order, straight passthrough (x1/y1/x2/y2
+//         // copied verbatim, `active` is that contract's own field). EMPTY
+//         // when jammed, same rationale as `guards`/`cameras` above -- a
+//         // live laser's on/off duty-cycle phase is exactly the kind of
+//         // real-time tactical read the radar going dark is supposed to
+//         // deny. engine.director may be absent on a bespoke pre-cycle test
+//         // engine -- falls back to [].
+//       pickups: [ { x, y, item }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.zone.pickups NOT
+//         // already reflected as held in engine.inventory.keycards (a
+//         // collected keycard stops glowing; see the chaff HONEST GAP note
+//         // at this field's construction site for the one known cosmetic
+//         // exception). NOT emptied while jammed, same "structural, not
+//         // tactical" rationale as doors above.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random -- runs
 //   headless in node (tests/radar.test.js exercises this half only).
@@ -164,6 +191,18 @@
     DISABLED: "rgba(102, 102, 102, 0.18)",
   };
 
+  // DOOR lock-color coding (new -- Laboratory cycle, see file header):
+  // L1 blue, L2 amber, L3 red (escalating danger the deeper the
+  // progression), null (unlocked) a neutral grey-green.
+  var DOOR_LOCK_COLOR = {
+    L1: "rgba(80, 140, 255, 0.55)",
+    L2: "rgba(255, 176, 60, 0.55)",
+    L3: "rgba(255, 70, 70, 0.6)",
+  };
+  var DOOR_UNLOCKED_COLOR = "rgba(150, 190, 160, 0.4)";
+  var DOOR_OPEN_COLOR = "rgba(150, 190, 160, 0.18)"; // dim -- open doors barely read as a slab at all
+  var LASER_COLOR = "rgba(255, 40, 40, 0.95)";
+
   // ---- pure model -----------------------------------------------------------
 
   function copyRect(r) {
@@ -217,6 +256,52 @@
           };
         });
 
+    // DOORS (new -- Laboratory cycle, see file header). NOT emptied while
+    // jammed -- see file header note. engine.world may be absent on a
+    // bespoke pre-cycle test engine -- falls back to isOpen: false rather
+    // than throwing.
+    var doors = (zone.doors || []).map(function (d) {
+      return {
+        x: d.x,
+        y: d.y,
+        w: d.w,
+        h: d.h,
+        lock: d.lock,
+        open: !!(engine.world && engine.world.isDoorOpen(d.id)),
+      };
+    });
+
+    // LASERS (new -- Laboratory cycle, see file header). Same "empty when
+    // jammed" rule as guards/cameras above.
+    var laserStates = (engine.director && engine.director.laserStates()) || [];
+    var lasers = jammed
+      ? []
+      : laserStates.map(function (l) {
+          return { x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2, active: l.active };
+        });
+
+    // PICKUPS (new -- Laboratory cycle, see file header/schema note): a
+    // keycard already collected (engine.inventory.keycards[level] true) is
+    // filtered out -- once picked up, it shouldn't keep glowing on the
+    // radar. HONEST GAP: a "chaff" pickup has no persistent per-index
+    // collected flag exposed outside engine.js's own private bookkeeping
+    // (see src/engine.js's PICKUPS step), so it keeps showing here even
+    // after collection -- cosmetic only, tracked in BACKLOG.md, not a
+    // gameplay bug (inventory.collectPickup itself is correctly idempotent-
+    // safe either way). NOT emptied while jammed -- same "structural level
+    // geometry" rationale as doors above.
+    var keycardsHeld = (engine.inventory && engine.inventory.keycards) || {};
+    var pickups = (zone.pickups || [])
+      .filter(function (p) {
+        if (p.item === "keycardL1") return !keycardsHeld.L1;
+        if (p.item === "keycardL2") return !keycardsHeld.L2;
+        if (p.item === "keycardL3") return !keycardsHeld.L3;
+        return true;
+      })
+      .map(function (p) {
+        return { x: p.x, y: p.y, item: p.item };
+      });
+
     return {
       jammed: jammed,
       phaseJam: phaseJam,
@@ -233,6 +318,9 @@
       },
       guards: guards,
       cameras: cameras,
+      doors: doors,
+      lasers: lasers,
+      pickups: pickups,
     };
   }
 
@@ -406,6 +494,32 @@
         ctx.fillRect(w.x * scale, w.y * scale, w.w * scale, w.h * scale);
       });
 
+      // doors (new -- Laboratory cycle, see file header): distinct colored
+      // slabs, lock-color coded, dimmed once open (see DOOR_OPEN_COLOR).
+      // Drawn even while jammed (see radarModel's own note -- structural
+      // level geometry, not moment-to-moment tactical intel).
+      model.doors.forEach(function (d) {
+        ctx.fillStyle = d.open ? DOOR_OPEN_COLOR : DOOR_LOCK_COLOR[d.lock] || DOOR_UNLOCKED_COLOR;
+        ctx.fillRect(d.x * scale, d.y * scale, d.w * scale, d.h * scale);
+      });
+
+      // pickups (new -- Laboratory cycle, see file header): glowing gold
+      // diamonds, pulsing gently (deterministic, engine.time-driven, same
+      // convention as the exit block's own pulse above) -- drawn even while
+      // jammed (structural, see radarModel's own note).
+      var pickupPulse = 0.6 + 0.4 * Math.sin((engine.time / RADAR.PULSE_PERIOD_S) * Math.PI * 2);
+      model.pickups.forEach(function (p) {
+        var px = p.x * scale;
+        var py = p.y * scale;
+        var r = 4;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = "rgba(255, 240, 150," + pickupPulse.toFixed(3) + ")";
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.restore();
+      });
+
       // exit, pulsing brightness driven by engine.time (deterministic)
       var pulse = 0.45 + 0.45 * Math.sin((engine.time / RADAR.PULSE_PERIOD_S) * Math.PI * 2);
       ctx.fillStyle = "rgba(57,255,106," + pulse.toFixed(3) + ")";
@@ -437,6 +551,22 @@
       });
       model.cameras.forEach(function (c) {
         drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter >= Game.VISION.SUSPICIOUS_AT);
+      });
+
+      // LASERS (new -- Laboratory cycle, see file header): bright red beam
+      // lines, blinking on/off with the SAME duty-cycle phase driving the
+      // real gameplay hazard (model.lasers only ever contains `active`
+      // entries worth caring about -- see the draw skip below), not a
+      // separate cosmetic-only blink.
+      model.lasers.forEach(function (l) {
+        if (!l.active) return;
+        ctx.strokeStyle = LASER_COLOR;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(l.x1 * scale, l.y1 * scale);
+        ctx.lineTo(l.x2 * scale, l.y2 * scale);
+        ctx.stroke();
+        ctx.lineWidth = 1;
       });
 
       model.guards.forEach(function (g) {

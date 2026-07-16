@@ -1,5 +1,32 @@
 # TESTLOG.md
 
+## Cycle 24 (Laboratory: doors, keycards, lasers)
+
+158/158; 17/17; screens clean. Keycard-gated progression (L1 found in the
+warehouse dark zone → L1/L2/L3 doors → commsTower stub), dynamic door
+blockers in world (walls-equivalent when closed), engine owns door policy
+(proximity auto-open, 3s auto-close), duty-cycle lasers (box doesn't save
+you, chaff doesn't help, locker exempt), 3 cameras, 2 guards whose loops
+never cross locked doors.
+
+**TEST UPDATES (premise expiry, ratchet rule 2):** tests/zones.test.js's
+stub assertions were hardcoded to "laboratory doesn't exist" — now it does.
+Replaced with a KNOWN_STUBS allowlist of equal strictness (typo'd `to` still
+fails; stub branch still must be exercised — now via commsTower). One sim
+route's arrival check corrected from coincidental rect-match to zone-id.
+Verified by diff.
+
+**HONEST GAP (ledgered by builder in BACKLOG):** closed doors are
+acoustically transparent — soundEvents iterates zone.walls and can't see
+door blockers without modification (that file was out of packet scope).
+Movement/LOS correctly blocked; only sound-radius math misses doors. Also:
+collected chaff pickups keep glowing (no exposed collected flag).
+
+**3 delights:** (1) the lab run scenario threads pickup → badge → laser
+timing in one machine-checked route. (2) wall B moved to x=24 because the
+scripted playtest found a corner pinch — the sim bot is doing level QA now.
+(3) lasers as pure time functions: replay-identical, no state.
+
 ## Cycle 23 (security cameras + director module born)
 
 144/144; 16/16; screens clean. Sweeping wall-mounted cameras (sinusoidal pan

@@ -98,6 +98,19 @@
 //                               // pinned at 1 (see guardAI.js's ALERT
 //                               // contract), so maxDetection reads 1.0 for the
 //                               // full duration of an active chase.
+//       keycards: string,       // ADDITIVE (Laboratory cycle) — space-
+//                               // separated list of held keycard labels in
+//                               // L1/L2/L3 order, e.g. "L1 L3" (skipping any
+//                               // not held), or "" if none. Built from
+//                               // engine.inventory.keycards when present,
+//                               // else "" (same backward-compat fallback
+//                               // posture as `weapon`/`item`/`status` above —
+//                               // a bespoke pre-cycle test engine object
+//                               // simply reads as "no keycards" rather than
+//                               // throwing). A NEW field, not a replacement
+//                               // for anything — every existing hudModel
+//                               // assertion (life/phase/weapon/item/status/
+//                               // etc.) is untouched by this addition.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random — runs
 //   headless in node (tests/hud.test.js exercises this half only).
@@ -239,6 +252,14 @@
             ? "BOX"
             : null,
       maxDetection: maxDetection,
+      // ADDITIVE (see file header) — never removes/renames anything above.
+      keycards: engine.inventory && engine.inventory.keycards
+        ? ["L1", "L2", "L3"]
+            .filter(function (lvl) {
+              return engine.inventory.keycards[lvl];
+            })
+            .join(" ")
+        : "",
     };
   }
 
@@ -399,6 +420,33 @@
     ctx.textBaseline = "top";
   }
 
+  // Keycards tag (NEW — Laboratory cycle, see hudModel's `keycards` field
+  // note) — a small pill drawn just above the weapon box (mirroring
+  // drawStatusTag's own placement above the item box), drawn only while
+  // model.keycards is non-empty. Reuses the WEAPON box's own x-position.
+  function drawKeycardsTag(ctx, model, widthCss, heightCss) {
+    if (!model.keycards) return;
+
+    var tagH = 20;
+    var tagW = HUD.BOX_W;
+    var x = HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN - tagH - 6;
+
+    ctx.fillStyle = "rgba(57, 130, 255, 0.85)";
+    ctx.fillRect(x, y, tagW, tagH);
+    ctx.strokeStyle = "#9fc4ff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, tagW - 1, tagH - 1);
+
+    ctx.fillStyle = "#04101a";
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("KEYS " + model.keycards, x + tagW / 2, y + tagH / 2 + 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+  }
+
   function drawZoneCard(ctx, model, widthCss, heightCss, zoneState) {
     if (zoneState.shownAt === null) return;
     var elapsed = model.time - zoneState.shownAt;
@@ -486,6 +534,7 @@
       drawWeaponBox(ctx, model, widthCss, heightCss);
       drawItemBox(ctx, model, widthCss, heightCss);
       drawStatusTag(ctx, model, widthCss, heightCss);
+      drawKeycardsTag(ctx, model, widthCss, heightCss);
       drawZoneCard(ctx, model, widthCss, heightCss, zoneState);
     }
 

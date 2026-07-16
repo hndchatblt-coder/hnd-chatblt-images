@@ -186,6 +186,104 @@
 // — the same guarantee the rest of the engine already provides for
 // guards/squad/player.
 //
+// ---------------------------------------------------------------------------
+// LASERS (NEW — Laboratory cycle): a completely separate security system
+// from cameras, sharing this module only because "director" means "however
+// this facility escalates" (see the top of this file). A laser is a
+// TRIPWIRE, not a perception cone — no vision.js involvement at all, no
+// meter, no SUSPICIOUS/ALERT ladder of its own: it either catches the player
+// mid-crossing or it doesn't.
+//
+// LASER SCHEMA (zone data — src/world.js's zone.lasers[], OPTIONAL, absent or
+// empty on zones with none):
+//   { x1, y1, x2, y2, periodS, dutyOn }
+//     x1,y1 -> x2,y2 — the beam's fixed endpoints, world meters. Never moves.
+//     periodS  — seconds per full on/off duty cycle.
+//     dutyOn   — fraction (0..1) of each cycle the beam is ACTIVE (visible/
+//                dangerous), starting from t=0 of each cycle.
+//
+// ACTIVE FORMULA — deterministic, a pure function of ctx.time, same
+// "no clock of its own" posture as camera pan angle above:
+//   phase  = (ctx.time / periodS) % 1
+//   active = phase < dutyOn
+//
+// director.tickLasers(dt, ctx) -> [ { type: "laserTripped", laserIndex }, ... ]
+//   ctx = { time, prevX, prevY, x, y, playerHidden } — ANOTHER slim per-tick
+//   context THE ENGINE builds (director never reaches into a live `engine`):
+//     time         — engine.time, same role as tickCameras' ctx.time.
+//     prevX, prevY — the player's REAL x,y at the START of this tick, i.e.
+//                    BEFORE player.update() ran (see src/engine.js's own
+//                    LASERS step for exactly where this is captured).
+//     x, y         — the player's REAL x,y AFTER player.update() this tick
+//                    (and after any locker-exit step, drag-follow, etc. that
+//                    already landed earlier in the tick — whatever the
+//                    player's settled position is by the time this runs).
+//                    REAL, not the box/locker-DECOY-wrapped `perceivedPlayer`
+//                    every guard/camera gets fed — see BOXED / HIDDEN below
+//                    for why that distinction matters here.
+//     playerHidden — engine.playerHidden verbatim. See HIDDEN below.
+//
+//   Per laser i (in world.zone.lasers order):
+//     phase/active computed per the ACTIVE FORMULA above — this ALWAYS runs,
+//     regardless of playerHidden, so laserStates()'s `active` flag (used by
+//     render/radar to blink the beam) stays live even while the player is
+//     tucked in a locker; a laser doesn't care whether anyone is nearby to
+//     trip it.
+//
+//     While active: a CROSSING TEST — does the player's movement segment
+//     THIS TICK, (ctx.prevX,ctx.prevY)->(ctx.x,ctx.y), intersect the beam
+//     segment (x1,y1)->(x2,y2)? Plain segment-segment intersection (see
+//     segIntersect below) — a degenerate zero-length movement segment (the
+//     player didn't move, or is frozen — see HIDDEN below) never intersects
+//     anything, by construction of that test.
+//
+//     CROSSING FOUND -> INSTANT squad.broadcastAlert(ctx.x, ctx.y) (the EXACT
+//     SAME call a guard's own confirmed sighting or a camera's ALERT-level
+//     meter makes — a laser trip is indistinguishable to squad/guards from
+//     any other confirmed contact: same phase flip, same alertCount rule,
+//     same lastKnown update) and pushes { type: "laserTripped", laserIndex: i
+//     } onto the returned array. Unlike cameras' SUSPICIOUS/ALERT two-stage
+//     ladder, a laser has exactly one outcome: instant, full alert — there is
+//     no meter to fill first (SPEC: it's a tripwire, not a sensor).
+//
+//   BOXED PLAYER DOES NOT PROTECT (documented, not a gap): tickLasers is
+//   handed the player's REAL x/y (see ctx.x/y above), never the box-discount-
+//   wrapped `perceivedPlayer` guards/cameras get. A laser beam is a dumb
+//   photoelectric tripwire, not a set of eyes to fool with a cardboard
+//   disguise — cardboard blocks light exactly as well standing up as lying
+//   down, i.e. not at all. Crossing one in a box trips it exactly the same
+//   as crossing it bare.
+//
+//   HIDDEN (locker) DOES protect, but only because there is nothing left TO
+//   cross: while engine.playerHidden, src/engine.js's own FROZEN INPUT
+//   already zeroes player movement (see its LOCKER VERB contract), so
+//   ctx.prevX===ctx.x and ctx.prevY===ctx.y most ticks anyway — a zero-length
+//   segment never crosses a beam. ctx.playerHidden is still threaded through
+//   and checked EXPLICITLY here (crossing test skipped outright whenever it's
+//   true) as belt-and-suspenders for the one edge case where the player
+//   isn't perfectly stationary that tick (the single tick a G-press steps
+//   the player 1m out of a locker mid-tick — see src/engine.js's LOCKER VERB
+//   EXIT step) — a player who was hidden for the ENTIRETY of the movement
+//   that produced ctx.x/y should never be judged by a laser for it.
+//
+//   CHAFF DOES NOT DISABLE LASERS (documented, not a gap): unlike cameras
+//   (gated off ctx.chaffUntil > ctx.time, see tickCameras above), tickLasers
+//   never receives or checks a chaffUntil value at all. A laser is a passive
+//   photoelectric beam, not an optical sensor a bloom of chaff static can
+//   blind — there is nothing about a laser's tripwire for chaff to jam.
+//
+// director.laserStates() -> [ { x1, y1, x2, y2, active, periodS, dutyOn },
+//   ... ], one entry per world.zone.lasers, same order. PURE SNAPSHOT (same
+//   convention as cameraStates() above) — x1/y1/x2/y2/periodS/dutyOn are the
+//   laser's own static schema fields, copied through unchanged; `active` is
+//   the most recent tickLasers(dt, ctx) call's computed value (or false,
+//   before tickLasers has ever run). Used by src/render.js (bright red beam
+//   line, blinking on/off with the duty cycle) and src/radar.js (same, 2D).
+//
+// LASER DETERMINISM: same guarantee as cameras — `active` is a pure function
+// of ctx.time, the crossing test a pure function of ctx.prevX/Y/x/y, no
+// Math.random/Date/internal clock anywhere in this section either.
+//
 // Pure JS logic — no THREE, no DOM, no Math.random/Date — runs headless in
 // node exactly like vision.js/guardAI.js. Consumes world/vision/squad only
 // via their own published contracts; never mutates any of them (squad is the
@@ -199,6 +297,7 @@
     var squad = deps.squad;
 
     var cameras = (world && world.zone && world.zone.cameras) || [];
+    var lasers = (world && world.zone && world.zone.lasers) || [];
 
     // Per-camera mutable state, parallel array to `cameras` (same index).
     // wasSuspicious is the only edge-tracking flag needed — the ALERT check
@@ -211,6 +310,13 @@
         meter: 0,
         wasSuspicious: false,
       };
+    });
+
+    // Per-laser mutable state, parallel array to `lasers` (same index) — see
+    // file header LASERS section. Just the last-computed active flag; a
+    // laser has no meter/edge-tracking of its own (see ACTIVE FORMULA note).
+    var laserActiveStates = lasers.map(function () {
+      return { active: false };
     });
 
     var TWO_PI = Math.PI * 2;
@@ -268,9 +374,80 @@
       });
     }
 
+    // ---- LASERS (see file header LASERS section) ---------------------------
+
+    // Plain segment-segment intersection test (x1,y1)->(x2,y2) vs
+    // (x3,y3)->(x4,y4). Returns boolean only — this module never needs the
+    // actual intersection point, just "did it cross." Parallel (including
+    // collinear/degenerate zero-length) segments return false: a laser beam
+    // and the player's movement segment being EXACTLY parallel never
+    // resolves to a crossing point, and a zero-length movement segment (the
+    // player didn't move this tick) has no meaningful direction to cross
+    // anything with — both are the correct "no crossing" answer here, not an
+    // edge case to special-case around.
+    function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+      var d1x = x2 - x1;
+      var d1y = y2 - y1;
+      var d2x = x4 - x3;
+      var d2y = y4 - y3;
+      var denom = d1x * d2y - d1y * d2x;
+      if (denom === 0) return false;
+      var t = ((x3 - x1) * d2y - (y3 - y1) * d2x) / denom;
+      var u = ((x3 - x1) * d1y - (y3 - y1) * d1x) / denom;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    }
+
+    function tickLasers(dt, ctx) {
+      var fired = [];
+
+      for (var i = 0; i < lasers.length; i++) {
+        var laser = lasers[i];
+        var st = laserActiveStates[i];
+
+        // ACTIVE FORMULA (see file header) — always computed, regardless of
+        // ctx.playerHidden, so laserStates() stays live (blinking) even
+        // while the player can't personally trip it this tick.
+        var phase = (ctx.time / laser.periodS) % 1;
+        st.active = phase < laser.dutyOn;
+
+        if (!st.active) continue;
+        // HIDDEN (see file header) — a locker-hidden player can never trip
+        // a laser this tick, explicit belt-and-suspenders check beyond the
+        // FROZEN INPUT zero-length segment this normally produces anyway.
+        if (ctx.playerHidden) continue;
+
+        var crosses = segmentsIntersect(
+          ctx.prevX, ctx.prevY, ctx.x, ctx.y,
+          laser.x1, laser.y1, laser.x2, laser.y2
+        );
+        if (crosses) {
+          squad.broadcastAlert(ctx.x, ctx.y);
+          fired.push({ type: "laserTripped", laserIndex: i });
+        }
+      }
+
+      return fired;
+    }
+
+    function laserStates() {
+      return lasers.map(function (laser, i) {
+        return {
+          x1: laser.x1,
+          y1: laser.y1,
+          x2: laser.x2,
+          y2: laser.y2,
+          active: laserActiveStates[i].active,
+          periodS: laser.periodS,
+          dutyOn: laser.dutyOn,
+        };
+      });
+    }
+
     return {
       tickCameras: tickCameras,
       cameraStates: cameraStates,
+      tickLasers: tickLasers,
+      laserStates: laserStates,
     };
   }
 

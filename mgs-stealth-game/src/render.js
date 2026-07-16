@@ -87,6 +87,31 @@
 //   zone change exactly like guard actors (disposeCameraActors, called
 //   alongside disposeGuardActors — see ZONE CHANGES below).
 //
+//   DOORS / LASERS / PICKUPS (new — Laboratory cycle, see src/world.js's
+//   doors/lasers/pickups schema notes and src/engine.js's own DOORS/PICKUPS
+//   contract):
+//     - DOORS: one lock-color-coded slab per zone.doors entry (L1 blue, L2
+//       amber, L3 red, unlocked a neutral grey-green — same palette family
+//       src/radar.js uses), rebuilt/disposed on a zone change exactly like
+//       guard/camera actors. Re-colored (dimmed) every frame once
+//       engine.world.isDoorOpen(id) reads true — the slab stays in the
+//       scene (so its footprint/lock-color history is still legible) but
+//       reads as "open" rather than physically vanishing, matching the
+//       same "structural, not momentary" posture src/radar.js's own door
+//       styling note explains.
+//     - LASERS: a bright red THREE.Line per zone.lasers entry, visibility
+//       toggled straight off director.laserStates()[i].active every frame —
+//       since `active` itself already flips on/off with the duty cycle,
+//       this simple visibility toggle IS the "blinking with duty cycle"
+//       the spec calls for, no separate blink timer needed.
+//     - PICKUPS: a small glowing gold box per zone.pickups entry, visibility
+//       toggled off once collected (keycard pickups only — inferred from
+//       engine.inventory.keycards[level], same HONEST GAP as
+//       src/radar.js's own pickups field: a "chaff" pickup has no
+//       persistent per-index collected flag exposed outside engine.js's
+//       private bookkeeping, so its actor keeps glowing after collection;
+//       cosmetic only, tracked in BACKLOG.md).
+//
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
 //   see src/engine.js's "ZONE TRANSITIONS" tick step), the OLD static scene
@@ -231,6 +256,20 @@
       ALERT: { color: 0xff8a80, opacity: 0.95 },
       DISABLED: { color: 0x888888, opacity: 0.35 },
     };
+
+    // DOORS / LASERS / PICKUPS (new — Laboratory cycle, see file header).
+    var DOOR_HEIGHT = 2.0; // world units — reads as a full slab, distinct from a low wall
+    var DOOR_LOCK_COLOR = {
+      L1: 0x508cff,
+      L2: 0xffb03c,
+      L3: 0xff4646,
+    };
+    var DOOR_UNLOCKED_COLOR = 0x96bea0;
+    var LASER_COLOR = 0xff2828;
+    var LASER_Y = 0.9; // roughly waist height — a real tripwire beam
+    var PICKUP_COLOR = 0xfff096;
+    var PICKUP_SIZE = 0.4;
+    var PICKUP_Y = 0.5;
 
     var METER_MAX_W = 2.0;
     var METER_H = 0.32;
@@ -799,6 +838,101 @@
       actor.coneEdge.geometry = edgeGeo;
     }
 
+    // ---- doors / lasers / pickups (see file header) ---------------------------
+
+    var doorActors = {}; // door.id -> { mesh }
+    var laserActors = {}; // index -> { line }
+    var pickupActors = {}; // index -> { mesh }
+
+    function ensureDoorActor(door) {
+      var existing = doorActors[door.id];
+      if (existing) return existing;
+      var geo = new THREE.BoxGeometry(door.w, DOOR_HEIGHT, door.h);
+      var mat = new THREE.MeshLambertMaterial({
+        color: door.lock ? DOOR_LOCK_COLOR[door.lock] : DOOR_UNLOCKED_COLOR,
+        transparent: true,
+        opacity: 0.95,
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(door.x + door.w / 2, DOOR_HEIGHT / 2, door.y + door.h / 2);
+      scene.add(mesh);
+      var actor = { mesh: mesh };
+      doorActors[door.id] = actor;
+      return actor;
+    }
+
+    function disposeDoorActors() {
+      Object.keys(doorActors).forEach(function (id) {
+        var actor = doorActors[id];
+        scene.remove(actor.mesh);
+        actor.mesh.geometry.dispose();
+        actor.mesh.material.dispose();
+      });
+      doorActors = {};
+    }
+
+    function ensureLaserActor(index, laser) {
+      var existing = laserActors[index];
+      if (existing) return existing;
+      var positions = new Float32Array([laser.x1, LASER_Y, laser.y1, laser.x2, LASER_Y, laser.y2]);
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      var mat = new THREE.LineBasicMaterial({ color: LASER_COLOR, transparent: true, opacity: 0.95 });
+      var line = new THREE.Line(geo, mat);
+      scene.add(line);
+      var actor = { line: line };
+      laserActors[index] = actor;
+      return actor;
+    }
+
+    function disposeLaserActors() {
+      Object.keys(laserActors).forEach(function (index) {
+        var actor = laserActors[index];
+        scene.remove(actor.line);
+        actor.line.geometry.dispose();
+        actor.line.material.dispose();
+      });
+      laserActors = {};
+    }
+
+    function ensurePickupActor(index, pickup) {
+      var existing = pickupActors[index];
+      if (existing) return existing;
+      var geo = new THREE.BoxGeometry(PICKUP_SIZE, PICKUP_SIZE, PICKUP_SIZE * 0.15);
+      var mat = new THREE.MeshLambertMaterial({
+        color: PICKUP_COLOR,
+        emissive: PICKUP_COLOR,
+        emissiveIntensity: 0.6,
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(pickup.x, PICKUP_Y, pickup.y);
+      scene.add(mesh);
+      var actor = { mesh: mesh };
+      pickupActors[index] = actor;
+      return actor;
+    }
+
+    function disposePickupActors() {
+      Object.keys(pickupActors).forEach(function (index) {
+        var actor = pickupActors[index];
+        scene.remove(actor.mesh);
+        actor.mesh.geometry.dispose();
+        actor.mesh.material.dispose();
+      });
+      pickupActors = {};
+    }
+
+    // Keycard already collected? Same HONEST GAP as src/radar.js's own
+    // pickups field (chaff has no exposed collected flag) — see file header.
+    function pickupCollected(item, engine) {
+      var kc = engine.inventory && engine.inventory.keycards;
+      if (!kc) return false;
+      if (item === "keycardL1") return !!kc.L1;
+      if (item === "keycardL2") return !!kc.L2;
+      if (item === "keycardL3") return !!kc.L3;
+      return false;
+    }
+
     // ---- detection meter (two quads above the player) --------------------------
 
     var meterBg = null;
@@ -928,6 +1062,9 @@
           disposeStatic();
           disposeGuardActors();
           disposeCameraActors();
+          disposeDoorActors();
+          disposeLaserActors();
+          disposePickupActors();
           built = false;
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
@@ -1011,6 +1148,33 @@
         var camState = cameraStates[ci];
         var camActor = ensureCameraActor(ci, camState);
         updateCameraCone(camActor, camState, engine.world);
+      }
+
+      // DOORS (see file header) — re-colored (dimmed) once open; slab stays
+      // in the scene either way (see file header note).
+      var doors = (engine.zone && engine.zone.doors) || [];
+      for (var doi = 0; doi < doors.length; doi++) {
+        var door = doors[doi];
+        var doorActor = ensureDoorActor(door);
+        var isOpen = !!(engine.world && engine.world.isDoorOpen(door.id));
+        doorActor.mesh.material.opacity = isOpen ? 0.25 : 0.95;
+      }
+
+      // LASERS (see file header) — visibility straight off director.
+      // laserStates()'s own active flag; that flag already carries the
+      // duty-cycle blink, so no separate timer is needed here.
+      var laserStates = (engine.director && engine.director.laserStates()) || [];
+      for (var lsi = 0; lsi < laserStates.length; lsi++) {
+        var laserActor = ensureLaserActor(lsi, laserStates[lsi]);
+        laserActor.line.visible = laserStates[lsi].active;
+      }
+
+      // PICKUPS (see file header) — visibility off once collected.
+      var pickups = (engine.zone && engine.zone.pickups) || [];
+      for (var pui = 0; pui < pickups.length; pui++) {
+        var pickup = pickups[pui];
+        var pickupActor = ensurePickupActor(pui, pickup);
+        pickupActor.mesh.visible = !pickupCollected(pickup.item, engine);
       }
 
       updateTracers(engine);

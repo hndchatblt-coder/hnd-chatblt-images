@@ -82,11 +82,20 @@ Game.selfTests.push({
 });
 
 // 3. entrances/exits well-formed: every exit's `to` + entranceKey resolve to
-// an actual spawn point on the target zone, EXCEPT the warehouse's
-// laboratory stub (that zone doesn't exist yet by design — see src/world.js
-// and src/engine.js's zoneBlocked handling).
+// an actual spawn point on the target zone, EXCEPT a documented stub.
+// KNOWN_STUBS is the list of not-yet-built zone ids this cycle's Game.ZONES
+// is allowed to point at without resolving (see src/engine.js's zoneBlocked
+// handling) — UPDATED this cycle (Laboratory built): the warehouse's own
+// former "laboratory" stub now resolves for real (Game.ZONES.laboratory
+// exists), so it no longer hits the `!targetZone` branch below at all; the
+// Laboratory zone's own new north exit ("commsTower", not yet built) is the
+// one live stub exercising this branch now. This list simply tracks
+// whichever placeholder target(s) the CURRENT cycle's zone data legitimately
+// points at — same strictness as before (an unrecognized/typo'd `to` still
+// fails loudly), just not hardcoded to a name that stopped being a stub.
+var KNOWN_STUBS = ["commsTower"];
 Game.selfTests.push({
-  name: "zones: every exit's to+entranceKey resolves (except the laboratory stub)",
+  name: "zones: every exit's to+entranceKey resolves (except a known stub)",
   fn: function () {
     var checkedAtLeastOneStub = false;
 
@@ -99,8 +108,10 @@ Game.selfTests.push({
 
         var targetZone = Game.ZONES[exit.to];
         if (!targetZone) {
-          // The one documented stub this cycle.
-          assert(exit.to === "laboratory", label + ": unresolvable `to` other than the known laboratory stub: " + exit.to);
+          assert(
+            KNOWN_STUBS.indexOf(exit.to) !== -1,
+            label + ": unresolvable `to` other than a known stub (" + KNOWN_STUBS.join(", ") + "): " + exit.to
+          );
           checkedAtLeastOneStub = true;
           return;
         }
@@ -119,7 +130,7 @@ Game.selfTests.push({
       });
     });
 
-    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (the laboratory stub) to exercise that branch");
+    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (a known stub) to exercise that branch");
   },
 });
 
@@ -255,17 +266,22 @@ Game.selfTests.push({
   },
 });
 
-// 7. Laboratory stub: standing in warehouse's north exit emits zoneBlocked
-// exactly once (region-entry edge, not per tick), engine stays in warehouse,
-// and keeps ticking fine afterward.
+// 7. Known stub: standing in a zone's stub exit emits zoneBlocked exactly
+// once (region-entry edge, not per tick), engine stays put, and keeps
+// ticking fine afterward. UPDATED this cycle (Laboratory built): the
+// warehouse's own former "laboratory" stub now resolves for real (see test
+// #3's KNOWN_STUBS note above), so this test is repointed to the
+// Laboratory's own new "commsTower" stub — same assertions, same mechanism,
+// just exercising the CURRENT cycle's live placeholder exit instead of one
+// that no longer is one.
 Game.selfTests.push({
-  name: "engine zone transition: laboratory stub emits zoneBlocked once and stays in warehouse",
+  name: "engine zone transition: commsTower stub emits zoneBlocked once and stays in laboratory",
   fn: function () {
-    var warehouse = Game.ZONES.warehouse;
-    var engine = Game.createEngine({ seed: 3, zoneData: warehouse });
+    var lab = Game.ZONES.laboratory;
+    var engine = Game.createEngine({ seed: 3, zoneData: lab });
 
-    var northExit = warehouse.exits[1]; // to: laboratory
-    assert(northExit.to === "laboratory", "setup: expected warehouse.exits[1] to be the laboratory stub");
+    var northExit = lab.exits[0]; // to: commsTower
+    assert(northExit.to === "commsTower", "setup: expected laboratory.exits[0] to be the commsTower stub");
 
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;
@@ -281,14 +297,14 @@ Game.selfTests.push({
       engine.events.forEach(function (e) {
         if (e.type === "zoneBlocked") blockedCount++;
       });
-      assert(engine.zone.id === "warehouse", "expected to stay in warehouse at tick " + i + ", got " + engine.zone.id);
+      assert(engine.zone.id === "laboratory", "expected to stay in laboratory at tick " + i + ", got " + engine.zone.id);
     }
 
     assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
 
     // Leave the region and re-enter: the edge should re-arm and fire once more.
-    engine.player.x = warehouse.entrances.fromLoadingDock.x;
-    engine.player.y = warehouse.entrances.fromLoadingDock.y;
+    engine.player.x = lab.entrances.fromWarehouse.x;
+    engine.player.y = lab.entrances.fromWarehouse.y;
     engine.tick({ moveX: 0, moveY: 0 });
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;

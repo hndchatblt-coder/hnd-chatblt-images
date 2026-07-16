@@ -116,7 +116,76 @@
 //                                          // far side of each camera's reach (see the
 //                                          // per-camera comments below for the specific
 //                                          // uncovered stretch).
+//       pickups: [ { x, y, item }, ... ], // NEW (Laboratory cycle) — SCHEMA FOR
+//                                          // ALL ZONES (optional/empty where a zone has
+//                                          // nothing to pick up, e.g. loadingDock). `item`
+//                                          // is an opaque string src/items.js's
+//                                          // inv.collectPickup(item) understands
+//                                          // ("keycardL1"/"keycardL2"/"keycardL3"/"chaff"
+//                                          // this cycle). Collection (distance check,
+//                                          // event, "already collected" bookkeeping) is
+//                                          // engine.js's job (see its PICKUPS step) — this
+//                                          // is pure placement data, same "engine mutates,
+//                                          // module computes" split as every other item
+//                                          // verb in this codebase.
+//       doors: [ { x, y, w, h, lock, id }, ... ], // NEW (Laboratory cycle) — SCHEMA FOR
+//                                          // ALL ZONES (optional/empty on zones with no
+//                                          // doors, e.g. loadingDock/warehouse this cycle).
+//                                          // `lock` is "L1" | "L2" | "L3" | null (null =
+//                                          // unlocked, auto-opens on mere proximity — see
+//                                          // src/engine.js's DOORS step). `id` is an opaque
+//                                          // string, unique within the zone, used by
+//                                          // world.setDoorOpen(id, open)/isDoorOpen(id) and
+//                                          // by engine.js's per-door auto-open/close
+//                                          // bookkeeping. A door AABB is otherwise a plain
+//                                          // wall-shaped rect — see DYNAMIC BLOCKERS below
+//                                          // for exactly how it behaves as one while closed.
+//       lasers: [ { x1, y1, x2, y2, periodS, dutyOn }, ... ], // NEW (Laboratory cycle) —
+//                                          // SCHEMA FOR ALL ZONES (optional/empty on zones
+//                                          // with none). A laser is a TRIPWIRE, not a
+//                                          // collision blocker — world.js does not consult
+//                                          // this array at all (isBlocked/raycast/moveCircle
+//                                          // are unaware lasers exist). It is consumed
+//                                          // entirely by src/director.js (see its own
+//                                          // contract for the duty-cycle/crossing-test
+//                                          // write-up) via engine.js's LASERS step.
 //     }
+//
+//   DOORS / DYNAMIC BLOCKERS (NEW this cycle — Laboratory zone): a door behaves
+//   EXACTLY like a wall AABB — same closed-containment convention as every
+//   other isBlocked/isBlockedCircle/raycast check in this file — for as long
+//   as it is CLOSED. World now keeps a per-instance, per-door open/closed flag
+//   (world.setDoorOpen(id, open) / world.isDoorOpen(id)), defaulting every
+//   door to CLOSED at construction (a fresh Game.createWorld(zoneData) call —
+//   e.g. on a zone transition — always starts every door shut, v1 semantics,
+//   same "discard on transition" rule guards/squad/vision already follow).
+//   isBlocked/isBlockedCircle/raycast/moveCircle all consult a DYNAMIC
+//   BLOCKERS list — zone.walls plus whichever zone.doors are CURRENTLY
+//   CLOSED, recomputed fresh on every call (doors are few — at most a
+//   handful per zone — so this is cheap; no caching complexity for a v1
+//   feature) — rather than the static `walls` array alone. Once a door is
+//   OPEN (world.setDoorOpen(id, true)), it drops out of every one of those
+//   checks entirely — a player/guard walks through the gap exactly as if the
+//   AABB were never there. engine.js owns WHEN a door opens/closes (keycard
+//   proximity, unlocked-on-proximity, auto-close timer — see its own DOORS
+//   contract); world.js only owns the mechanical "is this rect currently a
+//   blocker" question.
+//
+//   HONEST GAP — DOORS DO NOT ATTENUATE SOUND THIS VERSION: src/soundEvents.js
+//   computes wall-crossing attenuation (wallsBetween/effectiveRadius) by
+//   iterating `world.zone.walls` DIRECTLY (see its own file header's
+//   IMPLEMENTATION NOTE for why it can't reuse world.raycast in a marching
+//   loop) — it has no notion of `world`'s dynamic blockers list, only the
+//   static zone data. soundEvents.js is out of scope for this cycle's task
+//   packet, so rather than reach into it, a closed door in this version is
+//   ACOUSTICALLY TRANSPARENT: a knock/gunshot/footstep on one side of a
+//   closed Laboratory door attenuates as if the door weren't there at all
+//   (it still fully blocks LINE OF SIGHT and MOVEMENT via world.js's own
+//   blockers list above — only the SOUND radius math misses it). This is a
+//   deliberate, documented gap, not a silent one — see BACKLOG.md for the
+//   follow-up ("soundEvents: attenuate through closed doors, not just
+//   walls") that would thread a door-aware wallsBetween through soundEvents.js
+//   in a future cycle where that file is back in scope.
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
 //       // true iff (x,y) lies inside (or exactly on the edge of) any wall AABB.
@@ -212,25 +281,48 @@
 
   function createWorld(zoneData) {
     var walls = zoneData.walls;
+    var doors = zoneData.doors || [];
+
+    // Per-door open/closed flag, PRIVATE to this world instance (see file
+    // header DOORS / DYNAMIC BLOCKERS note) — every door starts CLOSED.
+    var doorOpen = {};
+    for (var di = 0; di < doors.length; di++) doorOpen[doors[di].id] = false;
+
+    // DYNAMIC BLOCKERS (see file header) — zone.walls plus whichever doors
+    // are CURRENTLY CLOSED. Recomputed on every call; doors.length is small
+    // (a handful per zone at most) so this is cheap. Skips the concat
+    // entirely when a zone has no doors at all (every pre-Laboratory zone),
+    // so this is a no-op cost change for loadingDock/warehouse.
+    function blockers() {
+      if (doors.length === 0) return walls;
+      var list = walls.slice();
+      for (var i = 0; i < doors.length; i++) {
+        if (!doorOpen[doors[i].id]) list.push(doors[i]);
+      }
+      return list;
+    }
 
     function isBlocked(x, y) {
-      for (var i = 0; i < walls.length; i++) {
-        if (rectContainsPoint(walls[i], x, y)) return true;
+      var list = blockers();
+      for (var i = 0; i < list.length; i++) {
+        if (rectContainsPoint(list[i], x, y)) return true;
       }
       return false;
     }
 
     function isBlockedCircle(x, y, r) {
-      for (var i = 0; i < walls.length; i++) {
-        if (circleOverlapsRect(x, y, r, walls[i])) return true;
+      var list = blockers();
+      for (var i = 0; i < list.length; i++) {
+        if (circleOverlapsRect(x, y, r, list[i])) return true;
       }
       return false;
     }
 
     function raycast(x1, y1, x2, y2) {
+      var list = blockers();
       var bestT = null;
-      for (var i = 0; i < walls.length; i++) {
-        var t = segmentVsRect(x1, y1, x2, y2, walls[i]);
+      for (var i = 0; i < list.length; i++) {
+        var t = segmentVsRect(x1, y1, x2, y2, list[i]);
         if (t !== null && (bestT === null || t < bestT)) bestT = t;
       }
       if (bestT === null) return null;
@@ -254,12 +346,26 @@
       return rectContainsPoint(region, x, y);
     }
 
+    // DOORS (see file header) — world.js's own half is purely mechanical:
+    // remember which door ids are open, let blockers() above see it.
+    // engine.js decides WHEN to call these (keycard proximity, auto-close
+    // timers, etc.) — see its own DOORS contract.
+    function setDoorOpen(id, open) {
+      doorOpen[id] = !!open;
+    }
+
+    function isDoorOpen(id) {
+      return !!doorOpen[id];
+    }
+
     return {
       isBlocked: isBlocked,
       isBlockedCircle: isBlockedCircle,
       raycast: raycast,
       moveCircle: moveCircle,
       inRegion: inRegion,
+      setDoorOpen: setDoorOpen,
+      isDoorOpen: isDoorOpen,
       zone: zoneData,
     };
   }
@@ -326,6 +432,11 @@
     // installation lives in the warehouse; the loading dock stays
     // guard-only until a future cycle expands coverage.
     cameras: [],
+    // No pickups, doors, or lasers this cycle (see schema notes above) —
+    // those all debut in the Laboratory zone below.
+    pickups: [],
+    doors: [],
+    lasers: [],
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -449,11 +560,153 @@
       // it, not just a nominal one.
       { x: 29.6, y: 13.5, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
     ],
+    // L1 KEYCARD (see schema note above / Laboratory zone below) — the key
+    // that unlocks the Laboratory's own L1 door lives out here, one zone
+    // early, so a player must actually clear the Warehouse before the
+    // Laboratory's west wing opens up. Tucked in the far-west dark zone
+    // (x:2-6,y:4-12, see darkZones above) at (4,7) — clear of the crate
+    // cluster at (4,10,2,2) and the left perimeter wall (x:0-1).
+    pickups: [{ x: 4, y: 7, item: "keycardL1" }],
+    doors: [],
+    lasers: [],
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
+  // ---- zone data: LABORATORY --------------------------------------------------
+  // 40x30m. Keycard-gated linear progression, north from the Warehouse:
+  //   south entrance (entrances.fromWarehouse, x:18-22 gap like every other
+  //   zone's shared spine column) -> LOBBY (y:17-29, the whole south third)
+  //   -> L1 DOOR (a gap in the y:17 dividing wall, x:18-22) -> the shared
+  //   MID FLOOR (y:4-17), itself split by a vertical wall at x:24 into a WEST
+  //   WING (x:1-24, holds the L2 keycard) and an EAST WING (x:24-39, holds
+  //   the L3 keycard + a bonus chaff grenade) -> L2 DOOR (a gap in that x:24
+  //   wall, y:9-13) bridges the two wings -> L3 DOOR (a gap in the y:3
+  //   dividing wall, x:18-22) leads to the NORTH CORRIDOR (y:0-3) -> an exit
+  //   stub toward the (not yet built) Comms Tower — same "engine.js resolves
+  //   an unknown `to` by staying put + zoneBlocked" convention the
+  //   Warehouse's own Laboratory stub used before this cycle.
+  //
+  //   Doors (see file header DOORS / DYNAMIC BLOCKERS): doorL1 gates
+  //   lobby->mid floor, doorL2 gates west wing->east wing, doorL3 gates mid
+  //   floor->north corridor. Every guard's own patrol loop stays entirely
+  //   within ONE side of every door (lab-g1 never leaves the lobby, lab-g2
+  //   never leaves the west wing) — guards never need to open a door this
+  //   cycle, so a locked door a guard can't unlock never strands one (see
+  //   src/engine.js's DOORS contract: only the PLAYER's keycards are ever
+  //   checked against a lock).
+  //
+  //   Cameras (3, one per major area) + lasers (2, one guarding each
+  //   wing's keycard) are mounted 0.1m clear of the wall they're flush
+  //   against, same convention as the Warehouse's pilot installation above.
+  //
+  //   GEOMETRY NOTE — Wall B deliberately sits at x:24, NOT x:20 (which would
+  //   put it flush against the L1 door's own center column, x:18-22): a
+  //   player/guard circle (radius 0.4) passing straight through the L1 door
+  //   and continuing north at x~20 would clip Wall B's bottom segment's
+  //   corner the instant Wall B's edge and Wall A's edge share the same y
+  //   (both meeting at y:17) — an authentic pinch point discovered by
+  //   scripting sim.js's "lab run" scenario. Wall B is shifted 4m east so the
+  //   L1 door's entire approach corridor (x:18-22) is comfortably clear of
+  //   any other wall face.
+  var laboratory = {
+    id: "laboratory",
+    name: "LABORATORY",
+    bounds: { w: 40, h: 30 },
+    walls: [
+      // perimeter (6 segments: top split around the north Comms Tower stub,
+      // bottom split around the south Warehouse entrance, left, right)
+      { x: 0, y: 0, w: 18, h: 1 }, // top-left
+      { x: 22, y: 0, w: 18, h: 1 }, // top-right (gap: x 18-22, stub to commsTower)
+      { x: 0, y: 29, w: 18, h: 1 }, // bottom-left
+      { x: 22, y: 29, w: 18, h: 1 }, // bottom-right (gap: x 18-22, entrance from warehouse)
+      { x: 0, y: 0, w: 1, h: 30 }, // left
+      { x: 39, y: 0, w: 1, h: 30 }, // right
+      // Wall A — lobby / mid-floor divider (y:17), split around the L1 door gap (x:18-22)
+      { x: 0, y: 17, w: 18, h: 1 },
+      { x: 22, y: 17, w: 18, h: 1 },
+      // Wall C — mid-floor / north-corridor divider (y:3), split around the L3 door gap (x:18-22)
+      { x: 0, y: 3, w: 18, h: 1 },
+      { x: 22, y: 3, w: 18, h: 1 },
+      // Wall B — west wing / east wing divider (x:24, y:3-17, see GEOMETRY
+      // NOTE above), split around the L2 door gap (y:9-13)
+      { x: 24, y: 3, w: 1, h: 6 },
+      { x: 24, y: 13, w: 1, h: 4 },
+    ],
+    doors: [
+      { x: 18, y: 17, w: 4, h: 1, lock: "L1", id: "doorL1" },
+      { x: 24, y: 9, w: 1, h: 4, lock: "L2", id: "doorL2" },
+      { x: 18, y: 3, w: 4, h: 1, lock: "L3", id: "doorL3" },
+    ],
+    playerSpawn: { x: 20, y: 26 },
+    // The only exit this cycle: the Comms Tower stub, north through the
+    // L3 door. Unresolvable `to` — engine.js stays put + emits zoneBlocked
+    // (see src/engine.js's ZONE TRANSITIONS contract), same documented-stub
+    // pattern the Warehouse's own Laboratory exit used before this cycle.
+    exits: [{ x: 18, y: 0, w: 4, h: 3, to: "commsTower", entranceKey: "fromLaboratory" }],
+    entrances: { fromWarehouse: { x: 20, y: 26 } },
+    // Guard 1 (lab-g1): lobby perimeter loop, well clear of the L1 door and
+    // every locker/dark zone (none of those are collision — see world.js
+    // schema notes — so proximity to them is cosmetic only).
+    waypoints: [
+      { x: 5, y: 21 },
+      { x: 35, y: 21 },
+      { x: 35, y: 27 },
+      { x: 5, y: 27 },
+    ],
+    // Guard 2 (lab-g2): west wing loop, entirely on the near side of the L2
+    // door — never needs to open it (see file header note above).
+    waypoints2: [
+      { x: 3, y: 5 },
+      { x: 17, y: 5 },
+      { x: 17, y: 15 },
+      { x: 3, y: 15 },
+    ],
+    darkZones: [
+      { x: 2, y: 20, w: 5, h: 6 }, // lobby, SW corner
+      { x: 1, y: 4, w: 4, h: 4 }, // west wing, NW corner
+      { x: 34, y: 4, w: 5, h: 4 }, // east wing, NE corner (tucks the L3 keycard in shadow)
+    ],
+    lockers: [
+      { x: 5, y: 24, facing: 0 },
+      { x: 34, y: 24, facing: Math.PI },
+      { x: 3, y: 15, facing: 0 },
+      { x: 36, y: 15, facing: Math.PI },
+    ],
+    // 3 cameras, one per major area (lobby + both wings), each mounted
+    // 0.1m clear of the wall face it's flush against (see file header note).
+    cameras: [
+      // Lobby — mounted on wall A's south face, facing south (PI/2) into
+      // the lobby's main north-south crossing just past the L1 door.
+      { x: 20, y: 18.1, facing: Math.PI / 2, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 12 },
+      // West wing — mounted on wall B's west face, facing west (PI) across
+      // the approach to the L2 keycard.
+      { x: 23.9, y: 6, facing: Math.PI, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+      // East wing — mounted on wall B's east face, facing east (0) across
+      // the approach to the L3 keycard / chaff pickup.
+      { x: 25.1, y: 6, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+    ],
+    // Keycard/chaff pickups (see schema note above) — L1 lives back in the
+    // Warehouse (see above); L2 and L3 plus a bonus chaff grenade live here.
+    pickups: [
+      { x: 10, y: 6, item: "keycardL2" }, // west wing, north corner
+      { x: 34, y: 6, item: "keycardL3" }, // east wing, north corner (in the dark zone)
+      { x: 30, y: 14, item: "chaff" }, // east wing, south of the keycard
+    ],
+    // 2 lasers (see file header / src/director.js's own contract), one per
+    // wing, each spanning nearly the full wing width at y:10 — a player
+    // walking from the L1-door entry point (south, y~16) to either wing's
+    // keycard (north, y~6) must cross one, timing the crossing to the
+    // duty-cycle's OFF phase (periodS 4s, dutyOn 0.6 -> 1.6s clear per
+    // cycle) rather than just walking straight through.
+    lasers: [
+      { x1: 2, y1: 10, x2: 18, y2: 10, periodS: 4, dutyOn: 0.6 }, // west wing
+      { x1: 26, y1: 10, x2: 38, y2: 10, periodS: 4, dutyOn: 0.6 }, // east wing
+    ],
+  };
+  laboratory.exit = laboratory.exits[0]; // back-compat alias, see schema note above
+
   Game.createWorld = createWorld;
-  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse };
+  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse, laboratory: laboratory };
   if (typeof module !== "undefined")
     module.exports = { createWorld: createWorld, ZONES: Game.ZONES };
 })(typeof window !== "undefined"
@@ -2483,6 +2736,34 @@
 //       engine.js's job (see its CHAFF VERB contract), same ENGINE-AGNOSTIC
 //       split as everything else in this file.
 //
+//     inv.keycards — { L1: boolean, L2: boolean, L3: boolean }, all false at
+//       construction (NEW — Laboratory cycle). Mission-scoped like darts/
+//       rations/chaff (untouched by engine.js's switchZone). Flipped true by
+//       inv.collectPickup("keycardL1"|"keycardL2"|"keycardL3") below — this
+//       module never sets a keycard flag any other way. Read by engine.js's
+//       DOORS step to decide whether a locked door may auto-open (see
+//       src/engine.js's own DOORS contract) and by src/hud.js's additive
+//       `keycards` field for display.
+//
+//     inv.collectPickup(item) -> boolean (true iff this item was actually
+//       applied)
+//       `item` is the opaque string from a zone.pickups[] entry (see
+//       src/world.js's schema note — "keycardL1" | "keycardL2" | "keycardL3"
+//       | "chaff" this cycle). Distance-to-player checking and "has this
+//       specific pickup already been collected" bookkeeping are engine.js's
+//       job (see its own PICKUPS step) — this function is a pure "apply this
+//       named item to the inventory" mutator, called only once engine.js has
+//       already decided the pickup should be collected:
+//         "keycardL1"/"keycardL2"/"keycardL3" -> sets the matching
+//           inv.keycards.L* to true (idempotent — collecting the same
+//           keycard twice, e.g. via a re-triggered pickup, is a harmless
+//           no-op the second time) and returns true.
+//         "chaff" -> inv.chaff++ (a bonus grenade beyond ITEMS.STARTING_CHAFF
+//           — no cap) and returns true.
+//         anything else (an unrecognized item string) -> returns false,
+//         touches nothing. Defensive only; every pickup this cycle's zone
+//         data actually places uses one of the four names above.
+//
 //     inv.hasBox — boolean, always true this cycle (no pickup system yet —
 //       same "not yet a real loadout system" caveat as inv.weapon above; a
 //       future cycle could make this pickup-gated without changing the
@@ -2605,7 +2886,35 @@
       chaff: ITEMS.STARTING_CHAFF,
       hasBox: true,
       boxOn: false,
+      // NEW — Laboratory cycle (see file header). All false until collected
+      // via inv.collectPickup(...) below; mission-scoped like every other
+      // inventory field in this object.
+      keycards: { L1: false, L2: false, L3: false },
     };
+
+    // See file header: pure "apply this named pickup" mutator — engine.js
+    // owns the distance check and the "already collected" bookkeeping (see
+    // its own PICKUPS step contract). Returns whether anything was actually
+    // applied, mirroring useRation/useChaff's own boolean-result posture.
+    function collectPickup(item) {
+      if (item === "keycardL1") {
+        inv.keycards.L1 = true;
+        return true;
+      }
+      if (item === "keycardL2") {
+        inv.keycards.L2 = true;
+        return true;
+      }
+      if (item === "keycardL3") {
+        inv.keycards.L3 = true;
+        return true;
+      }
+      if (item === "chaff") {
+        inv.chaff++;
+        return true;
+      }
+      return false;
+    }
 
     // See file header: pure "would this help, and by how much" calculator —
     // never touches player.hp itself (engine.js's RATION VERB applies the
@@ -2682,6 +2991,7 @@
     inv.fireTranq = fireTranq;
     inv.useRation = useRation;
     inv.useChaff = useChaff;
+    inv.collectPickup = collectPickup;
     return inv;
   }
 
@@ -2882,6 +3192,104 @@
 // — the same guarantee the rest of the engine already provides for
 // guards/squad/player.
 //
+// ---------------------------------------------------------------------------
+// LASERS (NEW — Laboratory cycle): a completely separate security system
+// from cameras, sharing this module only because "director" means "however
+// this facility escalates" (see the top of this file). A laser is a
+// TRIPWIRE, not a perception cone — no vision.js involvement at all, no
+// meter, no SUSPICIOUS/ALERT ladder of its own: it either catches the player
+// mid-crossing or it doesn't.
+//
+// LASER SCHEMA (zone data — src/world.js's zone.lasers[], OPTIONAL, absent or
+// empty on zones with none):
+//   { x1, y1, x2, y2, periodS, dutyOn }
+//     x1,y1 -> x2,y2 — the beam's fixed endpoints, world meters. Never moves.
+//     periodS  — seconds per full on/off duty cycle.
+//     dutyOn   — fraction (0..1) of each cycle the beam is ACTIVE (visible/
+//                dangerous), starting from t=0 of each cycle.
+//
+// ACTIVE FORMULA — deterministic, a pure function of ctx.time, same
+// "no clock of its own" posture as camera pan angle above:
+//   phase  = (ctx.time / periodS) % 1
+//   active = phase < dutyOn
+//
+// director.tickLasers(dt, ctx) -> [ { type: "laserTripped", laserIndex }, ... ]
+//   ctx = { time, prevX, prevY, x, y, playerHidden } — ANOTHER slim per-tick
+//   context THE ENGINE builds (director never reaches into a live `engine`):
+//     time         — engine.time, same role as tickCameras' ctx.time.
+//     prevX, prevY — the player's REAL x,y at the START of this tick, i.e.
+//                    BEFORE player.update() ran (see src/engine.js's own
+//                    LASERS step for exactly where this is captured).
+//     x, y         — the player's REAL x,y AFTER player.update() this tick
+//                    (and after any locker-exit step, drag-follow, etc. that
+//                    already landed earlier in the tick — whatever the
+//                    player's settled position is by the time this runs).
+//                    REAL, not the box/locker-DECOY-wrapped `perceivedPlayer`
+//                    every guard/camera gets fed — see BOXED / HIDDEN below
+//                    for why that distinction matters here.
+//     playerHidden — engine.playerHidden verbatim. See HIDDEN below.
+//
+//   Per laser i (in world.zone.lasers order):
+//     phase/active computed per the ACTIVE FORMULA above — this ALWAYS runs,
+//     regardless of playerHidden, so laserStates()'s `active` flag (used by
+//     render/radar to blink the beam) stays live even while the player is
+//     tucked in a locker; a laser doesn't care whether anyone is nearby to
+//     trip it.
+//
+//     While active: a CROSSING TEST — does the player's movement segment
+//     THIS TICK, (ctx.prevX,ctx.prevY)->(ctx.x,ctx.y), intersect the beam
+//     segment (x1,y1)->(x2,y2)? Plain segment-segment intersection (see
+//     segIntersect below) — a degenerate zero-length movement segment (the
+//     player didn't move, or is frozen — see HIDDEN below) never intersects
+//     anything, by construction of that test.
+//
+//     CROSSING FOUND -> INSTANT squad.broadcastAlert(ctx.x, ctx.y) (the EXACT
+//     SAME call a guard's own confirmed sighting or a camera's ALERT-level
+//     meter makes — a laser trip is indistinguishable to squad/guards from
+//     any other confirmed contact: same phase flip, same alertCount rule,
+//     same lastKnown update) and pushes { type: "laserTripped", laserIndex: i
+//     } onto the returned array. Unlike cameras' SUSPICIOUS/ALERT two-stage
+//     ladder, a laser has exactly one outcome: instant, full alert — there is
+//     no meter to fill first (SPEC: it's a tripwire, not a sensor).
+//
+//   BOXED PLAYER DOES NOT PROTECT (documented, not a gap): tickLasers is
+//   handed the player's REAL x/y (see ctx.x/y above), never the box-discount-
+//   wrapped `perceivedPlayer` guards/cameras get. A laser beam is a dumb
+//   photoelectric tripwire, not a set of eyes to fool with a cardboard
+//   disguise — cardboard blocks light exactly as well standing up as lying
+//   down, i.e. not at all. Crossing one in a box trips it exactly the same
+//   as crossing it bare.
+//
+//   HIDDEN (locker) DOES protect, but only because there is nothing left TO
+//   cross: while engine.playerHidden, src/engine.js's own FROZEN INPUT
+//   already zeroes player movement (see its LOCKER VERB contract), so
+//   ctx.prevX===ctx.x and ctx.prevY===ctx.y most ticks anyway — a zero-length
+//   segment never crosses a beam. ctx.playerHidden is still threaded through
+//   and checked EXPLICITLY here (crossing test skipped outright whenever it's
+//   true) as belt-and-suspenders for the one edge case where the player
+//   isn't perfectly stationary that tick (the single tick a G-press steps
+//   the player 1m out of a locker mid-tick — see src/engine.js's LOCKER VERB
+//   EXIT step) — a player who was hidden for the ENTIRETY of the movement
+//   that produced ctx.x/y should never be judged by a laser for it.
+//
+//   CHAFF DOES NOT DISABLE LASERS (documented, not a gap): unlike cameras
+//   (gated off ctx.chaffUntil > ctx.time, see tickCameras above), tickLasers
+//   never receives or checks a chaffUntil value at all. A laser is a passive
+//   photoelectric beam, not an optical sensor a bloom of chaff static can
+//   blind — there is nothing about a laser's tripwire for chaff to jam.
+//
+// director.laserStates() -> [ { x1, y1, x2, y2, active, periodS, dutyOn },
+//   ... ], one entry per world.zone.lasers, same order. PURE SNAPSHOT (same
+//   convention as cameraStates() above) — x1/y1/x2/y2/periodS/dutyOn are the
+//   laser's own static schema fields, copied through unchanged; `active` is
+//   the most recent tickLasers(dt, ctx) call's computed value (or false,
+//   before tickLasers has ever run). Used by src/render.js (bright red beam
+//   line, blinking on/off with the duty cycle) and src/radar.js (same, 2D).
+//
+// LASER DETERMINISM: same guarantee as cameras — `active` is a pure function
+// of ctx.time, the crossing test a pure function of ctx.prevX/Y/x/y, no
+// Math.random/Date/internal clock anywhere in this section either.
+//
 // Pure JS logic — no THREE, no DOM, no Math.random/Date — runs headless in
 // node exactly like vision.js/guardAI.js. Consumes world/vision/squad only
 // via their own published contracts; never mutates any of them (squad is the
@@ -2895,6 +3303,7 @@
     var squad = deps.squad;
 
     var cameras = (world && world.zone && world.zone.cameras) || [];
+    var lasers = (world && world.zone && world.zone.lasers) || [];
 
     // Per-camera mutable state, parallel array to `cameras` (same index).
     // wasSuspicious is the only edge-tracking flag needed — the ALERT check
@@ -2907,6 +3316,13 @@
         meter: 0,
         wasSuspicious: false,
       };
+    });
+
+    // Per-laser mutable state, parallel array to `lasers` (same index) — see
+    // file header LASERS section. Just the last-computed active flag; a
+    // laser has no meter/edge-tracking of its own (see ACTIVE FORMULA note).
+    var laserActiveStates = lasers.map(function () {
+      return { active: false };
     });
 
     var TWO_PI = Math.PI * 2;
@@ -2964,9 +3380,80 @@
       });
     }
 
+    // ---- LASERS (see file header LASERS section) ---------------------------
+
+    // Plain segment-segment intersection test (x1,y1)->(x2,y2) vs
+    // (x3,y3)->(x4,y4). Returns boolean only — this module never needs the
+    // actual intersection point, just "did it cross." Parallel (including
+    // collinear/degenerate zero-length) segments return false: a laser beam
+    // and the player's movement segment being EXACTLY parallel never
+    // resolves to a crossing point, and a zero-length movement segment (the
+    // player didn't move this tick) has no meaningful direction to cross
+    // anything with — both are the correct "no crossing" answer here, not an
+    // edge case to special-case around.
+    function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+      var d1x = x2 - x1;
+      var d1y = y2 - y1;
+      var d2x = x4 - x3;
+      var d2y = y4 - y3;
+      var denom = d1x * d2y - d1y * d2x;
+      if (denom === 0) return false;
+      var t = ((x3 - x1) * d2y - (y3 - y1) * d2x) / denom;
+      var u = ((x3 - x1) * d1y - (y3 - y1) * d1x) / denom;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    }
+
+    function tickLasers(dt, ctx) {
+      var fired = [];
+
+      for (var i = 0; i < lasers.length; i++) {
+        var laser = lasers[i];
+        var st = laserActiveStates[i];
+
+        // ACTIVE FORMULA (see file header) — always computed, regardless of
+        // ctx.playerHidden, so laserStates() stays live (blinking) even
+        // while the player can't personally trip it this tick.
+        var phase = (ctx.time / laser.periodS) % 1;
+        st.active = phase < laser.dutyOn;
+
+        if (!st.active) continue;
+        // HIDDEN (see file header) — a locker-hidden player can never trip
+        // a laser this tick, explicit belt-and-suspenders check beyond the
+        // FROZEN INPUT zero-length segment this normally produces anyway.
+        if (ctx.playerHidden) continue;
+
+        var crosses = segmentsIntersect(
+          ctx.prevX, ctx.prevY, ctx.x, ctx.y,
+          laser.x1, laser.y1, laser.x2, laser.y2
+        );
+        if (crosses) {
+          squad.broadcastAlert(ctx.x, ctx.y);
+          fired.push({ type: "laserTripped", laserIndex: i });
+        }
+      }
+
+      return fired;
+    }
+
+    function laserStates() {
+      return lasers.map(function (laser, i) {
+        return {
+          x1: laser.x1,
+          y1: laser.y1,
+          x2: laser.x2,
+          y2: laser.y2,
+          active: laserActiveStates[i].active,
+          periodS: laser.periodS,
+          dutyOn: laser.dutyOn,
+        };
+      });
+    }
+
     return {
       tickCameras: tickCameras,
       cameraStates: cameraStates,
+      tickLasers: tickLasers,
+      laserStates: laserStates,
     };
   }
 
@@ -3121,9 +3608,31 @@
 //                     LEVEL-triggered (fires every such tick, not just the
 //                     first), same tick director itself already called
 //                     squad.broadcastAlert.
-//                 More event types (item pickups, ...) will be appended by
-//                 later modules — treat `type` as an open set and always
-//                 branch on it, never assume this is the full list.
+//                   { type: "pickup", item } — the player walked within 0.7m
+//                     of a zone.pickups[] entry this tick and it was
+//                     collected (see PICKUPS below); item is that entry's
+//                     opaque item string ("keycardL1"/"keycardL2"/
+//                     "keycardL3"/"chaff" this cycle).
+//                   { type: "doorOpen", id } — a zone.doors[] entry
+//                     transitioned closed->open this tick, either an
+//                     unlocked door on mere proximity or a locked one the
+//                     player just badged through (see DOORS below); id is
+//                     that door's own id.
+//                   { type: "doorClose", id } — a zone.doors[] entry
+//                     transitioned open->closed this tick (nobody within
+//                     DOOR_PROXIMITY_DIST for DOOR_AUTO_CLOSE_S seconds — see
+//                     DOORS below). Not required reading for any test this
+//                     cycle asks for, but harmless/additive, same "open set"
+//                     posture as every event here.
+//                   { type: "laserTripped", laserIndex } — the player's
+//                     movement this tick crossed an ACTIVE zone.lasers[]
+//                     beam while not engine.playerHidden (see LASERS below /
+//                     src/director.js's own laser contract); this is the
+//                     SAME tick director.tickLasers already called
+//                     squad.broadcastAlert.
+//                 More event types will be appended by later modules — treat
+//                 `type` as an open set and always branch on it, never
+//                 assume this is the full list.
 //
 //   CQC VERB — Q key, input.cqc (boolean), EDGE-TRIGGERED exactly like knock/
 //   fire (private prevCqc closure state, false->true only): on that edge,
@@ -3473,6 +3982,45 @@
 //          missing/omitted stance holds whatever the player was already in
 //          (player.update's own "retain stance if omitted" rule handles this
 //          once moveX/moveY/run are defaulted — see src/player.js contract).
+//       1.5. PICKUPS (new — Laboratory cycle, see src/items.js's
+//          inv.collectPickup contract): for every zone.pickups[] entry not
+//          already collected (a private per-engine, per-zone-index Set —
+//          see collectedPickups below — NOT reset by switchZone, so leaving
+//          and re-entering the same zone never respawns something already
+//          picked up), if dist(player, pickup) < 0.7: mark it collected,
+//          call inventory.collectPickup(pickup.item), and push { type:
+//          "pickup", item: pickup.item }. Runs right after player.update so
+//          this tick's fresh position is what's tested; before the NOISE
+//          STEP/DOORS below since neither depends on it.
+//       1.6. DOORS (new — Laboratory cycle, see src/world.js's DOORS /
+//          DYNAMIC BLOCKERS contract): for every zone.doors[] entry, in
+//          order:
+//            - CLOSED + lock === null: opens the instant player OR any guard
+//              is within DOOR_PROXIMITY_DIST (1.5m) of the door's center —
+//              push { type: "doorOpen", id }.
+//            - CLOSED + locked (lock is "L1"/"L2"/"L3"): opens ONLY when the
+//              PLAYER (never a guard — see file header design note, guards
+//              never carry keys) is within DOOR_KEYED_OPEN_DIST (1.2m) AND
+//              inventory.keycards[lock] is true — push { type: "doorOpen",
+//              id }. A locked door with no key nearby, or a guard alone
+//              nearby, simply stays shut.
+//            - OPEN: tracks the last tick anyone (player or ANY guard) was
+//              within DOOR_PROXIMITY_DIST in a private per-door timestamp
+//              (doorLastNear — reset alongside collectedPickups on
+//              switchZone); once DOOR_AUTO_CLOSE_S (3s) have elapsed with
+//              nobody that close, closes it and pushes { type: "doorClose",
+//              id }. A door that just opened this same tick counts as
+//              "someone was near" at that same moment, so it can never
+//              immediately re-close on the very next tick before anyone's
+//              actually stepped away.
+//          Runs after PICKUPS, using this tick's fresh player position and
+//          the PREVIOUS tick's guard positions (guards update in step 3,
+//          below) — an acceptable one-tick lag since, by design, no guard's
+//          own patrol loop ever needs a door to open (see src/world.js's
+//          Laboratory zone comments) — this proximity check existing for
+//          guards at all is purely for the "close after 3s of nobody nearby"
+//          rule to correctly NOT fire while a guard happens to be patrolling
+//          right past an open door.
 //       2. NOISE STEP (new — soundEvents), AFTER player.update, BEFORE any
 //          guard updates, so a sound made THIS tick can already be reflected
 //          in guard.state by the time step 3's guard.update() runs (matching
@@ -3544,6 +4092,24 @@
 //          squad.broadcastAlert INSIDE tickCameras, before this step
 //          returns — see DESIGN RULE below for why this does NOT feed
 //          anyLOS (step 5).
+//       3.6. LASERS (new — Laboratory cycle, see src/director.js's own laser
+//          contract): director.tickLasers(DT, { time: engine.time, prevX,
+//          prevY, x: player.x, y: player.y, playerHidden: engine.playerHidden
+//          }) — prevX/prevY are the player's REAL position CAPTURED AT THE
+//          VERY TOP of this tick() call, before ANY of this tick's movement
+//          (CQC/drag/locker-exit teleport, then player.update) — so the
+//          crossing test sees the player's FULL movement segment for the
+//          tick, not just player.update's own contribution. Uses the
+//          player's REAL x/y (never the box/locker-wrapped perceivedPlayer
+//          step 3/3.5 use) — see src/director.js's BOXED PLAYER DOES NOT
+//          PROTECT note for why. Returns a list of { type: "laserTripped",
+//          laserIndex } facts; pushed straight onto engine.events, same
+//          "returns facts, engine narrates" split as director's own cameras.
+//          A trip calls squad.broadcastAlert INSIDE tickLasers (same as a
+//          camera's ALERT crossing) — same DESIGN RULE as cameras below:
+//          lasers do NOT feed anyLOS (step 5) either, for the identical
+//          reason (a tripwire calls it in, guards still have to physically
+//          find you).
 //       4. GAME OVER CHECK (new — see GAME OVER above): if !player.alive and
 //          engine.gameOver is not already true, set engine.gameOver = true
 //          and push { type: "gameOver" }. Runs right after the guard loop so
@@ -3675,6 +4241,17 @@
 //                              // NEW — director.cameraStates() verbatim (see
 //                              // src/director.js contract); [] on a zone
 //                              // with no camera coverage.
+//         lasers: [ { x1, y1, x2, y2, active, periodS, dutyOn }, ... ],
+//                              // NEW (Laboratory cycle) — director.laserStates()
+//                              // verbatim (see src/director.js contract); []
+//                              // on a zone with no lasers.
+//         doors: [ { id, open }, ... ],
+//                              // NEW (Laboratory cycle) — one entry per
+//                              // zone.doors, same order, world.isDoorOpen(id)
+//                              // read fresh at snapshot time; [] on a zone
+//                              // with no doors.
+//         keycards: { L1, L2, L3 }, // NEW (Laboratory cycle) —
+//                              // engine.inventory.keycards verbatim.
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -3752,6 +4329,16 @@
   // radius, same precedent as CQC_NOISE_RADIUS above (not one of
   // soundEvents.js's named RADII kinds).
   var CHAFF_NOISE_RADIUS = 4;
+  // PICKUP collection distance (see file header PICKUPS step / Laboratory
+  // cycle) — "walk over it" per src/world.js's schema note.
+  var PICKUP_DIST = 0.7;
+  // DOOR distances/timer (see file header DOORS step) — DOOR_KEYED_OPEN_DIST
+  // is deliberately tighter than DOOR_PROXIMITY_DIST: an unlocked door
+  // shrugs open for anyone in the general vicinity, but badging through a
+  // locked one takes actually walking up to it.
+  var DOOR_KEYED_OPEN_DIST = 1.2;
+  var DOOR_PROXIMITY_DIST = 1.5;
+  var DOOR_AUTO_CLOSE_S = 3;
   // Decoy position handed to every guard.update() call while
   // engine.playerHidden is true (see LOCKER VERB / GUARD PERCEPTION GATE in
   // the file header) — far enough outside any zone's VISION.RANGE (14m, even
@@ -3776,6 +4363,15 @@
       return [
         { id: "w1", spawn: zone.waypoints[0], waypoints: zone.waypoints },
         { id: "w2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
+      ];
+    },
+    // Laboratory (new — see src/world.js's zone comments): lab-g1 patrols
+    // the lobby only, lab-g2 the west wing only — neither loop ever crosses
+    // a door (see world.js's own design note: guards never need doors).
+    laboratory: function (zone) {
+      return [
+        { id: "lab-g1", spawn: zone.waypoints[0], waypoints: zone.waypoints },
+        { id: "lab-g2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
       ];
     },
   };
@@ -3846,6 +4442,22 @@
     // which facing to step out along. Reset alongside playerHidden on a zone
     // transition (see switchZone).
     var hiddenLocker = null;
+
+    // PICKUPS (see file header, tick() step 1.5, Laboratory cycle) — which
+    // zone.pickups[] indices have already been collected, keyed by
+    // "<zone.id>#<index>" so revisiting the SAME zone later in the same
+    // mission never re-offers something already picked up, while a
+    // DIFFERENT zone's pickups (a fresh key namespace) are unaffected.
+    // Mission-scoped like inventory itself — NOT reset by switchZone.
+    var collectedPickups = {};
+
+    // DOORS (see file header, tick() step 1.6, Laboratory cycle) — per-door
+    // "last tick someone was near" timestamp (engine.time), keyed by
+    // door.id. ZONE-SCOPED (reset in switchZone, alongside the world/guards/
+    // squad stack itself) — a door belongs to the zone whose world instance
+    // owns its open/closed flag (see src/world.js's DOORS contract), and a
+    // fresh world always starts every door closed anyway.
+    var doorLastNear = {};
 
     // Edge-trigger state for zoneBlocked (see file header, tick() step 6):
     // true while the player is standing inside an exit trigger whose `to`
@@ -4113,6 +4725,14 @@
       player = newPlayer;
       inBlockedExitRegion = false;
 
+      // DOORS (see file header, Laboratory cycle) — ZONE-SCOPED, discarded
+      // alongside the departed zone's own world/guards/squad (see
+      // doorLastNear's own declaration comment above). collectedPickups is
+      // deliberately NOT touched here — it's mission-scoped, keyed by zone
+      // id, so a different zone's pickups are unaffected and the SAME
+      // zone's pickups (on a later re-entry) correctly stay collected.
+      doorLastNear = {};
+
       // ZONE-SCOPED drag/locker state (see file header CQC VERB / DRAG VERB /
       // LOCKER VERB) — a dragged guard belongs to the departing zone's now-
       // discarded roster, and a hidden-in-a-locker player has no locker to
@@ -4174,6 +4794,14 @@
       if (engine.gameOver) return;
 
       engine.events = [];
+
+      // LASERS (see file header, tick() step 3.6, Laboratory cycle) — the
+      // player's REAL position at the very start of this tick, before ANY
+      // movement (CQC/drag/locker-exit teleport, then player.update) — see
+      // src/director.js's own laser contract for why the crossing test wants
+      // the FULL tick's movement segment, not just player.update's slice.
+      var playerPrevX = player.x;
+      var playerPrevY = player.y;
 
       // Captured BEFORE guards update: a guard's own broadcastAlert() call
       // (fired from inside guard.update(), e.g. SUSPICIOUS/INVESTIGATE/
@@ -4263,6 +4891,59 @@
           // shouldn't be reachable mid-zone): the dragged guard vanished
           // out from under us, so drop the dangling reference.
           engine.dragging = null;
+        }
+      }
+
+      // ---- PICKUPS (see file header, tick() step 1.5, Laboratory cycle) --
+      var pickups = zone.pickups || [];
+      for (var pi = 0; pi < pickups.length; pi++) {
+        var pickupKey = zone.id + "#" + pi;
+        if (collectedPickups[pickupKey]) continue;
+        var pickup = pickups[pi];
+        if (dist2d(player.x, player.y, pickup.x, pickup.y) < PICKUP_DIST) {
+          collectedPickups[pickupKey] = true;
+          inventory.collectPickup(pickup.item);
+          engine.events.push({ type: "pickup", item: pickup.item });
+        }
+      }
+
+      // ---- DOORS (see file header, tick() step 1.6, Laboratory cycle) ----
+      var doors = zone.doors || [];
+      for (var doi = 0; doi < doors.length; doi++) {
+        var door = doors[doi];
+        var doorCx = door.x + door.w / 2;
+        var doorCy = door.y + door.h / 2;
+        var playerDoorDist = dist2d(player.x, player.y, doorCx, doorCy);
+
+        var someoneNear = playerDoorDist <= DOOR_PROXIMITY_DIST;
+        if (!someoneNear) {
+          for (var dgi = 0; dgi < guards.length; dgi++) {
+            if (dist2d(guards[dgi].x, guards[dgi].y, doorCx, doorCy) <= DOOR_PROXIMITY_DIST) {
+              someoneNear = true;
+              break;
+            }
+          }
+        }
+
+        if (!world.isDoorOpen(door.id)) {
+          var shouldOpen = false;
+          if (!door.lock) {
+            shouldOpen = someoneNear;
+          } else if (playerDoorDist <= DOOR_KEYED_OPEN_DIST && inventory.keycards[door.lock]) {
+            shouldOpen = true;
+          }
+          if (shouldOpen) {
+            world.setDoorOpen(door.id, true);
+            doorLastNear[door.id] = engine.time;
+            engine.events.push({ type: "doorOpen", id: door.id });
+          }
+        } else {
+          if (someoneNear) {
+            doorLastNear[door.id] = engine.time;
+          } else if (engine.time - (doorLastNear[door.id] !== undefined ? doorLastNear[door.id] : engine.time) >= DOOR_AUTO_CLOSE_S) {
+            world.setDoorOpen(door.id, false);
+            engine.events.push({ type: "doorClose", id: door.id });
+          }
         }
       }
 
@@ -4480,6 +5161,23 @@
         engine.events.push(cameraAlerts[cai]);
       }
 
+      // LASERS (see file header, tick() step 3.6, Laboratory cycle / see
+      // src/director.js's own laser contract) — REAL player position
+      // (playerPrevX/Y captured at the very top of this tick, player.x/y is
+      // this tick's settled position), never the box/locker-wrapped
+      // perceivedPlayer the guard loop/cameras just used above.
+      var laserTrips = director.tickLasers(DT, {
+        time: engine.time,
+        prevX: playerPrevX,
+        prevY: playerPrevY,
+        x: player.x,
+        y: player.y,
+        playerHidden: engine.playerHidden,
+      });
+      for (var lti = 0; lti < laserTrips.length; lti++) {
+        engine.events.push(laserTrips[lti]);
+      }
+
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
       // player.alive, not "did a guardFire just happen," so any future
       // damage source drives game over through this one check.
@@ -4545,6 +5243,21 @@
         // NEW — camera meters (see src/director.js's cameraStates contract).
         // Empty array on a zone with no camera coverage (e.g. loadingDock).
         cameras: director.cameraStates(),
+        // NEW (Laboratory cycle) — laser active/duty state (see
+        // src/director.js's laserStates contract). Empty array on a zone
+        // with no lasers.
+        lasers: director.laserStates(),
+        // NEW (Laboratory cycle) — one entry per zone.doors, world.isDoorOpen(id)
+        // read fresh at snapshot time. Empty array on a zone with no doors.
+        doors: (zone.doors || []).map(function (d) {
+          return { id: d.id, open: world.isDoorOpen(d.id) };
+        }),
+        // NEW (Laboratory cycle) — engine.inventory.keycards verbatim.
+        keycards: {
+          L1: inventory.keycards.L1,
+          L2: inventory.keycards.L2,
+          L3: inventory.keycards.L3,
+        },
       };
     }
 
@@ -5285,6 +5998,33 @@
 //         // engine.director may be absent on a bespoke pre-cycle test engine
 //         // object -- falls back to [], same backward-compat posture as
 //         // chaffActive's own fallback above.
+//       doors: [ { x, y, w, h, lock, open }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.zone.doors, same
+//         // order, `open` from engine.world.isDoorOpen(id) (read fresh every
+//         // render() call), x/y/w/h/lock copied through verbatim. UNLIKE
+//         // guards/cameras this is NOT emptied while jammed -- a door's
+//         // lock color/open-state is structural level geometry, not moment-
+//         // to-moment tactical intel the same way a live guard/camera
+//         // position is, so it stays visible even mid-ALERT (matching how
+//         // `walls`/`darkZones` themselves are never hidden by `jammed`
+//         // either). engine.zone.doors/engine.world may be absent on a
+//         // bespoke pre-cycle test engine -- falls back to [].
+//       lasers: [ { x1, y1, x2, y2, active }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.director.
+//         // laserStates(), same order, straight passthrough (x1/y1/x2/y2
+//         // copied verbatim, `active` is that contract's own field). EMPTY
+//         // when jammed, same rationale as `guards`/`cameras` above -- a
+//         // live laser's on/off duty-cycle phase is exactly the kind of
+//         // real-time tactical read the radar going dark is supposed to
+//         // deny. engine.director may be absent on a bespoke pre-cycle test
+//         // engine -- falls back to [].
+//       pickups: [ { x, y, item }, ... ]
+//         // NEW (Laboratory cycle) -- one entry per engine.zone.pickups NOT
+//         // already reflected as held in engine.inventory.keycards (a
+//         // collected keycard stops glowing; see the chaff HONEST GAP note
+//         // at this field's construction site for the one known cosmetic
+//         // exception). NOT emptied while jammed, same "structural, not
+//         // tactical" rationale as doors above.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random -- runs
 //   headless in node (tests/radar.test.js exercises this half only).
@@ -5366,6 +6106,18 @@
     DISABLED: "rgba(102, 102, 102, 0.18)",
   };
 
+  // DOOR lock-color coding (new -- Laboratory cycle, see file header):
+  // L1 blue, L2 amber, L3 red (escalating danger the deeper the
+  // progression), null (unlocked) a neutral grey-green.
+  var DOOR_LOCK_COLOR = {
+    L1: "rgba(80, 140, 255, 0.55)",
+    L2: "rgba(255, 176, 60, 0.55)",
+    L3: "rgba(255, 70, 70, 0.6)",
+  };
+  var DOOR_UNLOCKED_COLOR = "rgba(150, 190, 160, 0.4)";
+  var DOOR_OPEN_COLOR = "rgba(150, 190, 160, 0.18)"; // dim -- open doors barely read as a slab at all
+  var LASER_COLOR = "rgba(255, 40, 40, 0.95)";
+
   // ---- pure model -----------------------------------------------------------
 
   function copyRect(r) {
@@ -5419,6 +6171,52 @@
           };
         });
 
+    // DOORS (new -- Laboratory cycle, see file header). NOT emptied while
+    // jammed -- see file header note. engine.world may be absent on a
+    // bespoke pre-cycle test engine -- falls back to isOpen: false rather
+    // than throwing.
+    var doors = (zone.doors || []).map(function (d) {
+      return {
+        x: d.x,
+        y: d.y,
+        w: d.w,
+        h: d.h,
+        lock: d.lock,
+        open: !!(engine.world && engine.world.isDoorOpen(d.id)),
+      };
+    });
+
+    // LASERS (new -- Laboratory cycle, see file header). Same "empty when
+    // jammed" rule as guards/cameras above.
+    var laserStates = (engine.director && engine.director.laserStates()) || [];
+    var lasers = jammed
+      ? []
+      : laserStates.map(function (l) {
+          return { x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2, active: l.active };
+        });
+
+    // PICKUPS (new -- Laboratory cycle, see file header/schema note): a
+    // keycard already collected (engine.inventory.keycards[level] true) is
+    // filtered out -- once picked up, it shouldn't keep glowing on the
+    // radar. HONEST GAP: a "chaff" pickup has no persistent per-index
+    // collected flag exposed outside engine.js's own private bookkeeping
+    // (see src/engine.js's PICKUPS step), so it keeps showing here even
+    // after collection -- cosmetic only, tracked in BACKLOG.md, not a
+    // gameplay bug (inventory.collectPickup itself is correctly idempotent-
+    // safe either way). NOT emptied while jammed -- same "structural level
+    // geometry" rationale as doors above.
+    var keycardsHeld = (engine.inventory && engine.inventory.keycards) || {};
+    var pickups = (zone.pickups || [])
+      .filter(function (p) {
+        if (p.item === "keycardL1") return !keycardsHeld.L1;
+        if (p.item === "keycardL2") return !keycardsHeld.L2;
+        if (p.item === "keycardL3") return !keycardsHeld.L3;
+        return true;
+      })
+      .map(function (p) {
+        return { x: p.x, y: p.y, item: p.item };
+      });
+
     return {
       jammed: jammed,
       phaseJam: phaseJam,
@@ -5435,6 +6233,9 @@
       },
       guards: guards,
       cameras: cameras,
+      doors: doors,
+      lasers: lasers,
+      pickups: pickups,
     };
   }
 
@@ -5608,6 +6409,32 @@
         ctx.fillRect(w.x * scale, w.y * scale, w.w * scale, w.h * scale);
       });
 
+      // doors (new -- Laboratory cycle, see file header): distinct colored
+      // slabs, lock-color coded, dimmed once open (see DOOR_OPEN_COLOR).
+      // Drawn even while jammed (see radarModel's own note -- structural
+      // level geometry, not moment-to-moment tactical intel).
+      model.doors.forEach(function (d) {
+        ctx.fillStyle = d.open ? DOOR_OPEN_COLOR : DOOR_LOCK_COLOR[d.lock] || DOOR_UNLOCKED_COLOR;
+        ctx.fillRect(d.x * scale, d.y * scale, d.w * scale, d.h * scale);
+      });
+
+      // pickups (new -- Laboratory cycle, see file header): glowing gold
+      // diamonds, pulsing gently (deterministic, engine.time-driven, same
+      // convention as the exit block's own pulse above) -- drawn even while
+      // jammed (structural, see radarModel's own note).
+      var pickupPulse = 0.6 + 0.4 * Math.sin((engine.time / RADAR.PULSE_PERIOD_S) * Math.PI * 2);
+      model.pickups.forEach(function (p) {
+        var px = p.x * scale;
+        var py = p.y * scale;
+        var r = 4;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = "rgba(255, 240, 150," + pickupPulse.toFixed(3) + ")";
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.restore();
+      });
+
       // exit, pulsing brightness driven by engine.time (deterministic)
       var pulse = 0.45 + 0.45 * Math.sin((engine.time / RADAR.PULSE_PERIOD_S) * Math.PI * 2);
       ctx.fillStyle = "rgba(57,255,106," + pulse.toFixed(3) + ")";
@@ -5639,6 +6466,22 @@
       });
       model.cameras.forEach(function (c) {
         drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter >= Game.VISION.SUSPICIOUS_AT);
+      });
+
+      // LASERS (new -- Laboratory cycle, see file header): bright red beam
+      // lines, blinking on/off with the SAME duty-cycle phase driving the
+      // real gameplay hazard (model.lasers only ever contains `active`
+      // entries worth caring about -- see the draw skip below), not a
+      // separate cosmetic-only blink.
+      model.lasers.forEach(function (l) {
+        if (!l.active) return;
+        ctx.strokeStyle = LASER_COLOR;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(l.x1 * scale, l.y1 * scale);
+        ctx.lineTo(l.x2 * scale, l.y2 * scale);
+        ctx.stroke();
+        ctx.lineWidth = 1;
       });
 
       model.guards.forEach(function (g) {
@@ -5763,6 +6606,19 @@
 //                               // pinned at 1 (see guardAI.js's ALERT
 //                               // contract), so maxDetection reads 1.0 for the
 //                               // full duration of an active chase.
+//       keycards: string,       // ADDITIVE (Laboratory cycle) — space-
+//                               // separated list of held keycard labels in
+//                               // L1/L2/L3 order, e.g. "L1 L3" (skipping any
+//                               // not held), or "" if none. Built from
+//                               // engine.inventory.keycards when present,
+//                               // else "" (same backward-compat fallback
+//                               // posture as `weapon`/`item`/`status` above —
+//                               // a bespoke pre-cycle test engine object
+//                               // simply reads as "no keycards" rather than
+//                               // throwing). A NEW field, not a replacement
+//                               // for anything — every existing hudModel
+//                               // assertion (life/phase/weapon/item/status/
+//                               // etc.) is untouched by this addition.
 //     }
 //   Pure function of engine state, no DOM/THREE/Date/Math.random — runs
 //   headless in node (tests/hud.test.js exercises this half only).
@@ -5904,6 +6760,14 @@
             ? "BOX"
             : null,
       maxDetection: maxDetection,
+      // ADDITIVE (see file header) — never removes/renames anything above.
+      keycards: engine.inventory && engine.inventory.keycards
+        ? ["L1", "L2", "L3"]
+            .filter(function (lvl) {
+              return engine.inventory.keycards[lvl];
+            })
+            .join(" ")
+        : "",
     };
   }
 
@@ -6064,6 +6928,33 @@
     ctx.textBaseline = "top";
   }
 
+  // Keycards tag (NEW — Laboratory cycle, see hudModel's `keycards` field
+  // note) — a small pill drawn just above the weapon box (mirroring
+  // drawStatusTag's own placement above the item box), drawn only while
+  // model.keycards is non-empty. Reuses the WEAPON box's own x-position.
+  function drawKeycardsTag(ctx, model, widthCss, heightCss) {
+    if (!model.keycards) return;
+
+    var tagH = 20;
+    var tagW = HUD.BOX_W;
+    var x = HUD.MARGIN;
+    var y = heightCss - HUD.BOX_H - HUD.MARGIN - tagH - 6;
+
+    ctx.fillStyle = "rgba(57, 130, 255, 0.85)";
+    ctx.fillRect(x, y, tagW, tagH);
+    ctx.strokeStyle = "#9fc4ff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, tagW - 1, tagH - 1);
+
+    ctx.fillStyle = "#04101a";
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("KEYS " + model.keycards, x + tagW / 2, y + tagH / 2 + 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+  }
+
   function drawZoneCard(ctx, model, widthCss, heightCss, zoneState) {
     if (zoneState.shownAt === null) return;
     var elapsed = model.time - zoneState.shownAt;
@@ -6151,6 +7042,7 @@
       drawWeaponBox(ctx, model, widthCss, heightCss);
       drawItemBox(ctx, model, widthCss, heightCss);
       drawStatusTag(ctx, model, widthCss, heightCss);
+      drawKeycardsTag(ctx, model, widthCss, heightCss);
       drawZoneCard(ctx, model, widthCss, heightCss, zoneState);
     }
 
@@ -6255,6 +7147,31 @@
 //   camState.disabled (chaff) — see cameraStyleKey. Rebuilt/disposed on a
 //   zone change exactly like guard actors (disposeCameraActors, called
 //   alongside disposeGuardActors — see ZONE CHANGES below).
+//
+//   DOORS / LASERS / PICKUPS (new — Laboratory cycle, see src/world.js's
+//   doors/lasers/pickups schema notes and src/engine.js's own DOORS/PICKUPS
+//   contract):
+//     - DOORS: one lock-color-coded slab per zone.doors entry (L1 blue, L2
+//       amber, L3 red, unlocked a neutral grey-green — same palette family
+//       src/radar.js uses), rebuilt/disposed on a zone change exactly like
+//       guard/camera actors. Re-colored (dimmed) every frame once
+//       engine.world.isDoorOpen(id) reads true — the slab stays in the
+//       scene (so its footprint/lock-color history is still legible) but
+//       reads as "open" rather than physically vanishing, matching the
+//       same "structural, not momentary" posture src/radar.js's own door
+//       styling note explains.
+//     - LASERS: a bright red THREE.Line per zone.lasers entry, visibility
+//       toggled straight off director.laserStates()[i].active every frame —
+//       since `active` itself already flips on/off with the duty cycle,
+//       this simple visibility toggle IS the "blinking with duty cycle"
+//       the spec calls for, no separate blink timer needed.
+//     - PICKUPS: a small glowing gold box per zone.pickups entry, visibility
+//       toggled off once collected (keycard pickups only — inferred from
+//       engine.inventory.keycards[level], same HONEST GAP as
+//       src/radar.js's own pickups field: a "chaff" pickup has no
+//       persistent per-index collected flag exposed outside engine.js's
+//       private bookkeeping, so its actor keeps glowing after collection;
+//       cosmetic only, tracked in BACKLOG.md).
 //
 //   ZONE CHANGES (new): syncScene tracks engine.zone.id in a closure var. When
 //   it differs from the last-seen id (an engine.js zone transition happened —
@@ -6400,6 +7317,20 @@
       ALERT: { color: 0xff8a80, opacity: 0.95 },
       DISABLED: { color: 0x888888, opacity: 0.35 },
     };
+
+    // DOORS / LASERS / PICKUPS (new — Laboratory cycle, see file header).
+    var DOOR_HEIGHT = 2.0; // world units — reads as a full slab, distinct from a low wall
+    var DOOR_LOCK_COLOR = {
+      L1: 0x508cff,
+      L2: 0xffb03c,
+      L3: 0xff4646,
+    };
+    var DOOR_UNLOCKED_COLOR = 0x96bea0;
+    var LASER_COLOR = 0xff2828;
+    var LASER_Y = 0.9; // roughly waist height — a real tripwire beam
+    var PICKUP_COLOR = 0xfff096;
+    var PICKUP_SIZE = 0.4;
+    var PICKUP_Y = 0.5;
 
     var METER_MAX_W = 2.0;
     var METER_H = 0.32;
@@ -6968,6 +7899,101 @@
       actor.coneEdge.geometry = edgeGeo;
     }
 
+    // ---- doors / lasers / pickups (see file header) ---------------------------
+
+    var doorActors = {}; // door.id -> { mesh }
+    var laserActors = {}; // index -> { line }
+    var pickupActors = {}; // index -> { mesh }
+
+    function ensureDoorActor(door) {
+      var existing = doorActors[door.id];
+      if (existing) return existing;
+      var geo = new THREE.BoxGeometry(door.w, DOOR_HEIGHT, door.h);
+      var mat = new THREE.MeshLambertMaterial({
+        color: door.lock ? DOOR_LOCK_COLOR[door.lock] : DOOR_UNLOCKED_COLOR,
+        transparent: true,
+        opacity: 0.95,
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(door.x + door.w / 2, DOOR_HEIGHT / 2, door.y + door.h / 2);
+      scene.add(mesh);
+      var actor = { mesh: mesh };
+      doorActors[door.id] = actor;
+      return actor;
+    }
+
+    function disposeDoorActors() {
+      Object.keys(doorActors).forEach(function (id) {
+        var actor = doorActors[id];
+        scene.remove(actor.mesh);
+        actor.mesh.geometry.dispose();
+        actor.mesh.material.dispose();
+      });
+      doorActors = {};
+    }
+
+    function ensureLaserActor(index, laser) {
+      var existing = laserActors[index];
+      if (existing) return existing;
+      var positions = new Float32Array([laser.x1, LASER_Y, laser.y1, laser.x2, LASER_Y, laser.y2]);
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      var mat = new THREE.LineBasicMaterial({ color: LASER_COLOR, transparent: true, opacity: 0.95 });
+      var line = new THREE.Line(geo, mat);
+      scene.add(line);
+      var actor = { line: line };
+      laserActors[index] = actor;
+      return actor;
+    }
+
+    function disposeLaserActors() {
+      Object.keys(laserActors).forEach(function (index) {
+        var actor = laserActors[index];
+        scene.remove(actor.line);
+        actor.line.geometry.dispose();
+        actor.line.material.dispose();
+      });
+      laserActors = {};
+    }
+
+    function ensurePickupActor(index, pickup) {
+      var existing = pickupActors[index];
+      if (existing) return existing;
+      var geo = new THREE.BoxGeometry(PICKUP_SIZE, PICKUP_SIZE, PICKUP_SIZE * 0.15);
+      var mat = new THREE.MeshLambertMaterial({
+        color: PICKUP_COLOR,
+        emissive: PICKUP_COLOR,
+        emissiveIntensity: 0.6,
+      });
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(pickup.x, PICKUP_Y, pickup.y);
+      scene.add(mesh);
+      var actor = { mesh: mesh };
+      pickupActors[index] = actor;
+      return actor;
+    }
+
+    function disposePickupActors() {
+      Object.keys(pickupActors).forEach(function (index) {
+        var actor = pickupActors[index];
+        scene.remove(actor.mesh);
+        actor.mesh.geometry.dispose();
+        actor.mesh.material.dispose();
+      });
+      pickupActors = {};
+    }
+
+    // Keycard already collected? Same HONEST GAP as src/radar.js's own
+    // pickups field (chaff has no exposed collected flag) — see file header.
+    function pickupCollected(item, engine) {
+      var kc = engine.inventory && engine.inventory.keycards;
+      if (!kc) return false;
+      if (item === "keycardL1") return !!kc.L1;
+      if (item === "keycardL2") return !!kc.L2;
+      if (item === "keycardL3") return !!kc.L3;
+      return false;
+    }
+
     // ---- detection meter (two quads above the player) --------------------------
 
     var meterBg = null;
@@ -7097,6 +8123,9 @@
           disposeStatic();
           disposeGuardActors();
           disposeCameraActors();
+          disposeDoorActors();
+          disposeLaserActors();
+          disposePickupActors();
           built = false;
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
@@ -7180,6 +8209,33 @@
         var camState = cameraStates[ci];
         var camActor = ensureCameraActor(ci, camState);
         updateCameraCone(camActor, camState, engine.world);
+      }
+
+      // DOORS (see file header) — re-colored (dimmed) once open; slab stays
+      // in the scene either way (see file header note).
+      var doors = (engine.zone && engine.zone.doors) || [];
+      for (var doi = 0; doi < doors.length; doi++) {
+        var door = doors[doi];
+        var doorActor = ensureDoorActor(door);
+        var isOpen = !!(engine.world && engine.world.isDoorOpen(door.id));
+        doorActor.mesh.material.opacity = isOpen ? 0.25 : 0.95;
+      }
+
+      // LASERS (see file header) — visibility straight off director.
+      // laserStates()'s own active flag; that flag already carries the
+      // duty-cycle blink, so no separate timer is needed here.
+      var laserStates = (engine.director && engine.director.laserStates()) || [];
+      for (var lsi = 0; lsi < laserStates.length; lsi++) {
+        var laserActor = ensureLaserActor(lsi, laserStates[lsi]);
+        laserActor.line.visible = laserStates[lsi].active;
+      }
+
+      // PICKUPS (see file header) — visibility off once collected.
+      var pickups = (engine.zone && engine.zone.pickups) || [];
+      for (var pui = 0; pui < pickups.length; pui++) {
+        var pickup = pickups[pui];
+        var pickupActor = ensurePickupActor(pui, pickup);
+        pickupActor.mesh.visible = !pickupCollected(pickup.item, engine);
       }
 
       updateTracers(engine);
@@ -10329,6 +11385,493 @@ Game.selfTests.push({
 if (typeof module !== "undefined") module.exports = {};
 
 })(typeof window !== "undefined" ? window : global);
+// ==== tests/laboratory.test.js ====
+(function (global) {
+// tests/laboratory.test.js — headless assertions for the Laboratory zone:
+// door blocking/open-close mechanics (src/world.js + src/engine.js's DOORS
+// step), keycard pickups (src/items.js/src/engine.js's PICKUPS step), and
+// lasers (src/director.js's laser contract + src/engine.js's LASERS step).
+// Same registry pattern as every other tests/*.test.js file: push onto the
+// shared Game.selfTests list; test.js runs every entry and reports ok/FAIL
+// with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+const DT = 1 / 60;
+
+function laserByEndpoints(zone, x1) {
+  for (let i = 0; i < zone.lasers.length; i++) {
+    if (zone.lasers[i].x1 === x1) return zone.lasers[i];
+  }
+  throw new Error("no laser with x1=" + x1 + " found in zone.lasers");
+}
+
+// Walks the player in a straight vertical line (x fixed) from y=startY to
+// y=endY via REAL player.update() movement (run, "stand"), one tick at a
+// time, so the engine's own prevX/prevY -> x/y movement segment is genuine
+// -- NOT a teleport, which would produce a zero-length segment and never
+// trip anything (see src/director.js's own LASERS contract for why the
+// crossing test needs a real movement segment). Returns after crossing endY
+// or MAX_TICKS, whichever comes first.
+function walkVertical(engine, x, startY, endY, maxTicks) {
+  engine.player.x = x;
+  engine.player.y = startY;
+  engine.player.facing = Math.PI / 2;
+  const dir = endY > startY ? 1 : -1;
+  for (let i = 0; i < maxTicks; i++) {
+    engine.player.x = x; // keep a dead-straight line
+    engine.tick({ moveX: 0, moveY: dir, run: true, stance: "stand" });
+    if (dir > 0 ? engine.player.y >= endY : engine.player.y <= endY) break;
+  }
+}
+
+// Advances a fresh/no-op-ticking engine until its west laser (lasers[0],
+// spanning x:2-18 @ y:10) reads the desired active phase, WITHOUT moving the
+// player (so no accidental crossing happens while waiting). Ticks FIRST,
+// then checks: director.laserStates() only reflects a REAL evaluation after
+// tickLasers has actually run at least once (see src/director.js's own
+// cameraStates-style "pure snapshot of the most recent call" contract) --
+// checking before any tick reads the construction-time default (active:
+// false) instead, which would misreport "already off" at time=0 even though
+// the true phase at t=0 is ACTIVE (phase 0 < dutyOn).
+function waitForLaserPhase(engine, laserIndex, wantActive, maxTicks) {
+  for (let i = 0; i < maxTicks; i++) {
+    engine.tick({ moveX: 0, moveY: 0 });
+    const active = engine.director.laserStates()[laserIndex].active;
+    if (active === wantActive) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// 1. Registration sanity.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory: zone is registered in Game.ZONES with doors/lasers/pickups/two guard loops",
+  fn: function () {
+    const lab = Game.ZONES.laboratory;
+    assert(!!lab, "expected Game.ZONES.laboratory to exist");
+    assert(lab.id === "laboratory", "expected zone.id === 'laboratory'");
+    assert(Array.isArray(lab.doors) && lab.doors.length >= 3, "expected at least 3 doors (L1/L2/L3), got " + (lab.doors && lab.doors.length));
+    assert(Array.isArray(lab.lasers) && lab.lasers.length >= 2, "expected at least 2 lasers, got " + (lab.lasers && lab.lasers.length));
+    assert(Array.isArray(lab.pickups) && lab.pickups.length >= 2, "expected at least 2 pickups (L2/L3 keycards), got " + (lab.pickups && lab.pickups.length));
+    assert(Array.isArray(lab.lockers) && lab.lockers.length >= 3, "expected at least 3 lockers, got " + (lab.lockers && lab.lockers.length));
+    assert(Array.isArray(lab.darkZones) && lab.darkZones.length >= 2, "expected at least 2 dark zones, got " + (lab.darkZones && lab.darkZones.length));
+    assert(Array.isArray(lab.cameras) && lab.cameras.length === 3, "expected exactly 3 cameras, got " + (lab.cameras && lab.cameras.length));
+    assert(Array.isArray(lab.waypoints) && lab.waypoints.length >= 3, "expected a real waypoints loop");
+    assert(Array.isArray(lab.waypoints2) && lab.waypoints2.length >= 3, "expected a real waypoints2 loop");
+
+    // Warehouse's own L1 keycard placement (see src/world.js's schema note).
+    const wh = Game.ZONES.warehouse;
+    assert(
+      wh.pickups.some(function (p) { return p.item === "keycardL1"; }),
+      "expected the warehouse to carry a keycardL1 pickup for the Laboratory's L1 door"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2. Door blocking mechanics (world.js level, no engine involved): a closed
+//    door blocks isBlocked/isBlockedCircle/raycast/moveCircle exactly like a
+//    wall; opening it clears all four.
+// ---------------------------------------------------------------------------
+// Probe x=19 (not the door's geometric x-center, 20): doorL1 spans x:18-22,
+// but Wall B's own segments sit immediately at x:20-21 (see src/world.js's
+// Laboratory layout), close enough that a r=0.6 circle centered exactly at
+// x=20 clips Wall B's corner regardless of the door's own state -- an
+// honest artifact of the two structures sharing a corner, not a door bug.
+// x=19 is comfortably inside the door's span and a full meter clear of
+// Wall B, so every check below is testing ONLY doorL1.
+Game.selfTests.push({
+  name: "laboratory doors: a closed door blocks isBlocked/isBlockedCircle/raycast/moveCircle like a wall",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const world = Game.createWorld(zone);
+    const door = laboratoryDoor(zone, "doorL1");
+    const px = 19;
+    const py = door.y + door.h / 2;
+
+    assert(!world.isDoorOpen("doorL1"), "expected doorL1 to start closed");
+    assert(world.isBlocked(px, py), "expected a point inside the closed door to be blocked");
+    assert(world.isBlockedCircle(px, py, 0.6), "expected a r=0.6 circle inside the closed door to be blocked");
+
+    const hit = world.raycast(px, door.y - 2, px, door.y + door.h + 2);
+    assert(hit !== null, "expected a raycast straight through the closed door to hit it");
+
+    // Small step landing WELL INSIDE the door's own footprint (moveCircle
+    // only checks its FINAL destination, not a swept path -- see
+    // src/world.js's own moveCircle contract -- so the step size must
+    // actually land inside a thin 1m-deep obstacle like a door to exercise
+    // blocking, the same way tests/world.test.js's own moveCircle test picks
+    // a destination deep inside a large wall).
+    const moved = world.moveCircle(px, door.y - 1.4, 0, 2.0, 0.6);
+    assert(moved.y < door.y, "expected moveCircle to reject a step landing inside the closed door, got y=" + moved.y);
+  },
+});
+
+Game.selfTests.push({
+  name: "laboratory doors: the same door, once opened, no longer blocks any of the four checks",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const world = Game.createWorld(zone);
+    const door = laboratoryDoor(zone, "doorL1");
+    const px = 19;
+    const py = door.y + door.h / 2;
+
+    world.setDoorOpen("doorL1", true);
+    assert(world.isDoorOpen("doorL1"), "expected isDoorOpen to report true after setDoorOpen(true)");
+    assert(!world.isBlocked(px, py), "expected the point inside the door to be clear once open");
+    assert(!world.isBlockedCircle(px, py, 0.6), "expected a r=0.6 circle inside the door to be clear once open");
+
+    const hit = world.raycast(px, door.y - 2, px, door.y + door.h + 2);
+    assert(hit === null, "expected a raycast straight through the open door to pass clean");
+
+    // Same step size as the closed-door test above, but now unblocked: the
+    // destination (still inside the door's own footprint) should be
+    // reached exactly, not rejected.
+    const moved = world.moveCircle(px, door.y - 1.4, 0, 2.0, 0.6);
+    assert(Math.abs(moved.y - (door.y - 1.4 + 2.0)) < 1e-9, "expected moveCircle to reach its destination unblocked, got y=" + moved.y);
+
+    // A bigger step landing PAST the door's far edge should also go
+    // straight through -- proof the door is fully out of the way, not just
+    // the single destination point tested above.
+    const movedPast = world.moveCircle(px, door.y - 1.4, 0, 3.0, 0.6);
+    assert(movedPast.y > door.y + door.h, "expected moveCircle to pass straight through and past the open door, got y=" + movedPast.y);
+  },
+});
+
+function laboratoryDoor(zone, id) {
+  for (let i = 0; i < zone.doors.length; i++) {
+    if (zone.doors[i].id === id) return zone.doors[i];
+  }
+  throw new Error("no door with id " + id + " found");
+}
+
+// ---------------------------------------------------------------------------
+// 3. Engine DOORS step: a locked door does not auto-open without the
+//    matching keycard, and does open once the player holds it.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory doors: a locked door stays shut without the key, opens once the player holds it",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const engine = Game.createEngine({ zoneData: zone, seed: 42, guardConfigs: [] });
+    const door = laboratoryDoor(zone, "doorL1");
+
+    engine.player.x = door.x + door.w / 2;
+    engine.player.y = door.y + door.h / 2;
+    for (let i = 0; i < 30; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      engine.player.x = door.x + door.w / 2;
+      engine.player.y = door.y + door.h / 2;
+    }
+    assert(!engine.snapshot().doors.find(function (d) { return d.id === "doorL1"; }).open, "expected doorL1 to stay closed with no key present");
+
+    engine.inventory.keycards.L1 = true;
+    engine.tick({ moveX: 0, moveY: 0 });
+    const doorOpenEvents = engine.events.filter(function (e) { return e.type === "doorOpen" && e.id === "doorL1"; });
+    assert(doorOpenEvents.length === 1, "expected exactly one doorOpen event for doorL1 once the L1 key is held, got " + doorOpenEvents.length);
+    assert(engine.snapshot().doors.find(function (d) { return d.id === "doorL1"; }).open, "expected doorL1 to read open in the snapshot");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 4. Keycard pickup: auto-collects on walkover, sets inventory, pushes event.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory pickups: walking over the L2 keycard collects it, sets inventory, pushes a pickup event",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const engine = Game.createEngine({ zoneData: zone, seed: 7, guardConfigs: [] });
+    const pickup = zone.pickups.find(function (p) { return p.item === "keycardL2"; });
+    assert(!!pickup, "setup: expected a keycardL2 pickup in the Laboratory zone data");
+
+    assert(engine.inventory.keycards.L2 === false, "setup: expected L2 not held yet");
+    engine.player.x = pickup.x;
+    engine.player.y = pickup.y;
+    engine.tick({ moveX: 0, moveY: 0 });
+
+    assert(engine.inventory.keycards.L2 === true, "expected inventory.keycards.L2 to be true after walking over the pickup");
+    const pickupEvents = engine.events.filter(function (e) { return e.type === "pickup" && e.item === "keycardL2"; });
+    assert(pickupEvents.length === 1, "expected exactly one pickup event for keycardL2, got " + pickupEvents.length);
+
+    // Standing there another tick must not re-fire the event or double count.
+    engine.tick({ moveX: 0, moveY: 0 });
+    const secondTickPickups = engine.events.filter(function (e) { return e.type === "pickup"; });
+    assert(secondTickPickups.length === 0, "expected no repeat pickup event on a later tick standing on the same spot");
+  },
+});
+
+Game.selfTests.push({
+  name: "laboratory pickups: the bonus chaff grenade increments inventory.chaff beyond the starting count",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const engine = Game.createEngine({ zoneData: zone, seed: 8, guardConfigs: [] });
+    const pickup = zone.pickups.find(function (p) { return p.item === "chaff"; });
+    assert(!!pickup, "setup: expected a chaff pickup in the Laboratory zone data");
+
+    const before = engine.inventory.chaff;
+    engine.player.x = pickup.x;
+    engine.player.y = pickup.y;
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.inventory.chaff === before + 1, "expected inventory.chaff to increment by exactly 1, got " + engine.inventory.chaff + " (was " + before + ")");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 5. Lasers: crossing during the ACTIVE phase trips (instant ALERT + event);
+//    crossing during the OFF phase does not.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory lasers: crossing the west beam while ACTIVE trips laserTripped + squad ALERT",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const laser = laserByEndpoints(zone, 2);
+    const engine = Game.createEngine({ zoneData: zone, seed: 100, guardConfigs: [] });
+
+    engine.player.x = laser.x1 + 4; // clear of both side walls, on the beam's line
+    engine.player.y = laser.y1 - 2;
+    const ok = waitForLaserPhase(engine, 0, true, Math.round(laser.periodS / DT) + 10);
+    assert(ok, "setup failed: west laser never reached its ACTIVE phase");
+
+    let tripped = false;
+    for (let i = 0; i < 120 && !tripped; i++) {
+      engine.player.x = laser.x1 + 4;
+      engine.tick({ moveX: 0, moveY: 1, run: true, stance: "stand" });
+      if (engine.events.some(function (e) { return e.type === "laserTripped" && e.laserIndex === 0; })) tripped = true;
+      if (engine.player.y > laser.y1 + 2) break;
+    }
+    assert(tripped, "expected a laserTripped event while crossing the beam during its ACTIVE phase");
+    assert(engine.squad.phase === "ALERT" || engine.squad.phase === "EVASION", "expected squad to have gone hostile off the laser trip, got " + engine.squad.phase);
+  },
+});
+
+Game.selfTests.push({
+  name: "laboratory lasers: crossing the west beam during its OFF phase does not trip anything",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const laser = laserByEndpoints(zone, 2);
+    const engine = Game.createEngine({ zoneData: zone, seed: 101, guardConfigs: [] });
+
+    engine.player.x = laser.x1 + 4;
+    engine.player.y = laser.y1 - 2;
+    const ok = waitForLaserPhase(engine, 0, false, Math.round(laser.periodS / DT) + 10);
+    assert(ok, "setup failed: west laser never reached its OFF phase");
+
+    let tripped = false;
+    for (let i = 0; i < 120; i++) {
+      engine.player.x = laser.x1 + 4;
+      engine.tick({ moveX: 0, moveY: 1, run: true, stance: "stand" });
+      if (engine.events.some(function (e) { return e.type === "laserTripped"; })) tripped = true;
+      if (engine.player.y > laser.y1 + 2) break;
+    }
+    assert(!tripped, "expected NO laserTripped event while crossing during the OFF phase");
+    assert(engine.squad.phase === "INFILTRATION", "expected squad to remain INFILTRATION, got " + engine.squad.phase);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 6. Box does NOT protect against a laser (beams don't care); chaff does NOT
+//    disable a laser either (it's not a camera).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory lasers: a boxed player still trips the beam (box does not protect against lasers)",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const laser = laserByEndpoints(zone, 2);
+    const engine = Game.createEngine({ zoneData: zone, seed: 202, guardConfigs: [] });
+
+    engine.player.x = laser.x1 + 4;
+    engine.player.y = laser.y1 - 2;
+    const ok = waitForLaserPhase(engine, 0, true, Math.round(laser.periodS / DT) + 10);
+    assert(ok, "setup failed: west laser never reached its ACTIVE phase");
+
+    engine.tick({ moveX: 0, moveY: 0, box: true });
+    assert(engine.inventory.boxOn, "setup failed: box never toggled on");
+
+    let tripped = false;
+    for (let i = 0; i < 120 && !tripped; i++) {
+      engine.player.x = laser.x1 + 4;
+      engine.tick({ moveX: 0, moveY: 1, run: true, stance: "stand", box: true });
+      if (engine.events.some(function (e) { return e.type === "laserTripped" && e.laserIndex === 0; })) tripped = true;
+      if (engine.player.y > laser.y1 + 2) break;
+    }
+    assert(tripped, "expected the boxed player to still trip the laser crossing it");
+  },
+});
+
+Game.selfTests.push({
+  name: "laboratory lasers: an active chaff jam does not disable a laser (still trips while chaffed)",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const laser = laserByEndpoints(zone, 2);
+    const engine = Game.createEngine({ zoneData: zone, seed: 303, guardConfigs: [] });
+
+    engine.player.x = laser.x1 + 4;
+    engine.player.y = laser.y1 - 2;
+    const ok = waitForLaserPhase(engine, 0, true, Math.round(laser.periodS / DT) + 10);
+    assert(ok, "setup failed: west laser never reached its ACTIVE phase");
+
+    // Simulate an active chaff jam directly (see engine.js's CHAFF VERB —
+    // chaffUntil is a plain absolute-time deadline compared against
+    // engine.time every tick).
+    engine.chaffUntil = engine.time + 100;
+
+    let tripped = false;
+    for (let i = 0; i < 120 && !tripped; i++) {
+      engine.player.x = laser.x1 + 4;
+      engine.tick({ moveX: 0, moveY: 1, run: true, stance: "stand" });
+      if (engine.events.some(function (e) { return e.type === "laserTripped" && e.laserIndex === 0; })) tripped = true;
+      if (engine.player.y > laser.y1 + 2) break;
+    }
+    assert(tripped, "expected the laser to still trip while chaffUntil > time (chaff does not disable lasers)");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 7. Zone sanity: the Laboratory is automatically covered by the
+//    generalized waypoint-loop test, plus guard loops never cross a locked
+//    door's closed AABB (guards never need doors -- see src/world.js's own
+//    design note).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory: the generalized zones waypoint-loop test automatically covers the Laboratory",
+  fn: function () {
+    assert("laboratory" in Game.ZONES, "expected Game.ZONES to include laboratory (the generalized test in tests/zones.test.js iterates Object.keys(Game.ZONES), so this alone proves it's exercised)");
+  },
+});
+
+Game.selfTests.push({
+  name: "laboratory: neither guard's patrol loop ever crosses a locked door's AABB",
+  fn: function () {
+    const zone = Game.ZONES.laboratory;
+    const loops = [
+      { name: "waypoints (lab-g1)", points: zone.waypoints },
+      { name: "waypoints2 (lab-g2)", points: zone.waypoints2 },
+    ];
+
+    function pointInRect(px, py, rect) {
+      return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+    }
+
+    loops.forEach(function (loop) {
+      for (let i = 0; i < loop.points.length; i++) {
+        const a = loop.points[i];
+        const b = loop.points[(i + 1) % loop.points.length];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        const samples = Math.ceil(len / 0.25);
+        for (let s = 0; s <= samples; s++) {
+          const t = samples > 0 ? s / samples : 0;
+          const px = a.x + dx * t;
+          const py = a.y + dy * t;
+          zone.doors.forEach(function (door) {
+            if (!door.lock) return; // unlocked doors are fine to (theoretically) cross
+            assert(
+              !pointInRect(px, py, door),
+              loop.name + " leg " + i + " passes through locked door " + door.id + "'s AABB at (" + px.toFixed(2) + "," + py.toFixed(2) + ")"
+            );
+          });
+        }
+      }
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 8. warehouse -> laboratory transition via fromWarehouse entrance.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory: warehouse -> laboratory transition lands the player at entrances.fromWarehouse",
+  fn: function () {
+    const warehouse = Game.ZONES.warehouse;
+    const lab = Game.ZONES.laboratory;
+    const engine = Game.createEngine({ seed: 55, zoneData: warehouse });
+
+    const northExit = warehouse.exits[1];
+    assert(northExit.to === "laboratory", "setup: expected warehouse.exits[1].to === 'laboratory'");
+
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+    engine.tick({ moveX: 0, moveY: 0 });
+
+    const zoneChangeEvents = engine.events.filter(function (e) { return e.type === "zoneChange"; });
+    assert(zoneChangeEvents.length === 1, "expected exactly one zoneChange event, got " + zoneChangeEvents.length);
+    assert(zoneChangeEvents[0].to === "laboratory", "expected zoneChange.to === laboratory");
+    assert(engine.zone.id === "laboratory", "expected engine.zone to be laboratory, got " + engine.zone.id);
+
+    const entrance = lab.entrances.fromWarehouse;
+    assert(
+      engine.player.x === entrance.x && engine.player.y === entrance.y,
+      "expected player at laboratory.entrances.fromWarehouse, got " + JSON.stringify({ x: engine.player.x, y: engine.player.y })
+    );
+    assert(engine.guards.length === 2, "expected 2 laboratory guards, got " + engine.guards.length);
+    const ids = engine.guards.map(function (g) { return g.id; });
+    assert(ids.indexOf("lab-g1") !== -1 && ids.indexOf("lab-g2") !== -1, "expected lab-g1/lab-g2, got " + JSON.stringify(ids));
+
+    // A further tick in the new zone should just work.
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.zone.id === "laboratory", "expected engine to keep ticking fine in laboratory");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 9. Determinism across door/laser/keycard state: two engines, same seed +
+//    identical scripted inputs -> identical snapshot() (extended this cycle
+//    with doors/keycards/lasers -- see src/engine.js's snapshot contract).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "laboratory: determinism holds for door/laser/keycard state across identical scripted runs",
+  fn: function () {
+    function scriptedInput(tick) {
+      return {
+        moveX: Math.sin(tick * 0.037),
+        moveY: Math.cos(tick * 0.023),
+        run: tick % 13 === 0,
+        stance: tick % 180 < 60 ? "crouch" : "stand",
+        chaff: tick === 90,
+      };
+    }
+
+    function run(seed) {
+      const engine = Game.createEngine({ zoneData: Game.ZONES.laboratory, seed: seed });
+      // Force the L1 door open partway through via a direct key grant +
+      // proximity walk, identically on both runs (deterministic script, not
+      // randomness) so the doors/keycards snapshot fields actually differ
+      // from their all-closed/all-false defaults.
+      for (let t = 0; t < 300; t++) {
+        if (t === 100) engine.inventory.keycards.L1 = true;
+        if (t >= 150 && t < 160) {
+          const door = laboratoryDoor(Game.ZONES.laboratory, "doorL1");
+          engine.player.x = door.x + door.w / 2;
+          engine.player.y = door.y + door.h / 2;
+        }
+        engine.tick(scriptedInput(t));
+      }
+      return engine;
+    }
+
+    const a = run(778899);
+    const b = run(778899);
+
+    const snapA = JSON.stringify(a.snapshot());
+    const snapB = JSON.stringify(b.snapshot());
+    assert(snapA === snapB, "expected identical snapshots (incl. doors/lasers/keycards) for identical seed+input, got:\n" + snapA + "\nvs\n" + snapB);
+
+    // Sanity: the script above should have actually exercised non-default
+    // door/keycard state, otherwise this test would trivially pass by
+    // comparing two engines that never left their defaults.
+    const snap = a.snapshot();
+    assert(snap.keycards.L1 === true, "setup failed: expected keycards.L1 true after the scripted run");
+    assert(snap.doors.some(function (d) { return d.id === "doorL1" && d.open; }), "setup failed: expected doorL1 to have opened during the scripted run");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/music.test.js ====
 (function (global) {
 // tests/music.test.js -- headless assertions for src/music.js's PURE side
@@ -12541,11 +14084,20 @@ Game.selfTests.push({
 });
 
 // 3. entrances/exits well-formed: every exit's `to` + entranceKey resolve to
-// an actual spawn point on the target zone, EXCEPT the warehouse's
-// laboratory stub (that zone doesn't exist yet by design — see src/world.js
-// and src/engine.js's zoneBlocked handling).
+// an actual spawn point on the target zone, EXCEPT a documented stub.
+// KNOWN_STUBS is the list of not-yet-built zone ids this cycle's Game.ZONES
+// is allowed to point at without resolving (see src/engine.js's zoneBlocked
+// handling) — UPDATED this cycle (Laboratory built): the warehouse's own
+// former "laboratory" stub now resolves for real (Game.ZONES.laboratory
+// exists), so it no longer hits the `!targetZone` branch below at all; the
+// Laboratory zone's own new north exit ("commsTower", not yet built) is the
+// one live stub exercising this branch now. This list simply tracks
+// whichever placeholder target(s) the CURRENT cycle's zone data legitimately
+// points at — same strictness as before (an unrecognized/typo'd `to` still
+// fails loudly), just not hardcoded to a name that stopped being a stub.
+var KNOWN_STUBS = ["commsTower"];
 Game.selfTests.push({
-  name: "zones: every exit's to+entranceKey resolves (except the laboratory stub)",
+  name: "zones: every exit's to+entranceKey resolves (except a known stub)",
   fn: function () {
     var checkedAtLeastOneStub = false;
 
@@ -12558,8 +14110,10 @@ Game.selfTests.push({
 
         var targetZone = Game.ZONES[exit.to];
         if (!targetZone) {
-          // The one documented stub this cycle.
-          assert(exit.to === "laboratory", label + ": unresolvable `to` other than the known laboratory stub: " + exit.to);
+          assert(
+            KNOWN_STUBS.indexOf(exit.to) !== -1,
+            label + ": unresolvable `to` other than a known stub (" + KNOWN_STUBS.join(", ") + "): " + exit.to
+          );
           checkedAtLeastOneStub = true;
           return;
         }
@@ -12578,7 +14132,7 @@ Game.selfTests.push({
       });
     });
 
-    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (the laboratory stub) to exercise that branch");
+    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (a known stub) to exercise that branch");
   },
 });
 
@@ -12714,17 +14268,22 @@ Game.selfTests.push({
   },
 });
 
-// 7. Laboratory stub: standing in warehouse's north exit emits zoneBlocked
-// exactly once (region-entry edge, not per tick), engine stays in warehouse,
-// and keeps ticking fine afterward.
+// 7. Known stub: standing in a zone's stub exit emits zoneBlocked exactly
+// once (region-entry edge, not per tick), engine stays put, and keeps
+// ticking fine afterward. UPDATED this cycle (Laboratory built): the
+// warehouse's own former "laboratory" stub now resolves for real (see test
+// #3's KNOWN_STUBS note above), so this test is repointed to the
+// Laboratory's own new "commsTower" stub — same assertions, same mechanism,
+// just exercising the CURRENT cycle's live placeholder exit instead of one
+// that no longer is one.
 Game.selfTests.push({
-  name: "engine zone transition: laboratory stub emits zoneBlocked once and stays in warehouse",
+  name: "engine zone transition: commsTower stub emits zoneBlocked once and stays in laboratory",
   fn: function () {
-    var warehouse = Game.ZONES.warehouse;
-    var engine = Game.createEngine({ seed: 3, zoneData: warehouse });
+    var lab = Game.ZONES.laboratory;
+    var engine = Game.createEngine({ seed: 3, zoneData: lab });
 
-    var northExit = warehouse.exits[1]; // to: laboratory
-    assert(northExit.to === "laboratory", "setup: expected warehouse.exits[1] to be the laboratory stub");
+    var northExit = lab.exits[0]; // to: commsTower
+    assert(northExit.to === "commsTower", "setup: expected laboratory.exits[0] to be the commsTower stub");
 
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;
@@ -12740,14 +14299,14 @@ Game.selfTests.push({
       engine.events.forEach(function (e) {
         if (e.type === "zoneBlocked") blockedCount++;
       });
-      assert(engine.zone.id === "warehouse", "expected to stay in warehouse at tick " + i + ", got " + engine.zone.id);
+      assert(engine.zone.id === "laboratory", "expected to stay in laboratory at tick " + i + ", got " + engine.zone.id);
     }
 
     assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
 
     // Leave the region and re-enter: the edge should re-arm and fire once more.
-    engine.player.x = warehouse.entrances.fromLoadingDock.x;
-    engine.player.y = warehouse.entrances.fromLoadingDock.y;
+    engine.player.x = lab.entrances.fromWarehouse.x;
+    engine.player.y = lab.entrances.fromWarehouse.y;
     engine.tick({ moveX: 0, moveY: 0 });
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;

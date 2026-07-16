@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.23 (cycle 23 — security cameras; director module born)
+**Version:** v0.24 (cycle 24 — Laboratory: doors/keycards/lasers)
 
 ## Module status
 
@@ -8,7 +8,7 @@
 |----------------|-------------|------------------------------------------|
 | rng            | stub        | seeded RNG single source                 |
 | boot           | v1          | self-test gate, title, input, fixed-step loop |
-| world          | v2          | 2 zones (dock, warehouse), exits[]/entrances{}, lockers data |
+| world          | v3          | 3 zones + dynamic doors; commsTower stub remains |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
@@ -27,11 +27,15 @@
 
 - engine.events clears every tick — consumers must drain post-tick same-tick.
 - No render damage feedback (hit flash) yet — hp only visible in LIFE bar.
+- Closed doors are acoustically transparent (soundEvents can't see door
+  blockers yet) — ledgered in BACKLOG, fix when soundEvents in scope.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 24: Laboratory — keycard doors (dynamic blockers), duty-cycle lasers,
+  3-camera installation, L1 pickup seeded in warehouse (158/158, 17/17)
 - cycle 23: cameras — sweeping cones via shared vision math + perception
   wrapper, chaff freeze, camera alerts tip squad without feeding anyLOS,
   radar/render cones, 2 pilot cams in warehouse (144/144, 16/16)

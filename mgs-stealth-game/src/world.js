@@ -63,7 +63,76 @@
 //                                          // far side of each camera's reach (see the
 //                                          // per-camera comments below for the specific
 //                                          // uncovered stretch).
+//       pickups: [ { x, y, item }, ... ], // NEW (Laboratory cycle) — SCHEMA FOR
+//                                          // ALL ZONES (optional/empty where a zone has
+//                                          // nothing to pick up, e.g. loadingDock). `item`
+//                                          // is an opaque string src/items.js's
+//                                          // inv.collectPickup(item) understands
+//                                          // ("keycardL1"/"keycardL2"/"keycardL3"/"chaff"
+//                                          // this cycle). Collection (distance check,
+//                                          // event, "already collected" bookkeeping) is
+//                                          // engine.js's job (see its PICKUPS step) — this
+//                                          // is pure placement data, same "engine mutates,
+//                                          // module computes" split as every other item
+//                                          // verb in this codebase.
+//       doors: [ { x, y, w, h, lock, id }, ... ], // NEW (Laboratory cycle) — SCHEMA FOR
+//                                          // ALL ZONES (optional/empty on zones with no
+//                                          // doors, e.g. loadingDock/warehouse this cycle).
+//                                          // `lock` is "L1" | "L2" | "L3" | null (null =
+//                                          // unlocked, auto-opens on mere proximity — see
+//                                          // src/engine.js's DOORS step). `id` is an opaque
+//                                          // string, unique within the zone, used by
+//                                          // world.setDoorOpen(id, open)/isDoorOpen(id) and
+//                                          // by engine.js's per-door auto-open/close
+//                                          // bookkeeping. A door AABB is otherwise a plain
+//                                          // wall-shaped rect — see DYNAMIC BLOCKERS below
+//                                          // for exactly how it behaves as one while closed.
+//       lasers: [ { x1, y1, x2, y2, periodS, dutyOn }, ... ], // NEW (Laboratory cycle) —
+//                                          // SCHEMA FOR ALL ZONES (optional/empty on zones
+//                                          // with none). A laser is a TRIPWIRE, not a
+//                                          // collision blocker — world.js does not consult
+//                                          // this array at all (isBlocked/raycast/moveCircle
+//                                          // are unaware lasers exist). It is consumed
+//                                          // entirely by src/director.js (see its own
+//                                          // contract for the duty-cycle/crossing-test
+//                                          // write-up) via engine.js's LASERS step.
 //     }
+//
+//   DOORS / DYNAMIC BLOCKERS (NEW this cycle — Laboratory zone): a door behaves
+//   EXACTLY like a wall AABB — same closed-containment convention as every
+//   other isBlocked/isBlockedCircle/raycast check in this file — for as long
+//   as it is CLOSED. World now keeps a per-instance, per-door open/closed flag
+//   (world.setDoorOpen(id, open) / world.isDoorOpen(id)), defaulting every
+//   door to CLOSED at construction (a fresh Game.createWorld(zoneData) call —
+//   e.g. on a zone transition — always starts every door shut, v1 semantics,
+//   same "discard on transition" rule guards/squad/vision already follow).
+//   isBlocked/isBlockedCircle/raycast/moveCircle all consult a DYNAMIC
+//   BLOCKERS list — zone.walls plus whichever zone.doors are CURRENTLY
+//   CLOSED, recomputed fresh on every call (doors are few — at most a
+//   handful per zone — so this is cheap; no caching complexity for a v1
+//   feature) — rather than the static `walls` array alone. Once a door is
+//   OPEN (world.setDoorOpen(id, true)), it drops out of every one of those
+//   checks entirely — a player/guard walks through the gap exactly as if the
+//   AABB were never there. engine.js owns WHEN a door opens/closes (keycard
+//   proximity, unlocked-on-proximity, auto-close timer — see its own DOORS
+//   contract); world.js only owns the mechanical "is this rect currently a
+//   blocker" question.
+//
+//   HONEST GAP — DOORS DO NOT ATTENUATE SOUND THIS VERSION: src/soundEvents.js
+//   computes wall-crossing attenuation (wallsBetween/effectiveRadius) by
+//   iterating `world.zone.walls` DIRECTLY (see its own file header's
+//   IMPLEMENTATION NOTE for why it can't reuse world.raycast in a marching
+//   loop) — it has no notion of `world`'s dynamic blockers list, only the
+//   static zone data. soundEvents.js is out of scope for this cycle's task
+//   packet, so rather than reach into it, a closed door in this version is
+//   ACOUSTICALLY TRANSPARENT: a knock/gunshot/footstep on one side of a
+//   closed Laboratory door attenuates as if the door weren't there at all
+//   (it still fully blocks LINE OF SIGHT and MOVEMENT via world.js's own
+//   blockers list above — only the SOUND radius math misses it). This is a
+//   deliberate, documented gap, not a silent one — see BACKLOG.md for the
+//   follow-up ("soundEvents: attenuate through closed doors, not just
+//   walls") that would thread a door-aware wallsBetween through soundEvents.js
+//   in a future cycle where that file is back in scope.
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
 //       // true iff (x,y) lies inside (or exactly on the edge of) any wall AABB.
@@ -159,25 +228,48 @@
 
   function createWorld(zoneData) {
     var walls = zoneData.walls;
+    var doors = zoneData.doors || [];
+
+    // Per-door open/closed flag, PRIVATE to this world instance (see file
+    // header DOORS / DYNAMIC BLOCKERS note) — every door starts CLOSED.
+    var doorOpen = {};
+    for (var di = 0; di < doors.length; di++) doorOpen[doors[di].id] = false;
+
+    // DYNAMIC BLOCKERS (see file header) — zone.walls plus whichever doors
+    // are CURRENTLY CLOSED. Recomputed on every call; doors.length is small
+    // (a handful per zone at most) so this is cheap. Skips the concat
+    // entirely when a zone has no doors at all (every pre-Laboratory zone),
+    // so this is a no-op cost change for loadingDock/warehouse.
+    function blockers() {
+      if (doors.length === 0) return walls;
+      var list = walls.slice();
+      for (var i = 0; i < doors.length; i++) {
+        if (!doorOpen[doors[i].id]) list.push(doors[i]);
+      }
+      return list;
+    }
 
     function isBlocked(x, y) {
-      for (var i = 0; i < walls.length; i++) {
-        if (rectContainsPoint(walls[i], x, y)) return true;
+      var list = blockers();
+      for (var i = 0; i < list.length; i++) {
+        if (rectContainsPoint(list[i], x, y)) return true;
       }
       return false;
     }
 
     function isBlockedCircle(x, y, r) {
-      for (var i = 0; i < walls.length; i++) {
-        if (circleOverlapsRect(x, y, r, walls[i])) return true;
+      var list = blockers();
+      for (var i = 0; i < list.length; i++) {
+        if (circleOverlapsRect(x, y, r, list[i])) return true;
       }
       return false;
     }
 
     function raycast(x1, y1, x2, y2) {
+      var list = blockers();
       var bestT = null;
-      for (var i = 0; i < walls.length; i++) {
-        var t = segmentVsRect(x1, y1, x2, y2, walls[i]);
+      for (var i = 0; i < list.length; i++) {
+        var t = segmentVsRect(x1, y1, x2, y2, list[i]);
         if (t !== null && (bestT === null || t < bestT)) bestT = t;
       }
       if (bestT === null) return null;
@@ -201,12 +293,26 @@
       return rectContainsPoint(region, x, y);
     }
 
+    // DOORS (see file header) — world.js's own half is purely mechanical:
+    // remember which door ids are open, let blockers() above see it.
+    // engine.js decides WHEN to call these (keycard proximity, auto-close
+    // timers, etc.) — see its own DOORS contract.
+    function setDoorOpen(id, open) {
+      doorOpen[id] = !!open;
+    }
+
+    function isDoorOpen(id) {
+      return !!doorOpen[id];
+    }
+
     return {
       isBlocked: isBlocked,
       isBlockedCircle: isBlockedCircle,
       raycast: raycast,
       moveCircle: moveCircle,
       inRegion: inRegion,
+      setDoorOpen: setDoorOpen,
+      isDoorOpen: isDoorOpen,
       zone: zoneData,
     };
   }
@@ -273,6 +379,11 @@
     // installation lives in the warehouse; the loading dock stays
     // guard-only until a future cycle expands coverage.
     cameras: [],
+    // No pickups, doors, or lasers this cycle (see schema notes above) —
+    // those all debut in the Laboratory zone below.
+    pickups: [],
+    doors: [],
+    lasers: [],
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -396,11 +507,153 @@
       // it, not just a nominal one.
       { x: 29.6, y: 13.5, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
     ],
+    // L1 KEYCARD (see schema note above / Laboratory zone below) — the key
+    // that unlocks the Laboratory's own L1 door lives out here, one zone
+    // early, so a player must actually clear the Warehouse before the
+    // Laboratory's west wing opens up. Tucked in the far-west dark zone
+    // (x:2-6,y:4-12, see darkZones above) at (4,7) — clear of the crate
+    // cluster at (4,10,2,2) and the left perimeter wall (x:0-1).
+    pickups: [{ x: 4, y: 7, item: "keycardL1" }],
+    doors: [],
+    lasers: [],
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
+  // ---- zone data: LABORATORY --------------------------------------------------
+  // 40x30m. Keycard-gated linear progression, north from the Warehouse:
+  //   south entrance (entrances.fromWarehouse, x:18-22 gap like every other
+  //   zone's shared spine column) -> LOBBY (y:17-29, the whole south third)
+  //   -> L1 DOOR (a gap in the y:17 dividing wall, x:18-22) -> the shared
+  //   MID FLOOR (y:4-17), itself split by a vertical wall at x:24 into a WEST
+  //   WING (x:1-24, holds the L2 keycard) and an EAST WING (x:24-39, holds
+  //   the L3 keycard + a bonus chaff grenade) -> L2 DOOR (a gap in that x:24
+  //   wall, y:9-13) bridges the two wings -> L3 DOOR (a gap in the y:3
+  //   dividing wall, x:18-22) leads to the NORTH CORRIDOR (y:0-3) -> an exit
+  //   stub toward the (not yet built) Comms Tower — same "engine.js resolves
+  //   an unknown `to` by staying put + zoneBlocked" convention the
+  //   Warehouse's own Laboratory stub used before this cycle.
+  //
+  //   Doors (see file header DOORS / DYNAMIC BLOCKERS): doorL1 gates
+  //   lobby->mid floor, doorL2 gates west wing->east wing, doorL3 gates mid
+  //   floor->north corridor. Every guard's own patrol loop stays entirely
+  //   within ONE side of every door (lab-g1 never leaves the lobby, lab-g2
+  //   never leaves the west wing) — guards never need to open a door this
+  //   cycle, so a locked door a guard can't unlock never strands one (see
+  //   src/engine.js's DOORS contract: only the PLAYER's keycards are ever
+  //   checked against a lock).
+  //
+  //   Cameras (3, one per major area) + lasers (2, one guarding each
+  //   wing's keycard) are mounted 0.1m clear of the wall they're flush
+  //   against, same convention as the Warehouse's pilot installation above.
+  //
+  //   GEOMETRY NOTE — Wall B deliberately sits at x:24, NOT x:20 (which would
+  //   put it flush against the L1 door's own center column, x:18-22): a
+  //   player/guard circle (radius 0.4) passing straight through the L1 door
+  //   and continuing north at x~20 would clip Wall B's bottom segment's
+  //   corner the instant Wall B's edge and Wall A's edge share the same y
+  //   (both meeting at y:17) — an authentic pinch point discovered by
+  //   scripting sim.js's "lab run" scenario. Wall B is shifted 4m east so the
+  //   L1 door's entire approach corridor (x:18-22) is comfortably clear of
+  //   any other wall face.
+  var laboratory = {
+    id: "laboratory",
+    name: "LABORATORY",
+    bounds: { w: 40, h: 30 },
+    walls: [
+      // perimeter (6 segments: top split around the north Comms Tower stub,
+      // bottom split around the south Warehouse entrance, left, right)
+      { x: 0, y: 0, w: 18, h: 1 }, // top-left
+      { x: 22, y: 0, w: 18, h: 1 }, // top-right (gap: x 18-22, stub to commsTower)
+      { x: 0, y: 29, w: 18, h: 1 }, // bottom-left
+      { x: 22, y: 29, w: 18, h: 1 }, // bottom-right (gap: x 18-22, entrance from warehouse)
+      { x: 0, y: 0, w: 1, h: 30 }, // left
+      { x: 39, y: 0, w: 1, h: 30 }, // right
+      // Wall A — lobby / mid-floor divider (y:17), split around the L1 door gap (x:18-22)
+      { x: 0, y: 17, w: 18, h: 1 },
+      { x: 22, y: 17, w: 18, h: 1 },
+      // Wall C — mid-floor / north-corridor divider (y:3), split around the L3 door gap (x:18-22)
+      { x: 0, y: 3, w: 18, h: 1 },
+      { x: 22, y: 3, w: 18, h: 1 },
+      // Wall B — west wing / east wing divider (x:24, y:3-17, see GEOMETRY
+      // NOTE above), split around the L2 door gap (y:9-13)
+      { x: 24, y: 3, w: 1, h: 6 },
+      { x: 24, y: 13, w: 1, h: 4 },
+    ],
+    doors: [
+      { x: 18, y: 17, w: 4, h: 1, lock: "L1", id: "doorL1" },
+      { x: 24, y: 9, w: 1, h: 4, lock: "L2", id: "doorL2" },
+      { x: 18, y: 3, w: 4, h: 1, lock: "L3", id: "doorL3" },
+    ],
+    playerSpawn: { x: 20, y: 26 },
+    // The only exit this cycle: the Comms Tower stub, north through the
+    // L3 door. Unresolvable `to` — engine.js stays put + emits zoneBlocked
+    // (see src/engine.js's ZONE TRANSITIONS contract), same documented-stub
+    // pattern the Warehouse's own Laboratory exit used before this cycle.
+    exits: [{ x: 18, y: 0, w: 4, h: 3, to: "commsTower", entranceKey: "fromLaboratory" }],
+    entrances: { fromWarehouse: { x: 20, y: 26 } },
+    // Guard 1 (lab-g1): lobby perimeter loop, well clear of the L1 door and
+    // every locker/dark zone (none of those are collision — see world.js
+    // schema notes — so proximity to them is cosmetic only).
+    waypoints: [
+      { x: 5, y: 21 },
+      { x: 35, y: 21 },
+      { x: 35, y: 27 },
+      { x: 5, y: 27 },
+    ],
+    // Guard 2 (lab-g2): west wing loop, entirely on the near side of the L2
+    // door — never needs to open it (see file header note above).
+    waypoints2: [
+      { x: 3, y: 5 },
+      { x: 17, y: 5 },
+      { x: 17, y: 15 },
+      { x: 3, y: 15 },
+    ],
+    darkZones: [
+      { x: 2, y: 20, w: 5, h: 6 }, // lobby, SW corner
+      { x: 1, y: 4, w: 4, h: 4 }, // west wing, NW corner
+      { x: 34, y: 4, w: 5, h: 4 }, // east wing, NE corner (tucks the L3 keycard in shadow)
+    ],
+    lockers: [
+      { x: 5, y: 24, facing: 0 },
+      { x: 34, y: 24, facing: Math.PI },
+      { x: 3, y: 15, facing: 0 },
+      { x: 36, y: 15, facing: Math.PI },
+    ],
+    // 3 cameras, one per major area (lobby + both wings), each mounted
+    // 0.1m clear of the wall face it's flush against (see file header note).
+    cameras: [
+      // Lobby — mounted on wall A's south face, facing south (PI/2) into
+      // the lobby's main north-south crossing just past the L1 door.
+      { x: 20, y: 18.1, facing: Math.PI / 2, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 12 },
+      // West wing — mounted on wall B's west face, facing west (PI) across
+      // the approach to the L2 keycard.
+      { x: 23.9, y: 6, facing: Math.PI, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+      // East wing — mounted on wall B's east face, facing east (0) across
+      // the approach to the L3 keycard / chaff pickup.
+      { x: 25.1, y: 6, facing: 0, sweepDeg: 60, sweepPeriodS: 6, fovDeg: 50, range: 10 },
+    ],
+    // Keycard/chaff pickups (see schema note above) — L1 lives back in the
+    // Warehouse (see above); L2 and L3 plus a bonus chaff grenade live here.
+    pickups: [
+      { x: 10, y: 6, item: "keycardL2" }, // west wing, north corner
+      { x: 34, y: 6, item: "keycardL3" }, // east wing, north corner (in the dark zone)
+      { x: 30, y: 14, item: "chaff" }, // east wing, south of the keycard
+    ],
+    // 2 lasers (see file header / src/director.js's own contract), one per
+    // wing, each spanning nearly the full wing width at y:10 — a player
+    // walking from the L1-door entry point (south, y~16) to either wing's
+    // keycard (north, y~6) must cross one, timing the crossing to the
+    // duty-cycle's OFF phase (periodS 4s, dutyOn 0.6 -> 1.6s clear per
+    // cycle) rather than just walking straight through.
+    lasers: [
+      { x1: 2, y1: 10, x2: 18, y2: 10, periodS: 4, dutyOn: 0.6 }, // west wing
+      { x1: 26, y1: 10, x2: 38, y2: 10, periodS: 4, dutyOn: 0.6 }, // east wing
+    ],
+  };
+  laboratory.exit = laboratory.exits[0]; // back-compat alias, see schema note above
+
   Game.createWorld = createWorld;
-  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse };
+  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse, laboratory: laboratory };
   if (typeof module !== "undefined")
     module.exports = { createWorld: createWorld, ZONES: Game.ZONES };
 })(typeof window !== "undefined"
