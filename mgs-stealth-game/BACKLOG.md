@@ -42,6 +42,8 @@ content rotation) take over. L items must be split before selection.
 13. ~~SaveState~~ DONE cycle 27 (single-slot; multi-slot + codec-pause save edge + schema migration → backlog later).
 14. ~~Win state + rank screen~~ DONE cycle 28. **BOOTSTRAP ORDER COMPLETE — normal rotation (feature → bugfix → polish → content) governs from here.**
 
+- **CRASH FIX (cycle 32, TOP): searcher wedge → invariant throw** | bugfix | S | Consequence | guards dispatched to unreachable positions (check-in bodies behind shelving) wedge until MAX_STATE_S throws in live gameplay. Fix: wedge detection in INVESTIGATE travel (no progress over ~2s) → abandon → return to patrol; keep the invariant throw. Regression test with a deliberately unreachable body using REAL warehouse w1/w2 placements.
+
 ## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
 
 - ~~A1: box doesn't gate fire/CQC~~ FIXED cycle 21 (regression test in tests/regressions/).

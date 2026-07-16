@@ -183,6 +183,23 @@
 //                                          // entirely by src/director.js (see its own
 //                                          // contract for the duty-cycle/crossing-test
 //                                          // write-up) via engine.js's LASERS step.
+//       guardDoor: { x, y },              // NEW (reinforcements/check-ins cycle) — SCHEMA
+//                                          // FOR ALL ZONES this cycle ships (one per zone,
+//                                          // never optional/absent for any Game.ZONES.*
+//                                          // entry). The single perimeter spawn point
+//                                          // src/director.js's tickEscalation spawns
+//                                          // ALERT reinforcements at (see its own
+//                                          // ESCALATION contract) — DATA ONLY here, no
+//                                          // collision/behavior of its own, same posture as
+//                                          // lockers/cameras above. Placed at a real
+//                                          // perimeter door/gap in open floor (this cycle:
+//                                          // each zone's own south entrance gap, or
+//                                          // loadingDock's one and only exit gap), verified
+//                                          // open at r=0.6 (world.isBlockedCircle) same as
+//                                          // every waypoint leg — director.js derives a
+//                                          // short reinforcement patrol loop from this single
+//                                          // point at runtime, so no separate waypoints* data
+//                                          // is needed here.
 //     }
 //
 //   DOORS / DYNAMIC BLOCKERS (NEW this cycle — Laboratory zone): a door behaves
@@ -491,6 +508,11 @@
     pickups: [],
     doors: [],
     lasers: [],
+    // guardDoor (see schema note above) — this zone's one and only
+    // perimeter gap (the north exit, x:18-22,y:0-3), 2m in from the
+    // trigger onto open floor, well clear of the NW guard hut (x:9-15,
+    // y:3-8) and every other obstacle.
+    guardDoor: { x: 20, y: 2 },
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -623,6 +645,10 @@
     pickups: [{ x: 4, y: 7, item: "keycardL1" }],
     doors: [],
     lasers: [],
+    // guardDoor (see schema note above) — the south perimeter gap (x:18-22,
+    // y:26-29, back to the Loading Dock), 2m in from the trigger onto open
+    // floor, clear of both crate clusters and every shelving row.
+    guardDoor: { x: 20, y: 27 },
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
@@ -756,6 +782,10 @@
       { x1: 2, y1: 10, x2: 18, y2: 10, periodS: 4, dutyOn: 0.6 }, // west wing
       { x1: 26, y1: 10, x2: 38, y2: 10, periodS: 4, dutyOn: 0.6 }, // east wing
     ],
+    // guardDoor (see schema note above) — the south entrance gap (x:18-22,
+    // y:29, back to the Warehouse), 2m in from the trigger onto the lobby's
+    // open floor, clear of both lockers and the SW dark zone.
+    guardDoor: { x: 20, y: 27 },
   };
   laboratory.exit = laboratory.exits[0]; // back-compat alias, see schema note above
 
@@ -942,6 +972,11 @@
       { x: 4, y: 20, item: "ration" },
       { x: 36, y: 20, item: "chaff" },
     ],
+    // guardDoor (see schema note above) — the south entrance gap (x:18-22,
+    // y:29, back to the Laboratory), 2m in from the trigger onto open
+    // floor, clear of both south-approach sandbag flanks (x:15-17/23-25,
+    // y:24-26).
+    guardDoor: { x: 20, y: 27 },
   };
   commsTower.exit = commsTower.exits[0]; // back-compat alias, see schema note above
 
@@ -3694,6 +3729,173 @@
 // of ctx.time, the crossing test a pure function of ctx.prevX/Y/x/y, no
 // Math.random/Date/internal clock anywhere in this section either.
 //
+// ---------------------------------------------------------------------------
+// ESCALATION (NEW — reinforcements + radio check-ins cycle): the two
+// guard-escalation features SPEC.md had hedged as "director module —
+// pending". Both live here because both are facility-wide decisions no
+// single guard/camera/laser can make alone — exactly this file's own
+// "director decides how the FACILITY escalates as a whole" charter from the
+// top of the file.
+//
+// Game.createDirector({ world, vision, squad, rng }) -> director — `rng` is
+// NEW this cycle (cameras/lasers never needed one): the SAME Game.createRng
+// instance engine.js hands every guard (see guardAI.js's own rng contract,
+// "single source of randomness for the whole game" rule) — a spawned
+// reinforcement guard (see REINFORCEMENTS below) is a REAL Game.createGuard
+// whose own ALERT fire-accuracy roll needs a live rng, so director must be
+// able to hand it one. Omitting `rng` is only safe for a director that never
+// actually spawns a reinforcement (e.g. every pre-existing cameras.test.js
+// construction, which never calls tickEscalation at all) — reachable but not
+// exercised by anything shipped before this cycle.
+//
+// GUARDDOOR SCHEMA (zone data — src/world.js's zone.guardDoor, OPTIONAL,
+// {x,y}): the single perimeter spawn point reinforcements pour in from for
+// THIS zone. Read ONCE at construction (same "fixed for this director's
+// lifetime" contract as cameras/lasers above). A zone with no guardDoor
+// (defensive only — every zone this cycle ships one) simply never spawns
+// reinforcements; REINFORCEMENTS below no-ops rather than throwing.
+//
+// director.tickEscalation(dt, ctx) -> [ { type, ... }, ... ]
+//   ctx = { time, guards } — another slim per-tick context THE ENGINE builds:
+//     time   — engine.time, same READ-ONLY role as tickCameras'/tickLasers'
+//              own ctx.time (director holds no clock of its own anywhere in
+//              this file, and this section is no exception).
+//     guards — THE ENGINE's OWN LIVE `guards` ARRAY, the exact same object
+//              engine.guards points at (not a copy). REINFORCEMENTS below
+//              relies on this: a spawned guard is pushed directly onto
+//              ctx.guards, which mutates engine's own array in place — engine
+//              never needs to notice/splice anything itself, and anything
+//              that reads engine.guards fresh each frame (render.js/radar.js,
+//              per this cycle's own investigation — see FILES YOU MAY TOUCH)
+//              picks the new guard up for free, zero changes needed there.
+//
+// ---- RADIO CHECK-INS (SPEC: "missed 40s radio check-ins from patrol
+// buddies") ------------------------------------------------------------------
+// Every guard checks in on a private, deterministic 40s cycle, STAGGERED by
+// its own position in ctx.guards (guard index i's check-ins land at
+// i*5s, i*5s+40s, i*5s+80s, ... — 5s-per-index spacing comfortably separates
+// up to 8 guards inside one 40s window, well above the heaviest roster this
+// game ships, commsTower's 4 + 3 reinforcements = 7). A guard SLEEPING at the
+// moment its own check-in lands MISSED it.
+//
+// PURE-FUNCTION SCHEDULE (deliberate — see DETERMINISM/SAVE-RESTORE note
+// below): a guard's check-in boundaries are NOT tracked via a stored
+// "next check-in at" timestamp seeded from whenever this director happened to
+// first tick. They are recomputed FRESH, every tick, straight from
+// (ctx.time, dt, index) — floor((ctx.time - offset)/40) vs the same formula
+// one dt earlier; a check-in landed THIS tick iff that quotient just
+// increased. Two directors fed the identical ctx.time sequence compute the
+// IDENTICAL schedule for a guard at the same array index, independent of
+// when either director itself was constructed — see the note below for why
+// that independence specifically matters.
+//
+// ONE MISSED CHECK-IN -> ONE DISPATCH (SPEC: "only one active search per
+// missed guard; repeats every 40s while still missing"): on a landed
+// check-in for a SLEEPING guard, if no dispatched searcher is already
+// mid-INVESTIGATE for it, this picks the NEAREST awake guard whose OWN state
+// is exactly "PATROL" (not SUSPICIOUS/INVESTIGATE/CAUTION/ALERT/EVASION —
+// only an idle patrol has a free hand) and calls searcher.hearNoise(missing
+// guard's CURRENT x/y, "strong") — the EXACT SAME stimulus mechanism a
+// gunshot/knock/dart-impact already uses (see src/guardAI.js's hearNoise
+// contract), sending an ordinary PATROL guard into its OWN unmodified
+// INVESTIGATE state at that position. No new guardAI.js machinery is needed
+// for what happens next — INVESTIGATE's existing travel-then-search-then-
+// resume loop, and its existing per-tick COLLEAGUE DISCOVERY check (see
+// guardAI.js's own contract — runs for PATROL/SUSPICIOUS/INVESTIGATE/
+// CAUTION), already implement exactly "find the body -> broadcastAlert -> ALERT
+// (if it's lying in the open)" and "search near a HIDDEN body, time out, walk
+// away, no alert" (see guardAI's HIDDEN-BODY EXEMPTION) verbatim. This is the
+// deliberate design choice named in the task brief: the radio dispatcher
+// sends the searcher to the missing guard's CURRENT position (its actual
+// body, wherever it is NOW — a locker included) rather than some remembered
+// "last assigned patrol post" — which is exactly what makes tranq-and-leave
+// risky and stuffing a body away FAST (before its own next 40s check-in
+// lands) the actual counter-play, per this cycle's task brief.
+//   Pushes { type: "missedCheckIn", guardId, searcherId } the tick a search is
+//   actually dispatched (never on a landed check-in for an awake guard, and
+//   never on a landed check-in for a still-missing guard whose PREVIOUS
+//   searcher is still mid-INVESTIGATE — see ONE ACTIVE SEARCH above). If NO
+//   PATROL guard is free at that exact moment, this tick's check-in is
+//   silently skipped (no event, no dispatch) — the very NEXT scheduled
+//   check-in for that same guard, 40s later, tries again, per SPEC's own
+//   "repeats every 40s while still missing."
+//
+// ---- REINFORCEMENTS (SPEC: "reinforcements spawn at zone door (max +3)") --
+// While squad.phase === "ALERT": the first reinforcement spawns 6s after
+// THIS alert bout began, then one more every 10s after that, capped at
+// REINFORCEMENT_MAX (3) TOTAL per zone visit. "Per zone visit" is enforced
+// implicitly, not by a special reset rule: director itself is rebuilt fresh
+// on every zone transition (see src/engine.js's switchZone, same "discard the
+// departed zone's instance" rule cameras/lasers/guards/squad already follow),
+// so this section's own reinforcementCount closure var starts back at 0
+// automatically the moment a NEW zone's director is constructed — there is no
+// separate "which zone am I in" bookkeeping to get right here.
+//
+// COUNTER PERSISTS THROUGH PHASE DECAY, ONLY THE SPAWN TIMER RESTARTS: a rising
+// edge on squad.phase (anything -> "ALERT") restarts the 6s/10s spawn SCHEDULE
+// (nextSpawnAt = ctx.time + 6) but does NOT touch reinforcementCount — a zone
+// that went loud once stays reinforced for the rest of that visit even after
+// decaying all the way back to INFILTRATION and re-alerting later; only a
+// fresh zone (a fresh director) ever un-caps it. This is the literal reading
+// of the task brief's "counter resets on zone change, NOT on phase decay" —
+// documented here, not just in a commit message.
+//
+// SPAWN: Game.createGuard({ world, vision, rng, squad, spawn: zone.guardDoor,
+// waypoints: <a short loop near the door>, id: "reinf-<n>" }) — squad-joined
+// from birth. Deliberately NOT force-set to state "ALERT" by hand here: a
+// brand-new guard defaults to state "PATROL", but because squad.phase is
+// ALREADY "ALERT" the instant this guard exists, its own VERY FIRST
+// guard.update() call (next tick, once engine's guard-update loop reaches it)
+// runs the ordinary RADIO CALL / SQUAD-PHASE SYNC step every OTHER guard on
+// the squad already goes through (see guardAI.js's own step 1 contract) and
+// forces it into ALERT there, via the real setState("ALERT", ...) path —
+// fireTimer/nextFireAt included, so it can fire like any other ALERT guard.
+// Hand-writing guard.state = "ALERT" here instead would skip that setState
+// call and leave nextFireAt stuck at null (this guard could never fire) — see
+// guardAI.js's own setState contract for exactly what a transition is
+// supposed to reset. "Immediately in ALERT state converging on lastKnown" is
+// therefore true from this guard's OWN first live tick onward, the same
+// "radioed-in squadmate" latency (zero extra FSM ticks, just the ordinary
+// one-tick construction-to-first-update gap) every other synced guard already
+// has — not a special case.
+// WAYPOINTS: a short loop anchored on zone.guardDoor, derived (not hand-
+// authored per zone) by probing a small fixed ring of offsets around the door
+// with world.isBlockedCircle(x, y, 0.6) — the SAME r=0.6 clearance every
+// other waypoint leg in this game is authored against (see src/world.js's own
+// waypoint schema note) — keeping the door point itself plus the first two
+// offsets that come back open. A zone whose door has fewer than two clear
+// offsets nearby (shouldn't happen for any zone shipped this cycle) just gets
+// a shorter loop; guardAI.js's own patrol-loop code tolerates any waypoints
+// length >= 1 already (no new guardAI.js change needed for this).
+// PERF: the heaviest zone (commsTower, 4 base guards) plus a full +3 is 7
+// guards, comfortably under this game's existing 10-guard perf budget (see
+// tests/commsTower.test.js's own <4ms/tick gate) — reinforcement bookkeeping
+// itself is O(guards) per tick, no different in shape from the check-in loop
+// above.
+//   Pushes { type: "reinforcement", guardId } the tick a guard actually
+//   spawns.
+//
+// SAVE/RESTORE — HONEST GAP (documented, not hacked around): this section's
+// own mutable state (reinforcementCount, the spawn-timer bookkeeping, and the
+// check-ins' per-missing-guard searcher tracking) is NOT captured by this
+// file's existing getState()/setState() (see SAVE/RESTORE above cameras/
+// lasers) — src/saveState.js is out of scope for this cycle's task packet, so
+// a save/restore round-trip rebuilds a FRESH director for the restored zone
+// (same as it already does for cameras/lasers) that has forgotten this
+// section's own history. This is exactly why the check-in SCHEDULE above is
+// written as a pure function of (ctx.time, dt, index) rather than a stored
+// "next check-in at" seeded from this director's own construction moment: a
+// pure schedule means a freshly-rebuilt director (post-restore, or a mid-zone
+// re-tick after a save) computes the IDENTICAL check-in boundaries a
+// never-restored director would have, with nothing to lose. reinforcement
+// scheduling has no equivalent pure-function trick available (it is
+// inherently "history since this alert bout began"), so a save/restore taken
+// mid-ALERT can, in principle, forget an in-progress spawn countdown or an
+// already-spent slice of the +3 budget — same documented-gap posture as
+// every other "module X's own state, saveState.js out of scope" note already
+// in this codebase (see src/world.js's DOORS DO NOT ATTENUATE SOUND for the
+// same pattern).
+//
 // Pure JS logic — no THREE, no DOM, no Math.random/Date — runs headless in
 // node exactly like vision.js/guardAI.js. Consumes world/vision/squad only
 // via their own published contracts; never mutates any of them (squad is the
@@ -3705,9 +3907,15 @@
     var world = deps.world;
     var vision = deps.vision;
     var squad = deps.squad;
+    // rng (NEW — see file header ESCALATION section): only consumed to hand
+    // to a spawned reinforcement guard's own Game.createGuard call. Optional
+    // — a director that never actually spawns one (every camera/laser test
+    // predating this cycle) never touches it.
+    var rng = deps.rng;
 
     var cameras = (world && world.zone && world.zone.cameras) || [];
     var lasers = (world && world.zone && world.zone.lasers) || [];
+    var guardDoor = (world && world.zone && world.zone.guardDoor) || null;
 
     // Per-camera mutable state, parallel array to `cameras` (same index).
     // wasSuspicious is the only edge-tracking flag needed — the ALERT check
@@ -3853,6 +4061,200 @@
       });
     }
 
+    // ---- ESCALATION (see file header ESCALATION section) --------------------
+
+    var REINFORCEMENT_MAX = 3;
+    var REINFORCEMENT_FIRST_DELAY_S = 6;
+    var REINFORCEMENT_INTERVAL_S = 10;
+    var CHECKIN_INTERVAL_S = 40;
+    var CHECKIN_STAGGER_S = 5;
+
+    // Reinforcement bookkeeping (zone-visit-scoped — see file header: this
+    // director instance IS the zone visit, rebuilt fresh by switchZone, so
+    // these vars naturally reset to 0/false/null on a real zone change and
+    // nowhere else).
+    var reinforcementCount = 0;
+    var reinforcementSeq = 0;
+    var alertWasActive = false; // squad.phase === "ALERT" as of the LAST tickEscalation call
+    var nextSpawnAt = null; // absolute ctx.time the NEXT reinforcement is due, or null
+
+    // Check-in dispatch bookkeeping: missingSearchers[guardId] = searcherId,
+    // the guard currently (or most recently) sent to investigate that missing
+    // guard's position — see ONE MISSED CHECK-IN -> ONE DISPATCH in the file
+    // header. NOT the check-in SCHEDULE itself (that's a pure function of
+    // time/index — see below), just "who did we already send."
+    var missingSearchers = {};
+
+    function distance(x1, y1, x2, y2) {
+      var dx = x2 - x1;
+      var dy = y2 - y1;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function findGuardById(guardsArr, id) {
+      for (var i = 0; i < guardsArr.length; i++) {
+        if (guardsArr[i].id === id) return guardsArr[i];
+      }
+      return null;
+    }
+
+    // PURE-FUNCTION CHECK-IN SCHEDULE (see file header DETERMINISM/SAVE-
+    // RESTORE note) — true iff a guard at array index `index` has a
+    // check-in boundary land on THIS tick, computed purely from
+    // (time, dt, index): no stored "next check-in at" to seed/lose.
+    function crossedCheckinBoundary(index, time, dt) {
+      var offset = (index * CHECKIN_STAGGER_S) % CHECKIN_INTERVAL_S;
+      var prevBoundary = Math.floor((time - dt - offset) / CHECKIN_INTERVAL_S);
+      var currBoundary = Math.floor((time - offset) / CHECKIN_INTERVAL_S);
+      return currBoundary > prevBoundary;
+    }
+
+    // Nearest guard (by straight-line distance) whose OWN state is exactly
+    // "PATROL" — see file header ONE MISSED CHECK-IN -> ONE DISPATCH — never
+    // the missing guard itself (that guard is SLEEPING by construction of the
+    // caller, so it would never match state==="PATROL" anyway; excluded
+    // explicitly regardless, defensively).
+    function nearestPatrolGuard(guardsArr, missingGuard) {
+      var best = null;
+      var bestDist = Infinity;
+      for (var i = 0; i < guardsArr.length; i++) {
+        var g = guardsArr[i];
+        if (g === missingGuard || g.state !== "PATROL") continue;
+        var d = distance(g.x, g.y, missingGuard.x, missingGuard.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = g;
+        }
+      }
+      return best;
+    }
+
+    // REINFORCEMENT WAYPOINTS (see file header WAYPOINTS note) — a small
+    // fixed ring of candidate offsets around guardDoor, probed in order with
+    // world.isBlockedCircle(x, y, 0.6) (same r=0.6 clearance convention as
+    // every other waypoint leg this game ships — see src/world.js's own
+    // schema note); the door point itself plus the first two OPEN offsets
+    // found become the loop. Computed ONCE at construction (guardDoor/world
+    // are both fixed for this director's lifetime) rather than per-spawn —
+    // pure function of static zone data, so there is nothing to recompute.
+    var REINFORCEMENT_OFFSETS = [
+      { dx: 2, dy: 0 },
+      { dx: -2, dy: 0 },
+      { dx: 0, dy: 2 },
+      { dx: 0, dy: -2 },
+      { dx: 2, dy: 2 },
+      { dx: -2, dy: -2 },
+      { dx: 2, dy: -2 },
+      { dx: -2, dy: 2 },
+      { dx: 3, dy: 0 },
+      { dx: -3, dy: 0 },
+      { dx: 0, dy: 3 },
+      { dx: 0, dy: -3 },
+    ];
+
+    function buildReinforcementWaypoints(door) {
+      var pts = [{ x: door.x, y: door.y }];
+      for (var i = 0; i < REINFORCEMENT_OFFSETS.length && pts.length < 3; i++) {
+        var cx = door.x + REINFORCEMENT_OFFSETS[i].dx;
+        var cy = door.y + REINFORCEMENT_OFFSETS[i].dy;
+        if (!world.isBlockedCircle(cx, cy, 0.6)) {
+          pts.push({ x: cx, y: cy });
+        }
+      }
+      return pts;
+    }
+
+    var reinforcementWaypoints = guardDoor ? buildReinforcementWaypoints(guardDoor) : null;
+
+    // Spawns one reinforcement guard at guardDoor — see file header SPAWN
+    // note for why this deliberately does NOT hand-force guard.state to
+    // "ALERT" (the normal radio-call sync on its own first update() call
+    // already does that correctly, fireTimer/nextFireAt included).
+    function spawnReinforcement() {
+      reinforcementSeq++;
+      return Game.createGuard({
+        world: world,
+        vision: vision,
+        rng: rng,
+        squad: squad,
+        spawn: { x: guardDoor.x, y: guardDoor.y },
+        waypoints: reinforcementWaypoints,
+        id: "reinf-" + reinforcementSeq,
+      });
+    }
+
+    // director.tickEscalation(dt, ctx) -> [ { type, ... }, ... ] — see file
+    // header ESCALATION section for the full write-up. ctx = { time, guards }.
+    function tickEscalation(dt, ctx) {
+      var fired = [];
+      var time = ctx.time;
+      var guardsArr = ctx.guards || [];
+
+      // ---- RADIO CHECK-INS (see file header) — runs every tick, regardless
+      // of squad.phase; a guard's own SLEEPING state is the only gate.
+      for (var gi = 0; gi < guardsArr.length; gi++) {
+        var guard = guardsArr[gi];
+        if (!crossedCheckinBoundary(gi, time, dt)) continue;
+
+        if (guard.state !== "SLEEPING") {
+          // Awake at its own check-in — nothing missing; clear any stale
+          // searcher record (harmless if there was none).
+          delete missingSearchers[guard.id];
+          continue;
+        }
+
+        // MISSED CHECK-IN. ONE ACTIVE SEARCH ONLY (see file header): if a
+        // previously-dispatched searcher is still mid-INVESTIGATE, this
+        // scheduled check-in is a no-op — the NEXT one (40s later) tries
+        // again if the guard is still missing then.
+        var priorSearcherId = missingSearchers[guard.id];
+        var priorSearcher = priorSearcherId ? findGuardById(guardsArr, priorSearcherId) : null;
+        if (priorSearcher && priorSearcher.state === "INVESTIGATE") continue;
+
+        var searcher = nearestPatrolGuard(guardsArr, guard);
+        if (searcher) {
+          // Same stimulus mechanism a gunshot/knock/dart-impact already uses
+          // (see guardAI.js's hearNoise contract) — sent at the missing
+          // guard's CURRENT position (its body, wherever it is now — a
+          // locker included, see file header for why that's the deliberate
+          // choice), not any remembered patrol post.
+          searcher.hearNoise(guard.x, guard.y, "strong");
+          missingSearchers[guard.id] = searcher.id;
+          fired.push({ type: "missedCheckIn", guardId: guard.id, searcherId: searcher.id });
+        } else {
+          delete missingSearchers[guard.id];
+        }
+      }
+
+      // ---- REINFORCEMENTS (see file header) — only while squad.phase is
+      // ALERT; reinforcementCount is zone-visit-scoped (see its own
+      // declaration comment above), never reset by a phase decay.
+      var isAlert = squad.phase === "ALERT";
+      if (isAlert && !alertWasActive) {
+        // Rising edge — a fresh alert bout (first ever, or a re-alert after
+        // decaying out of ALERT earlier this same zone visit) restarts the
+        // 6s/10s spawn SCHEDULE, but never touches reinforcementCount.
+        nextSpawnAt = time + REINFORCEMENT_FIRST_DELAY_S;
+      }
+      alertWasActive = isAlert;
+
+      if (
+        isAlert &&
+        guardDoor &&
+        reinforcementCount < REINFORCEMENT_MAX &&
+        nextSpawnAt !== null &&
+        time >= nextSpawnAt
+      ) {
+        var newGuard = spawnReinforcement();
+        guardsArr.push(newGuard);
+        reinforcementCount++;
+        fired.push({ type: "reinforcement", guardId: newGuard.id });
+        nextSpawnAt = time + REINFORCEMENT_INTERVAL_S;
+      }
+
+      return fired;
+    }
+
     // getState()/setState() (NEW — save/restore cycle, additive only, no
     // behavior change). Captures the per-camera/per-laser MUTABLE state
     // arrays (camStates/laserActiveStates) — the camera/laser SCHEMA itself
@@ -3910,6 +4312,7 @@
       cameraStates: cameraStates,
       tickLasers: tickLasers,
       laserStates: laserStates,
+      tickEscalation: tickEscalation,
       getState: getState,
       setState: setState,
     };
@@ -4406,6 +4809,26 @@
 //                     src/director.js's own laser contract); this is the
 //                     SAME tick director.tickLasers already called
 //                     squad.broadcastAlert.
+//                   { type: "reinforcement", guardId } — director.tickEscalation
+//                     spawned a fresh ALERT-reinforcement guard at
+//                     zone.guardDoor this tick (see src/director.js's own
+//                     ESCALATION contract for the 6s/10s/max-3 timing and the
+//                     zone-visit-scoped cap). guardId is the new guard's own
+//                     id ("reinf-<n>"); the guard itself is already present
+//                     in engine.guards by the time this event is read.
+//                   { type: "missedCheckIn", guardId, searcherId } —
+//                     director.tickEscalation found `guardId` SLEEPING at its
+//                     own scheduled 40s radio check-in this tick and
+//                     dispatched `searcherId` (an awake PATROL guard) to
+//                     investigate the missing guard's CURRENT position (see
+//                     src/director.js's own ESCALATION contract for why
+//                     "current position, not last patrol post" is the
+//                     deliberate choice, and for the "one active search per
+//                     missed guard, repeats every 40s while still missing"
+//                     rule). Does NOT by itself mean an alert is coming —
+//                     the searcher's own ordinary INVESTIGATE/COLLEAGUE
+//                     DISCOVERY machinery (src/guardAI.js) decides that, same
+//                     as any other body-spot.
 //                 More event types will be appended by later modules — treat
 //                 `type` as an open set and always branch on it, never
 //                 assume this is the full list.
@@ -5448,8 +5871,12 @@
     // security cameras (zone.cameras, empty-safe: a zone with no cameras just
     // gets a director with an empty roster, no special-casing needed here).
     // Built fresh for every zone, same "rebuild on transition" rule as
-    // world/vision/squad/guards (see switchZone below).
-    var director = Game.createDirector({ world: world, vision: vision, squad: squad });
+    // world/vision/squad/guards (see switchZone below). `rng` (NEW — see
+    // src/director.js's own ESCALATION contract) is the SAME shared rng
+    // instance every guard gets — a spawned reinforcement guard needs one for
+    // its own ALERT fire-accuracy roll, same "single source of randomness"
+    // rule as everywhere else in this file.
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
 
     var engine = {
       world: world,
@@ -5687,8 +6114,11 @@
       // target zone's own camera roster, same "discard the departed zone's
       // instance, never carry it across" rule as world/vision/squad/guards
       // above (a departed zone's cameras belong to a world that no longer
-      // exists).
-      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad });
+      // exists). This ALSO discards the departed zone's own reinforcement
+      // count/spawn-timer bookkeeping (see director.js's own ESCALATION
+      // contract) — exactly what makes a zone-visit-scoped +3 cap "reset on
+      // zone change" true with no special-case reset code needed here.
+      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad, rng: rng });
 
       var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
       var newPlayer = Game.createPlayer({ world: newWorld });
@@ -6210,6 +6640,24 @@
       });
       for (var lti = 0; lti < laserTrips.length; lti++) {
         engine.events.push(laserTrips[lti]);
+      }
+
+      // ESCALATION (see src/director.js's own ESCALATION contract) —
+      // reinforcements + radio check-ins, runs every tick regardless of
+      // squad.phase (check-ins) or gated on squad.phase === "ALERT"
+      // (reinforcements) — director itself decides which. ctx.guards is
+      // THE LIVE `guards` ARRAY (not a copy): a spawned reinforcement guard
+      // is pushed directly onto it by director.tickEscalation, so
+      // engine.guards (same reference, reassigned only by switchZone) picks
+      // it up with no further action needed here — see director.js's own
+      // ctx.guards note for why this is deliberately not a return-and-push
+      // shape like cameraAlerts/laserTrips above.
+      var escalationEvents = director.tickEscalation(DT, {
+        time: engine.time,
+        guards: guards,
+      });
+      for (var esi = 0; esi < escalationEvents.length; esi++) {
+        engine.events.push(escalationEvents[esi]);
       }
 
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
@@ -12812,6 +13260,605 @@ Game.selfTests.push({
     var avgMs = elapsed / TOTAL_TICKS;
 
     assert(avgMs < 4, "expected average tick under 4ms with 10 guards, got " + avgMs.toFixed(3) + "ms");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/escalation.test.js ====
+(function (global) {
+// tests/escalation.test.js — headless assertions for src/director.js's
+// ESCALATION section (ALERT reinforcements + 40s radio check-ins) and its
+// wiring into src/engine.js. Same registry pattern as every other
+// tests/*.test.js file: push onto the shared Game.selfTests list; test.js
+// runs every entry and reports ok/FAIL with real exit codes.
+//
+// Two testing styles are used, matching the shape of what's under test:
+//   - Tests 1/2/3/5 build a director DIRECTLY (Game.createDirector), same
+//     style as tests/cameras.test.js's own pan-angle test, with a real
+//     Game.createSquad() whose .phase/.lastKnown we mutate by hand. This
+//     gives exact, drift-free control over squad.phase/ctx.time without
+//     needing a guard to hold real LOS on the player for 26+ seconds
+//     straight (squad.tick()'s own ALERT->EVASION decay would otherwise
+//     fire the instant no guard has LOS, which is exactly what we don't
+//     want while probing the escalation TIMING itself).
+//   - Tests 4/6/7/8/9 drive a real Game.createEngine() end to end, since
+//     they're integration checks (perf cost, tranq()/stuffInLocker() ->
+//     missedCheckIn -> INVESTIGATE -> colleague discovery -> alert,
+//     determinism of the full event stream). Where ALERT needs to be held
+//     open longer than a guard's real LOS would sustain it, engine.squad.phase
+//     is re-pinned to "ALERT" every tick before calling engine.tick() —
+//     directly setting squad's own flat, mutable .phase prop, not a hack
+//     around any private state.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+function farPlayer() {
+  return {
+    x: -9999,
+    y: -9999,
+    facing: 0,
+    visionProfile: function () {
+      return 1.0;
+    },
+  };
+}
+
+function dist(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+// ---------------------------------------------------------------------------
+// 1. Reinforcement timing: ALERT begins at t -> +1 ~6s, +2 ~16s, +3 ~26s,
+//    never a +4th.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: reinforcements spawn +1 ~6s, +2 ~16s, +3 ~26s after ALERT begins, never a 4th",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(101);
+    var squad = Game.createSquad(); // starts INFILTRATION
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
+    var guards = [];
+
+    // A few seconds of INFILTRATION first, so "ALERT begins at t" is a real
+    // rising edge, not just an artifact of starting the clock at 0.
+    var PRE_S = 5;
+    var i;
+    for (i = 0; i < Math.round(PRE_S / DT); i++) {
+      director.tickEscalation(DT, { time: i * DT, guards: guards });
+    }
+
+    var alertStart = PRE_S;
+    squad.phase = "ALERT";
+    squad.lastKnown = { x: 20, y: 15 };
+
+    var spawnOffsets = [];
+    var TOTAL_S = 45;
+    var STEPS = Math.round(TOTAL_S / DT);
+    for (i = 0; i < STEPS; i++) {
+      var t = alertStart + i * DT;
+      var fired = director.tickEscalation(DT, { time: t, guards: guards });
+      fired.forEach(function (ev) {
+        if (ev.type === "reinforcement") spawnOffsets.push(t - alertStart);
+      });
+    }
+
+    assert(
+      spawnOffsets.length === 3,
+      "expected exactly 3 reinforcements, got " + spawnOffsets.length + " at offsets " + JSON.stringify(spawnOffsets)
+    );
+    assert(Math.abs(spawnOffsets[0] - 6) < 0.01, "expected 1st reinforcement ~6s after ALERT, got " + spawnOffsets[0].toFixed(4));
+    assert(Math.abs(spawnOffsets[1] - 16) < 0.01, "expected 2nd reinforcement ~16s after ALERT, got " + spawnOffsets[1].toFixed(4));
+    assert(Math.abs(spawnOffsets[2] - 26) < 0.01, "expected 3rd reinforcement ~26s after ALERT, got " + spawnOffsets[2].toFixed(4));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2. Spawn location valid (guardDoor, open floor, r=0.6) and the spawned
+//    guard is in ALERT converging on lastKnown from its own first update().
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: reinforcement spawns at guardDoor on open floor and converges on lastKnown once in ALERT",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(102);
+    var squad = Game.createSquad();
+    squad.phase = "ALERT";
+    squad.lastKnown = { x: 20, y: 15 };
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
+    var guards = [];
+
+    var spawnedId = null;
+    var TOTAL_TICKS = Math.round(7 / DT);
+    for (var i = 0; i < TOTAL_TICKS && !spawnedId; i++) {
+      var fired = director.tickEscalation(DT, { time: i * DT, guards: guards });
+      fired.forEach(function (ev) {
+        if (ev.type === "reinforcement") spawnedId = ev.guardId;
+      });
+    }
+    assert(spawnedId, "expected a reinforcement to have spawned within 7s of ALERT");
+
+    var newGuard = guards[guards.length - 1];
+    assert(newGuard && newGuard.id === spawnedId, "expected the pushed guard to match the fired event's guardId");
+
+    var door = zone.guardDoor;
+    assert(
+      newGuard.x === door.x && newGuard.y === door.y,
+      "expected the reinforcement to spawn exactly at guardDoor, got (" + newGuard.x + "," + newGuard.y + ")"
+    );
+    assert(!world.isBlockedCircle(newGuard.x, newGuard.y, 0.6), "guardDoor spawn point must be open floor at r=0.6");
+    assert(newGuard.state === "PATROL", "expected a brand-new guard's pre-first-update default to be PATROL, got " + newGuard.state);
+
+    // Its own very first update() call performs the ordinary radio-call sync
+    // into ALERT (see director.js's SPAWN note) -- the same path every other
+    // squad member already goes through.
+    newGuard.update(DT, { player: farPlayer(), sleepingGuards: [] });
+    assert(newGuard.state === "ALERT", "expected the reinforcement's own first update() to sync it into ALERT, got " + newGuard.state);
+
+    var d0 = dist(newGuard.x, newGuard.y, squad.lastKnown.x, squad.lastKnown.y);
+    for (var c = 0; c < Math.round(2 / DT); c++) {
+      newGuard.update(DT, { player: farPlayer(), sleepingGuards: [] });
+    }
+    var d1 = dist(newGuard.x, newGuard.y, squad.lastKnown.x, squad.lastKnown.y);
+    assert(d1 < d0, "expected the reinforcement to converge on squad.lastKnown, started " + d0.toFixed(2) + "m away, now " + d1.toFixed(2) + "m away");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 3. Counter persists through a CAUTION decay within one zone visit; a fresh
+//    zone visit (fresh director instance) starts unspent.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: reinforcement counter survives a phase decay, resets only on a fresh zone visit",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(103);
+    var squad = Game.createSquad();
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
+    var guards = [];
+    var simTime = 0;
+
+    function step() {
+      var fired = director.tickEscalation(DT, { time: simTime, guards: guards });
+      simTime += DT;
+      return fired;
+    }
+
+    function countReinforcements(seconds) {
+      var n = 0;
+      var steps = Math.round(seconds / DT);
+      for (var i = 0; i < steps; i++) {
+        var fired = step();
+        for (var f = 0; f < fired.length; f++) {
+          if (fired[f].type === "reinforcement") n++;
+        }
+      }
+      return n;
+    }
+
+    squad.phase = "ALERT";
+    squad.lastKnown = { x: 20, y: 15 };
+    var firstBout = countReinforcements(30);
+    assert(firstBout === 3, "expected all 3 reinforcements to spawn during the first ALERT bout, got " + firstBout);
+
+    // Decay out of ALERT (simulated directly -- this test cares about the
+    // counter's own persistence rule, not squad.tick()'s real timers).
+    squad.phase = "CAUTION";
+    var duringCaution = countReinforcements(10);
+    assert(duringCaution === 0, "expected zero reinforcements while not ALERT, got " + duringCaution);
+
+    // Re-alert within the SAME director instance (same zone visit) -- the
+    // counter must NOT have reset just because the phase decayed.
+    squad.phase = "ALERT";
+    var secondBout = countReinforcements(30);
+    assert(secondBout === 0, "expected zero further reinforcements on a re-alert within the same zone visit (counter already capped), got " + secondBout);
+
+    // A FRESH director (standing in for a fresh zone visit -- see
+    // director.js's own ESCALATION contract: reinforcementCount is a closure
+    // var scoped to one director instance, rebuilt fresh by switchZone)
+    // starts unspent and can spawn its own +3.
+    var director2 = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
+    var guards2 = [];
+    var simTime2 = 0;
+    squad.phase = "ALERT";
+    var freshCount = 0;
+    var steps2 = Math.round(30 / DT);
+    for (var i = 0; i < steps2; i++) {
+      var fired2 = director2.tickEscalation(DT, { time: simTime2, guards: guards2 });
+      simTime2 += DT;
+      for (var f2 = 0; f2 < fired2.length; f2++) {
+        if (fired2[f2].type === "reinforcement") freshCount++;
+      }
+    }
+    assert(freshCount === 3, "expected a fresh zone visit's own director to spawn its own +3, got " + freshCount);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 4. PERF BUDGET — commsTower's 4 base guards + a full +3 reinforcements (7
+//    guards total), full tick still under the 4ms/tick budget. Same portable
+//    timing shim as tests/engine.test.js's/tests/commsTower.test.js's own
+//    perf tests.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation perf: commsTower + 3 reinforcements (7 guards) still under 4ms/tick budget",
+  fn: function () {
+    var now =
+      typeof performance !== "undefined" && performance.now
+        ? function () {
+            return performance.now();
+          }
+        : function () {
+            var t = process.hrtime.bigint();
+            return Number(t) / 1e6;
+          };
+
+    var engine = Game.createEngine({ zoneData: Game.ZONES.commsTower, seed: 42017 });
+    assert(engine.guards.length === 4, "setup: expected 4 base guards in commsTower, got " + engine.guards.length);
+
+    // Park the player far off-map so guards converging on the (fake)
+    // lastKnown never gain real LOS and open fire -- this test measures tick
+    // COST with 7 guards, not combat outcomes (a dead player -> gameOver
+    // freezes engine.tick() into a no-op, silently stalling the very
+    // reinforcement schedule under test).
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    engine.squad.phase = "ALERT";
+    engine.squad.lastKnown = { x: 20, y: 20 };
+    var WARMUP_TICKS = Math.round(30 / DT);
+    for (var i = 0; i < WARMUP_TICKS; i++) {
+      if (engine.squad.phase !== "ALERT") engine.squad.phase = "ALERT";
+      engine.tick();
+    }
+    assert(engine.guards.length === 7, "expected 4 base + 3 reinforcements = 7 guards after warmup, got " + engine.guards.length);
+
+    var TOTAL_TICKS = 600;
+    var start = now();
+    for (var tick = 0; tick < TOTAL_TICKS; tick++) {
+      if (engine.squad.phase !== "ALERT") engine.squad.phase = "ALERT";
+      engine.tick({
+        moveX: Math.sin(tick * 0.037),
+        moveY: Math.cos(tick * 0.041),
+        run: tick % 6 === 0,
+        stance: "stand",
+      });
+    }
+    var avgMs = (now() - start) / TOTAL_TICKS;
+
+    assert(avgMs < 4, "expected average tick under 4ms with 7 guards, got " + avgMs.toFixed(3) + "ms");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 5. Check-in stagger: two guards at different roster indices miss their
+//    check-ins on different ticks.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: two guards' check-in ticks differ, staggered by roster index",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var world = Game.createWorld(zone);
+    var vision = Game.createVision({ world: world });
+    var rng = Game.createRng(105);
+    var squad = Game.createSquad(); // stays INFILTRATION; reinforcements irrelevant here
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
+
+    // Plain mock guards (not Game.createGuard) -- deliberate: this isolates
+    // the SCHEDULING/dispatch logic from guardAI's own FSM (a real dispatched
+    // searcher would, after arriving, likely spot the (non-hidden) sleeping
+    // body and go ALERT via colleague discovery, radio-syncing every OTHER
+    // guard into ALERT too and starving later indices of an available PATROL
+    // searcher -- exactly the mechanic tests 6-8 exercise deliberately. Here
+    // we only want to see WHEN each index's check-in lands.)
+    function mockGuard(id, x, y, state) {
+      return {
+        id: id,
+        x: x,
+        y: y,
+        state: state,
+        hearNoise: function (nx, ny) {
+          this.state = "INVESTIGATE";
+        },
+      };
+    }
+
+    var guards = [
+      mockGuard("missing1", 5, 15, "SLEEPING"), // index 0 -> offset 0s
+      mockGuard("missing2", 35, 15, "SLEEPING"), // index 1 -> offset 5s
+      mockGuard("searcher1", 6, 15, "PATROL"),
+      mockGuard("searcher2", 34, 15, "PATROL"),
+    ];
+
+    var firstSeen = {};
+    var TOTAL_S = 45;
+    var STEPS = Math.round(TOTAL_S / DT);
+    for (var i = 0; i < STEPS; i++) {
+      var t = i * DT;
+      var fired = director.tickEscalation(DT, { time: t, guards: guards });
+      fired.forEach(function (ev) {
+        if (ev.type === "missedCheckIn" && firstSeen[ev.guardId] === undefined) {
+          firstSeen[ev.guardId] = t;
+        }
+      });
+    }
+
+    assert(firstSeen.missing1 !== undefined, "expected missing1's (index 0) check-in to be missed");
+    assert(firstSeen.missing2 !== undefined, "expected missing2's (index 1) check-in to be missed");
+    assert(
+      firstSeen.missing1 !== firstSeen.missing2,
+      "expected the two guards' check-in ticks to differ, both landed at t=" + firstSeen.missing1
+    );
+    var gap = firstSeen.missing2 - firstSeen.missing1;
+    assert(Math.abs(gap - 5) < 0.02, "expected a ~5s stagger between index 0 and index 1, got " + gap.toFixed(3) + "s");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 6. Tranq a guard -> within <=40s a buddy INVESTIGATEs at the body's
+//    current position.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: tranq a guard -> within <=40s a buddy INVESTIGATEs at the body's position",
+  fn: function () {
+    var zone = Game.ZONES.loadingDock;
+    var engine = Game.createEngine({
+      zoneData: zone,
+      seed: 4001,
+      guardConfigs: [
+        { id: "missing1", spawn: { x: 5, y: 15 }, waypoints: [{ x: 5, y: 15 }] },
+        { id: "searcher1", spawn: { x: 25, y: 15 }, waypoints: [{ x: 25, y: 15 }] },
+      ],
+    });
+    var missing = engine.guards[0];
+    var searcher = engine.guards[1];
+
+    // Park the player far off-map: this test is about the check-in/dispatch
+    // machinery, not combat. With the real player sitting at its default
+    // zone.playerSpawn, searcher1's own ordinary patrol perception can spot
+    // it organically and go ALERT chasing/firing at the player instead --
+    // no longer "PATROL", so it's no longer available to be dispatched at
+    // missing1's check-in (a real, intentional rule -- see director.js's
+    // "if no PATROL guard is free, skip" note -- just not what THIS test is
+    // isolating).
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    // A few seconds first so this isn't the t~0 "already asleep at the very
+    // first boundary" edge case.
+    for (var i = 0; i < Math.round(3 / DT); i++) engine.tick();
+
+    missing.tranq(true); // instant SLEEPING -- same public API items.js's own dart-hit path uses
+    assert(missing.state === "SLEEPING", "setup failed: expected missing1 SLEEPING after tranq(true)");
+    var bodyX = missing.x;
+    var bodyY = missing.y;
+    var tranqTime = engine.time;
+
+    var dispatchedAt = null;
+    var searcherIdSeen = null;
+    var MAX_WAIT_S = 41; // spec bound (40s) + one tick of slack
+    for (var t = 0; t < Math.round(MAX_WAIT_S / DT) && dispatchedAt === null; t++) {
+      engine.tick();
+      for (var e = 0; e < engine.events.length; e++) {
+        var ev = engine.events[e];
+        if (ev.type === "missedCheckIn" && ev.guardId === "missing1") {
+          dispatchedAt = engine.time;
+          searcherIdSeen = ev.searcherId;
+        }
+      }
+    }
+
+    assert(dispatchedAt !== null, "expected a missedCheckIn event for missing1 within " + MAX_WAIT_S + "s of falling asleep");
+    assert(
+      dispatchedAt - tranqTime <= 41,
+      "expected the dispatch within ~40s of the missed guard falling asleep, took " + (dispatchedAt - tranqTime).toFixed(2) + "s"
+    );
+    assert(searcherIdSeen === "searcher1", "expected searcher1 (the only awake PATROL guard) to be dispatched, got " + searcherIdSeen);
+    assert(searcher.state === "INVESTIGATE", "expected searcher1 to be INVESTIGATEing, got " + searcher.state);
+    assert(
+      dist(searcher.stimulus.x, searcher.stimulus.y, bodyX, bodyY) < 1e-6,
+      "expected searcher1's stimulus to be the body's own position"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 7. Body stuffed in a locker before its check-in -> searcher investigates,
+//    NO alert, returns to patrol.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: a locker-hidden body still gets a searcher dispatched, but no alert -- searcher returns to patrol",
+  fn: function () {
+    var zone = Game.ZONES.warehouse;
+    var locker = zone.lockers[0]; // {x:2,y:6,facing:0}
+    var engine = Game.createEngine({
+      zoneData: zone,
+      seed: 4002,
+      guardConfigs: [
+        { id: "missing1", spawn: { x: locker.x + 1, y: locker.y }, waypoints: [{ x: locker.x + 1, y: locker.y }] },
+        { id: "searcher1", spawn: { x: locker.x + 4, y: locker.y }, waypoints: [{ x: locker.x + 4, y: locker.y }] },
+      ],
+    });
+    var missing = engine.guards[0];
+    var searcher = engine.guards[1];
+
+    // Park the player far off-map (see test 6's own note): isolates this
+    // test to the check-in/dispatch + colleague-discovery-exemption
+    // machinery, with no organic camera/guard-on-player contact possible.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    for (var i = 0; i < Math.round(3 / DT); i++) engine.tick();
+
+    missing.tranq(true);
+    missing.stuffInLocker(locker);
+    assert(missing.hidden === true, "setup failed: expected missing1 hidden after stuffInLocker");
+    assert(missing.x === locker.x && missing.y === locker.y, "setup failed: expected missing1 repositioned to the locker");
+
+    var sawMissedCheckIn = false;
+    var sawAlert = false;
+    var sawInvestigate = false;
+    var returnedToPatrolAfterInvestigate = false;
+    var WINDOW_S = 80; // 40s worst-case check-in wait + travel + INVESTIGATE_SEARCH(8s) + buffer
+    for (var t = 0; t < Math.round(WINDOW_S / DT); t++) {
+      engine.tick();
+      for (var e = 0; e < engine.events.length; e++) {
+        var ev = engine.events[e];
+        if (ev.type === "missedCheckIn" && ev.guardId === "missing1") sawMissedCheckIn = true;
+        if (ev.type === "alert") sawAlert = true;
+      }
+      if (searcher.state === "INVESTIGATE") sawInvestigate = true;
+      if (sawInvestigate && searcher.state === "PATROL") returnedToPatrolAfterInvestigate = true;
+    }
+
+    assert(sawMissedCheckIn, "expected a missedCheckIn even though the body is hidden -- check-ins ignore .hidden, only .state === SLEEPING");
+    assert(sawInvestigate, "expected the searcher to have been dispatched into INVESTIGATE");
+    assert(!sawAlert, "expected NO alert -- a locker-hidden body is exempt from colleague discovery");
+    assert(returnedToPatrolAfterInvestigate, "expected the searcher to give up and return to PATROL after searching a hidden body's spot");
+    assert(engine.squad.phase === "INFILTRATION", "expected squad.phase to still read INFILTRATION at the end, got " + engine.squad.phase);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 8. Missed check-in repeats ~40s later while the guard is still missing.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation: a missed check-in repeats ~40s later while the guard is still asleep",
+  fn: function () {
+    var zone = Game.ZONES.warehouse;
+    var locker = zone.lockers[0];
+    var engine = Game.createEngine({
+      zoneData: zone,
+      seed: 4003,
+      guardConfigs: [
+        { id: "missing1", spawn: { x: locker.x + 1, y: locker.y }, waypoints: [{ x: locker.x + 1, y: locker.y }] },
+        { id: "searcher1", spawn: { x: locker.x + 4, y: locker.y }, waypoints: [{ x: locker.x + 4, y: locker.y }] },
+      ],
+    });
+    var missing = engine.guards[0];
+
+    // Park the player far off-map (see test 6's own note).
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    // Tranq + stuff BEFORE any ticking, so the guard is SLEEPING from t=0.
+    // GUARD.SLEEP_S is 60s -- a real wake-up (state -> PATROL) is a
+    // DIFFERENT, real mechanic that has nothing to do with "missing," so the
+    // window under test here (needing TWO 40s-apart check-in boundaries) has
+    // to land comfortably inside that 60s sleep, not straddle it.
+    missing.tranq(true);
+    missing.stuffInLocker(locker); // hidden -- never spotted/found, but still wakes on its own SLEEP_S clock
+
+    var checkinTimes = [];
+    var WINDOW_S = 55; // comfortably inside the 60s natural sleep window
+    for (var t = 0; t < Math.round(WINDOW_S / DT) && checkinTimes.length < 2; t++) {
+      engine.tick();
+      for (var e = 0; e < engine.events.length; e++) {
+        var ev = engine.events[e];
+        if (ev.type === "missedCheckIn" && ev.guardId === "missing1") checkinTimes.push(engine.time);
+      }
+    }
+
+    assert(checkinTimes.length >= 2, "expected the missed check-in to repeat at least twice within " + WINDOW_S + "s, got " + checkinTimes.length);
+    var gap = checkinTimes[1] - checkinTimes[0];
+    assert(Math.abs(gap - 40) < 0.5, "expected consecutive missed check-ins for the same guard ~40s apart, got " + gap.toFixed(2) + "s");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 9. Determinism: identical seeds -> identical event streams (reinforcement/
+//    missedCheckIn included) over 120s.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "escalation determinism: identical seeds -> identical event streams (reinforcement/missedCheckIn included) over 120s",
+  fn: function () {
+    function scriptedInput(tick) {
+      return {
+        moveX: Math.sin(tick * 0.031),
+        moveY: Math.cos(tick * 0.047),
+        run: tick % 9 === 0,
+        stance: tick % 150 < 50 ? "crouch" : tick % 150 < 100 ? "crawl" : "stand",
+      };
+    }
+
+    function buildEngine() {
+      return Game.createEngine({ zoneData: Game.ZONES.commsTower, seed: 9999 });
+    }
+
+    var engineA = buildEngine();
+    var engineB = buildEngine();
+    // Park both players far off-map, identically (see test 6's own note):
+    // this test is about the EVENT STREAM matching bit-for-bit, not combat
+    // outcomes -- a guard killing the player mid-run would freeze that
+    // engine's tick() into a no-op (see file header, tick() step 0), which
+    // would trivially (and vacuously) keep both streams "identical" by
+    // starving both of any further events instead of actually exercising
+    // 120s of reinforcement/check-in activity.
+    engineA.player.x = -1000;
+    engineA.player.y = -1000;
+    engineB.player.x = -1000;
+    engineB.player.y = -1000;
+    var eventsA = [];
+    var eventsB = [];
+
+    var TOTAL_TICKS = Math.round(120 / DT);
+    // ALERT starts late (45s in) so the tranq'd guard's own 40s check-in
+    // boundary (it falls asleep at ~2s, index 0 -> boundaries at 0/40/80s)
+    // lands FIRST, while every other guard is still ordinary PATROL and
+    // available to be dispatched -- once ALERT is pinned, every OTHER guard
+    // radio-syncs into ALERT too (a real rule, not a test artifact), leaving
+    // nobody free to search, which would starve this run of the very
+    // missedCheckIn event the sanity check below wants to see exercised.
+    var ALERT_AT = Math.round(45 / DT);
+    var TRANQ_AT = Math.round(2 / DT);
+
+    for (var tick = 0; tick < TOTAL_TICKS; tick++) {
+      if (tick === TRANQ_AT) {
+        engineA.guards[0].tranq(true);
+        engineB.guards[0].tranq(true);
+      }
+      if (tick >= ALERT_AT) {
+        if (engineA.squad.phase !== "ALERT") {
+          engineA.squad.phase = "ALERT";
+          engineA.squad.lastKnown = { x: 20, y: 20 };
+        }
+        if (engineB.squad.phase !== "ALERT") {
+          engineB.squad.phase = "ALERT";
+          engineB.squad.lastKnown = { x: 20, y: 20 };
+        }
+      }
+      var input = scriptedInput(tick);
+      engineA.tick(input);
+      engineB.tick(input);
+      Array.prototype.push.apply(eventsA, engineA.events);
+      Array.prototype.push.apply(eventsB, engineB.events);
+    }
+
+    var strA = JSON.stringify(eventsA);
+    var strB = JSON.stringify(eventsB);
+    assert(strA === strB, "expected identical event streams for identical seeds+input; diverged");
+
+    // Sanity: make sure this run actually exercised both escalation event
+    // types, else the equality check above would be vacuously true.
+    var hadReinforcement = eventsA.some(function (e) {
+      return e.type === "reinforcement";
+    });
+    var hadMissedCheckIn = eventsA.some(function (e) {
+      return e.type === "missedCheckIn";
+    });
+    assert(hadReinforcement, "sanity: expected at least one reinforcement event in this determinism run");
+    assert(hadMissedCheckIn, "sanity: expected at least one missedCheckIn event in this determinism run");
   },
 });
 

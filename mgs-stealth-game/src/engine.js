@@ -178,6 +178,26 @@
 //                     src/director.js's own laser contract); this is the
 //                     SAME tick director.tickLasers already called
 //                     squad.broadcastAlert.
+//                   { type: "reinforcement", guardId } — director.tickEscalation
+//                     spawned a fresh ALERT-reinforcement guard at
+//                     zone.guardDoor this tick (see src/director.js's own
+//                     ESCALATION contract for the 6s/10s/max-3 timing and the
+//                     zone-visit-scoped cap). guardId is the new guard's own
+//                     id ("reinf-<n>"); the guard itself is already present
+//                     in engine.guards by the time this event is read.
+//                   { type: "missedCheckIn", guardId, searcherId } —
+//                     director.tickEscalation found `guardId` SLEEPING at its
+//                     own scheduled 40s radio check-in this tick and
+//                     dispatched `searcherId` (an awake PATROL guard) to
+//                     investigate the missing guard's CURRENT position (see
+//                     src/director.js's own ESCALATION contract for why
+//                     "current position, not last patrol post" is the
+//                     deliberate choice, and for the "one active search per
+//                     missed guard, repeats every 40s while still missing"
+//                     rule). Does NOT by itself mean an alert is coming —
+//                     the searcher's own ordinary INVESTIGATE/COLLEAGUE
+//                     DISCOVERY machinery (src/guardAI.js) decides that, same
+//                     as any other body-spot.
 //                 More event types will be appended by later modules — treat
 //                 `type` as an open set and always branch on it, never
 //                 assume this is the full list.
@@ -1220,8 +1240,12 @@
     // security cameras (zone.cameras, empty-safe: a zone with no cameras just
     // gets a director with an empty roster, no special-casing needed here).
     // Built fresh for every zone, same "rebuild on transition" rule as
-    // world/vision/squad/guards (see switchZone below).
-    var director = Game.createDirector({ world: world, vision: vision, squad: squad });
+    // world/vision/squad/guards (see switchZone below). `rng` (NEW — see
+    // src/director.js's own ESCALATION contract) is the SAME shared rng
+    // instance every guard gets — a spawned reinforcement guard needs one for
+    // its own ALERT fire-accuracy roll, same "single source of randomness"
+    // rule as everywhere else in this file.
+    var director = Game.createDirector({ world: world, vision: vision, squad: squad, rng: rng });
 
     var engine = {
       world: world,
@@ -1459,8 +1483,11 @@
       // target zone's own camera roster, same "discard the departed zone's
       // instance, never carry it across" rule as world/vision/squad/guards
       // above (a departed zone's cameras belong to a world that no longer
-      // exists).
-      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad });
+      // exists). This ALSO discards the departed zone's own reinforcement
+      // count/spawn-timer bookkeeping (see director.js's own ESCALATION
+      // contract) — exactly what makes a zone-visit-scoped +3 cap "reset on
+      // zone change" true with no special-case reset code needed here.
+      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad, rng: rng });
 
       var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
       var newPlayer = Game.createPlayer({ world: newWorld });
@@ -1982,6 +2009,24 @@
       });
       for (var lti = 0; lti < laserTrips.length; lti++) {
         engine.events.push(laserTrips[lti]);
+      }
+
+      // ESCALATION (see src/director.js's own ESCALATION contract) —
+      // reinforcements + radio check-ins, runs every tick regardless of
+      // squad.phase (check-ins) or gated on squad.phase === "ALERT"
+      // (reinforcements) — director itself decides which. ctx.guards is
+      // THE LIVE `guards` ARRAY (not a copy): a spawned reinforcement guard
+      // is pushed directly onto it by director.tickEscalation, so
+      // engine.guards (same reference, reassigned only by switchZone) picks
+      // it up with no further action needed here — see director.js's own
+      // ctx.guards note for why this is deliberately not a return-and-push
+      // shape like cameraAlerts/laserTrips above.
+      var escalationEvents = director.tickEscalation(DT, {
+        time: engine.time,
+        guards: guards,
+      });
+      for (var esi = 0; esi < escalationEvents.length; esi++) {
+        engine.events.push(escalationEvents[esi]);
       }
 
       // GAME OVER CHECK (see file header, tick() step 4) — generic on

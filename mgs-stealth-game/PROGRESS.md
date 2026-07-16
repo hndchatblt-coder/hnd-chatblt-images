@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.30 (cycle 30 — audit polish batch; release snapshot)
+**Version:** v0.31 (cycle 31 — reinforcements + radio check-ins)
 
 ## Module status
 
@@ -14,7 +14,7 @@
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
 | soundEvents    | v1          | emit radii, analytic wall attenuation, knock verb |
 | items          | v3          | full SPEC set: tranq, CQC, drag, lockers, box, ration, chaff |
-| director       | v1          | cameras (sweep/chaff/alerts); reinforcements+check-ins pending |
+| director       | v2          | cameras + lasers + reinforcements + radio check-ins |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
 | saveState      | v1          | full capture/restore, resume-determinism gated, F5/F9 |
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
@@ -25,6 +25,10 @@
 
 ## Known issues
 
+- **CRASH PATH (fix cycle 32):** check-in searchers dispatched to unreachable
+  body positions (no pathfinding) wedge until MAX_STATE_S throws. Real
+  warehouse w1/w2 can hit it. Graceful give-up needed.
+
 - engine.events clears every tick — consumers must drain post-tick same-tick.
 - No render damage feedback (hit flash) yet — hp only visible in LIFE bar.
 - Closed doors are acoustically transparent (soundEvents can't see door
@@ -34,6 +38,9 @@
 
 ## Changelog (last 5)
 
+- cycle 31: reinforcements (6s/10s, max +3/zone visit, guardDoor spawns) +
+  40s radio check-ins (missed → searcher dispatched; lockers protect); SPEC
+  hedges removed (206/206, 22/22). Crash path found → cycle 32.
 - cycle 30: polish — engine contract synced, chaff HUD count, SPEC hedges,
   LOGIC_ORDER unified; v0.30 released, PLAYME regenerated (197/197, 20/20)
 - cycle 29: bugfix — ration pickups collectible (+regression) (195/195, 20/20)

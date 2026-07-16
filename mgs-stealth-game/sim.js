@@ -2207,6 +2207,226 @@ scenarios.push({
   },
 });
 
+// ---- ESCALATION playtest scenarios (cycle: ALERT reinforcements + radio
+// check-ins) --------------------------------------------------------------
+// "The clock is ticking": leaving a tranq'd body out in the open is a timed
+// countdown, not a free pass -- within the missing guard's own 40s radio
+// check-in, a buddy gets dispatched to its CURRENT position (see
+// src/director.js's own ESCALATION contract) and, finding it lying in plain
+// sight, raises the alarm exactly like stumbling on it during an ordinary
+// patrol would. The contrast scenario below re-runs the identical seed with
+// one difference -- the body stuffed in a locker first -- and the same
+// dispatch still happens (check-ins don't care about .hidden, only
+// .state === SLEEPING) but never escalates to an alert, matching the
+// HIDDEN-BODY EXEMPTION documented in src/guardAI.js.
+//
+// Both scenarios use CUSTOM guard positions rather than the Warehouse's
+// canonical w1 (outer perimeter)/w2 (center-aisle) pair: those two are
+// deliberately separated by the row-1/row-2/row-3 shelving (see
+// src/world.js's own warehouse wall layout and the "clean up after
+// yourself" scenario's own note above) so that a body dropped in the
+// center aisle is naturally out of the perimeter guard's own patrol sight --
+// exactly the kind of level geometry a real dispatched searcher's simple
+// direct-line travel (guardAI.js has no real pathfinding) can get
+// permanently wedged against. Both guards here sit on the open north
+// perimeter strip (y:0-4, clear of every shelving row, which all start at
+// y:4 -- see the warehouse wall list) so the buddy's investigate walk is a
+// straight, unobstructed line the whole way, the same way any zone's own
+// authored guardDoor reinforcement loop is verified open before use.
+scenarios.push({
+  name: "the clock is ticking: tranq without cleanup gets found",
+  seed: 20260716040,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: warehouse,
+      guardConfigs: [
+        { id: "w1", spawn: { x: 10, y: 2 }, waypoints: [{ x: 10, y: 2 }] },
+        { id: "w2", spawn: { x: 25, y: 2 }, waypoints: [{ x: 25, y: 2 }] },
+      ],
+    });
+    const w1 = engine.guards[0];
+    const w2 = engine.guards[1];
+
+    // ---- Dart w2 clean, in the open -------------------------------------
+    // Same "teleport 3m ahead of facing, then face back" technique as the
+    // "clean up after yourself" scenario, reused verbatim.
+    const ahead = 3;
+    engine.player.x = w2.x + Math.cos(w2.facing) * ahead;
+    engine.player.y = w2.y + Math.sin(w2.facing) * ahead;
+    engine.player.facing = w2.facing + Math.PI;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", fire: true });
+    const tranqEvents = engine.events.filter((e) => e.type === "tranqFired");
+    if (tranqEvents.length !== 1 || !tranqEvents[0].hit || !tranqEvents[0].headshot || tranqEvents[0].guardId !== "w2") {
+      throw new Error("setup failed: expected a clean unaware headshot on w2, got " + JSON.stringify(tranqEvents));
+    }
+    if (w2.state !== "SLEEPING") {
+      throw new Error("expected w2 SLEEPING immediately after the headshot, got " + w2.state);
+    }
+
+    // ---- Retreat to a far, dark corner and just... wait ------------------
+    // No cleanup at all -- the body stays exactly where it fell. The
+    // player parks in the Warehouse's own SE dark zone (x:31-37, y:20-26),
+    // far from both guards, and never moves again: this scenario isolates
+    // whether the ENVIRONMENT alone (a sleeping body nobody dragged away)
+    // is enough to eventually raise the alarm with no further player input.
+    engine.player.x = 34;
+    engine.player.y = 23;
+
+    let sawMissedCheckIn = false;
+    let sawInvestigate = false;
+    let alertAt = null;
+    let sawEvasion = false;
+    let sawCaution = false;
+    let sawInfiltrationAgain = false;
+
+    const WINDOW_S = 150; // 40s worst-case check-in wait + travel/search + EVASION_S(30) + CAUTION_S(45) + buffer
+    for (let t = 0; t < Math.round(WINDOW_S / DT); t++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      engine.player.x = 34;
+      engine.player.y = 23;
+
+      for (const ev of engine.events) {
+        if (ev.type === "missedCheckIn" && ev.guardId === "w2") sawMissedCheckIn = true;
+        if (ev.type === "alert" && alertAt === null) alertAt = engine.time;
+      }
+      if (w1.state === "INVESTIGATE") sawInvestigate = true;
+      if (engine.squad.phase === "EVASION") sawEvasion = true;
+      if (engine.squad.phase === "CAUTION") sawCaution = true;
+      if (sawCaution && engine.squad.phase === "INFILTRATION") sawInfiltrationAgain = true;
+
+      if (!engine.player.alive) {
+        throw new Error("player died at t=" + engine.time.toFixed(2) + " despite being parked far from both guards the whole run");
+      }
+    }
+
+    if (!sawMissedCheckIn) {
+      throw new Error("expected a missedCheckIn event for w2 within " + WINDOW_S + "s of falling asleep in the open");
+    }
+    if (!sawInvestigate) {
+      throw new Error("expected w1 to be dispatched into INVESTIGATE toward w2's body");
+    }
+    if (alertAt === null) {
+      throw new Error("expected w1 to eventually find w2's body (lying in the open) and raise an alert");
+    }
+    if (!sawEvasion || !sawCaution || !sawInfiltrationAgain) {
+      throw new Error(
+        "expected the full ladder ALERT -> EVASION -> CAUTION -> INFILTRATION to play out after the body was found, got " +
+          JSON.stringify({ sawEvasion, sawCaution, sawInfiltrationAgain })
+      );
+    }
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("expected the squad to have decayed all the way back to INFILTRATION by the end of the window, got " + engine.squad.phase);
+    }
+    if (!engine.player.alive) {
+      throw new Error("expected the player to survive the whole encounter parked in the dark corner");
+    }
+  },
+});
+
+// Contrast, same seed: the ONE difference is stuffing w2's body into a
+// locker before anything else happens -- the check-in dispatch still fires
+// (check-ins ignore .hidden entirely, only .state matters -- see
+// src/director.js's own ESCALATION contract), w1 still gets sent to
+// investigate, but the HIDDEN-BODY EXEMPTION (src/guardAI.js) means it can
+// never actually spot the body, so no alert ever fires across the same
+// window.
+scenarios.push({
+  name: "the clock is ticking, contrasted: same seed, body stuffed in a locker never gets found",
+  seed: 20260716040,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const locker = warehouse.lockers[0]; // {x:2,y:6,facing:0} -- clear open-floor approach from (10,2)
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: warehouse,
+      guardConfigs: [
+        { id: "w1", spawn: { x: 10, y: 2 }, waypoints: [{ x: 10, y: 2 }] },
+        { id: "w2", spawn: { x: 25, y: 2 }, waypoints: [{ x: 25, y: 2 }] },
+      ],
+    });
+    const w1 = engine.guards[0];
+    const w2 = engine.guards[1];
+
+    const ahead = 3;
+    engine.player.x = w2.x + Math.cos(w2.facing) * ahead;
+    engine.player.y = w2.y + Math.sin(w2.facing) * ahead;
+    engine.player.facing = w2.facing + Math.PI;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", fire: true });
+    const tranqEvents = engine.events.filter((e) => e.type === "tranqFired");
+    if (tranqEvents.length !== 1 || !tranqEvents[0].hit || !tranqEvents[0].headshot || tranqEvents[0].guardId !== "w2") {
+      throw new Error("setup failed: expected a clean unaware headshot on w2, got " + JSON.stringify(tranqEvents));
+    }
+
+    // Straight to the locker (guard.stuffInLocker is guardAI.js's own public
+    // API -- the real drag-then-stuff player verb sequence is already
+    // covered end to end by "clean up after yourself" above; this scenario
+    // is isolating the escalation/check-in contrast, not re-proving drag).
+    w2.stuffInLocker(locker);
+    if (!w2.hidden || w2.x !== locker.x || w2.y !== locker.y) {
+      throw new Error("setup failed: expected w2 hidden at the locker (" + locker.x + "," + locker.y + "), got hidden=" + w2.hidden);
+    }
+
+    engine.player.x = 34;
+    engine.player.y = 23;
+
+    let sawMissedCheckIn = false;
+    let sawInvestigate = false;
+    let sawAlert = false;
+    let returnedToPatrolAfterInvestigate = false;
+
+    const WINDOW_S = 150; // same budget as the contrasted scenario above
+    for (let t = 0; t < Math.round(WINDOW_S / DT); t++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      engine.player.x = 34;
+      engine.player.y = 23;
+
+      for (const ev of engine.events) {
+        if (ev.type === "missedCheckIn" && ev.guardId === "w2") sawMissedCheckIn = true;
+        if (ev.type === "alert") sawAlert = true;
+      }
+      if (w1.state === "INVESTIGATE") sawInvestigate = true;
+      if (sawInvestigate && w1.state === "PATROL") returnedToPatrolAfterInvestigate = true;
+
+      if (engine.squad.phase !== "INFILTRATION" || engine.squad.alertCount !== 0) {
+        throw new Error(
+          "expected zero alerts for the WHOLE window with the body safely stuffed away, got phase=" +
+            engine.squad.phase +
+            " alertCount=" +
+            engine.squad.alertCount +
+            " at t=" +
+            engine.time.toFixed(2)
+        );
+      }
+    }
+
+    if (!sawMissedCheckIn) {
+      throw new Error("expected a missedCheckIn event for w2 even though the body is hidden -- check-ins ignore .hidden");
+    }
+    if (!sawInvestigate) {
+      throw new Error("expected w1 to still be dispatched into INVESTIGATE toward the locker");
+    }
+    if (!returnedToPatrolAfterInvestigate) {
+      throw new Error("expected w1 to give up searching the empty-looking spot and return to PATROL");
+    }
+    if (sawAlert) {
+      throw new Error("expected NO alert for the whole window -- a locker-hidden body is exempt from colleague discovery");
+    }
+    if (engine.squad.phase !== "INFILTRATION" || engine.squad.alertCount !== 0) {
+      throw new Error("expected INFILTRATION with zero alerts at the end, got phase=" + engine.squad.phase + " alertCount=" + engine.squad.alertCount);
+    }
+    // NOT asserted: w2.hidden at the end -- GUARD.SLEEP_S (60s) is well
+    // inside this 150s window, so w2 wakes and steps back out of the locker
+    // (a real, separate mechanic -- see guardAI.js's own SLEEPING contract)
+    // partway through. That's expected, not a cleanup failure; the whole
+    // point of this scenario is that it never mattered because nobody ever
+    // found the body while it WAS hidden.
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

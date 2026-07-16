@@ -1,5 +1,31 @@
 # TESTLOG.md
 
+## Cycle 31 (reinforcements + radio check-ins; SPEC hedges removed)
+
+206/206; 22/22; 5/5 shots. Reinforcements: 6s/10s cadence, max +3 per zone
+visit (persists through decay, resets on zone change), spawn at guardDoor,
+join squad in ALERT. Check-ins: 40s staggered; missing (sleeping) guards get
+a searcher dispatched to their position; locker-stuffed bodies searched but
+never found. Both sim scenarios (found vs stuffed, same seed) pass. Cycle
+survived one API-error interruption + one user stop — partial work stashed,
+restored, completed by a fresh agent with zero rework of the correct parts.
+
+**CRITICAL FOLLOW-UP (top of backlog):** dispatched searchers use direct-
+line movement (no pathfinding). A body position unreachable that way (e.g.
+behind warehouse shelving) wedges the searcher until the MAX_STATE_S
+invariant THROWS — in real gameplay that's a crash path, newly reachable
+because check-ins dispatch guards to arbitrary positions. Tests dodge it by
+using open-floor placements (documented in escalation.test.js); the REAL
+warehouse w1/w2 pair can hit it. Fix cycle 32: graceful give-up (wedge
+detection → abandon search → return to patrol) + regression test with a
+deliberately unreachable body. The invariant throw stays (it caught exactly
+what it should) — the FSM must simply never deserve it.
+
+**Delights:** (1) tranq-and-walk-away is no longer free — the 40s clock is
+the Consequence pillar's best beat yet. (2) the locker contrast scenario is
+the whole risk/reward loop in two asserts. (3) the interruption recovery
+proved the ratchet: nothing was lost, nothing shipped red.
+
 ## Cycle 30 (polish: audit A3/A4/A11/A12 + v0.30 release)
 
 197/197; 20/20; 5/5 shots. Engine contract block synced to reality; chaff

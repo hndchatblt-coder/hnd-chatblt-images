@@ -20,10 +20,10 @@ stuff bodies in lockers, hide in lockers, ration heal, chaff grenade (cameras de
 - INVESTIGATE (strong sound / footprints / open door): walk to stimulus,
   expanding-arc search 8s.
 - ALERT (confirmed sight ≥0.8s / body found / gunshot): "!", sting, radio call,
-  zone guards converge, reinforcements spawn at zone door (max +3) *(director module — pending)*, radar jams.
+  zone guards converge, reinforcements spawn at zone door (max +3), radar jams.
 - EVASION (sight lost): converge on last-known-position, coordinated 30s sweep.
 - CAUTION: 45s heightened — wider cones, tighter routes, pairs — then decay.
-- Guards also notice: sleeping/dead colleagues, missed 40s radio check-ins *(director module — pending)* from
+- Guards also notice: sleeping/dead colleagues, missed 40s radio check-ins from
   patrol buddies, doors left open, spent darts.
 
 **Vision:** 70° cone, 14m, raycast vs walls, staggered per tick. Detection is a fill

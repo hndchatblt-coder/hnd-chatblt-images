@@ -109,6 +109,23 @@
 //                                          // entirely by src/director.js (see its own
 //                                          // contract for the duty-cycle/crossing-test
 //                                          // write-up) via engine.js's LASERS step.
+//       guardDoor: { x, y },              // NEW (reinforcements/check-ins cycle) — SCHEMA
+//                                          // FOR ALL ZONES this cycle ships (one per zone,
+//                                          // never optional/absent for any Game.ZONES.*
+//                                          // entry). The single perimeter spawn point
+//                                          // src/director.js's tickEscalation spawns
+//                                          // ALERT reinforcements at (see its own
+//                                          // ESCALATION contract) — DATA ONLY here, no
+//                                          // collision/behavior of its own, same posture as
+//                                          // lockers/cameras above. Placed at a real
+//                                          // perimeter door/gap in open floor (this cycle:
+//                                          // each zone's own south entrance gap, or
+//                                          // loadingDock's one and only exit gap), verified
+//                                          // open at r=0.6 (world.isBlockedCircle) same as
+//                                          // every waypoint leg — director.js derives a
+//                                          // short reinforcement patrol loop from this single
+//                                          // point at runtime, so no separate waypoints* data
+//                                          // is needed here.
 //     }
 //
 //   DOORS / DYNAMIC BLOCKERS (NEW this cycle — Laboratory zone): a door behaves
@@ -417,6 +434,11 @@
     pickups: [],
     doors: [],
     lasers: [],
+    // guardDoor (see schema note above) — this zone's one and only
+    // perimeter gap (the north exit, x:18-22,y:0-3), 2m in from the
+    // trigger onto open floor, well clear of the NW guard hut (x:9-15,
+    // y:3-8) and every other obstacle.
+    guardDoor: { x: 20, y: 2 },
   };
   loadingDock.exit = loadingDock.exits[0]; // back-compat alias, see schema note above
 
@@ -549,6 +571,10 @@
     pickups: [{ x: 4, y: 7, item: "keycardL1" }],
     doors: [],
     lasers: [],
+    // guardDoor (see schema note above) — the south perimeter gap (x:18-22,
+    // y:26-29, back to the Loading Dock), 2m in from the trigger onto open
+    // floor, clear of both crate clusters and every shelving row.
+    guardDoor: { x: 20, y: 27 },
   };
   warehouse.exit = warehouse.exits[0]; // back-compat alias, see schema note above
 
@@ -682,6 +708,10 @@
       { x1: 2, y1: 10, x2: 18, y2: 10, periodS: 4, dutyOn: 0.6 }, // west wing
       { x1: 26, y1: 10, x2: 38, y2: 10, periodS: 4, dutyOn: 0.6 }, // east wing
     ],
+    // guardDoor (see schema note above) — the south entrance gap (x:18-22,
+    // y:29, back to the Warehouse), 2m in from the trigger onto the lobby's
+    // open floor, clear of both lockers and the SW dark zone.
+    guardDoor: { x: 20, y: 27 },
   };
   laboratory.exit = laboratory.exits[0]; // back-compat alias, see schema note above
 
@@ -868,6 +898,11 @@
       { x: 4, y: 20, item: "ration" },
       { x: 36, y: 20, item: "chaff" },
     ],
+    // guardDoor (see schema note above) — the south entrance gap (x:18-22,
+    // y:29, back to the Laboratory), 2m in from the trigger onto open
+    // floor, clear of both south-approach sandbag flanks (x:15-17/23-25,
+    // y:24-26).
+    guardDoor: { x: 20, y: 27 },
   };
   commsTower.exit = commsTower.exits[0]; // back-compat alias, see schema note above
 
