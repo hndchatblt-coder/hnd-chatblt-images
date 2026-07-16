@@ -4616,15 +4616,26 @@
 //                                 // completes; miss `missionComplete` and a save captured after
 //                                 // a (theoretical) extraction would restore into a live,
 //                                 // ticking engine instead of the frozen one it was saved as.
-//                                 // SAVE_VERSION was bumped 1 -> 2 for exactly this shape
-//                                 // change (see restore()'s VERSION GATE below) — an old-format
-//                                 // save simply lacks these two fields, which src/engine.js's
-//                                 // own setState() tolerates defensively (falls back to the
-//                                 // freshly-built engine's own zeroed stats/false
-//                                 // missionComplete rather than clobbering them with
-//                                 // `undefined`), but the version gate means that fallback
-//                                 // should never actually be reachable via a real restore()
-//                                 // call in practice.
+//                                 // ALSO NEW this cycle (zone persistence, see src/engine.js's
+//                                 // own ZONE PERSISTENCE / STASH contract) — `zoneStash` (the
+//                                 // FULL { [zoneId]: stashEntry } map every departed-and-not-
+//                                 // yet-revisited zone's guards/squad/director/door state lives
+//                                 // in) and `zoneReinforcementUsed` (the CURRENT zone's cross-
+//                                 // visit reinforcement spend). Both mission-scoped like `stats`
+//                                 // above; miss `zoneStash` and a save/restore round-trip
+//                                 // forgets every zone ever departed before the save — e.g.
+//                                 // tranq a guard, leave, save, restore, return: the guard would
+//                                 // come back fresh at spawn instead of still sleeping (see
+//                                 // tests/zonePersistence.test.js's own save/restore test).
+//                                 // SAVE_VERSION was bumped 1 -> 2 -> 3 for exactly these two
+//                                 // shape changes (see restore()'s VERSION GATE below) — an
+//                                 // old-format save simply lacks these fields, which
+//                                 // src/engine.js's own setState() tolerates defensively (falls
+//                                 // back to the freshly-built engine's own zeroed stats/false
+//                                 // missionComplete/empty zoneStash/0 zoneReinforcementUsed
+//                                 // rather than clobbering them with `undefined`), but the
+//                                 // version gate means that fallback should never actually be
+//                                 // reachable via a real restore() call in practice.
 //     }
 //   CODEC IS DELIBERATELY EXCLUDED — v1 (documented, not a gap): codecDirector's
 //   one-shot trigger memory (src/codec.js) is UI/narrative bookkeeping ("has
@@ -4646,10 +4657,12 @@
 //        cycle that changes what any getState()/setState() captures MUST
 //        bump SAVE_VERSION) must never be silently half-applied into a
 //        corrupt engine; see tests/saveState.test.js's version-mismatch test.
-//        SAVE_VERSION is 2 as of this cycle (win-state) — bumped from 1
-//        because engine.getState() grew two new fields (`stats`,
-//        `missionComplete`, see the `engine` field note above); a save
-//        captured by an older build simply won't have them.
+//        SAVE_VERSION is 3 as of this cycle (zone persistence) — bumped from
+//        2 because engine.getState() grew two more new fields (`zoneStash`,
+//        `zoneReinforcementUsed`, see the `engine` field note above), on top
+//        of the win-state cycle's earlier bump (1 -> 2, `stats`/
+//        `missionComplete`); a save captured by an older build simply won't
+//        have any of these.
 //     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
 //        if that zone no longer exists (defensive; every zone this cycle
 //        ships is a fixed module-level Game.ZONES entry, so this should never
@@ -4710,7 +4723,11 @@
   // field, and src/engine.js's MISSION STATS / EXTRACTION / RANK contract) —
   // a genuine shape change to what capture()/restore() round-trip, so per
   // this module's own VERSION GATE rule the version bumps.
-  var SAVE_VERSION = 2;
+  // SAVE_VERSION 2 -> 3 (zone persistence cycle): engine.getState() grew
+  // `zoneStash` and `zoneReinforcementUsed` (see this file's own header note
+  // on the `engine` field, and src/engine.js's ZONE PERSISTENCE / STASH
+  // contract) — another genuine shape change, same rule.
+  var SAVE_VERSION = 3;
 
   function capture(engine) {
     var player = engine.player;
@@ -5705,10 +5722,15 @@
 //            - else if Game.ZONES[exits[i].to] exists: switch zones. A fresh
 //              world/soundEvents/vision/squad/guards stack is built for the
 //              target zone (guards from ZONE_GUARDS[target.id], same table
-//              opts.guardConfigs defaults from — see file header above; the
-//              DEPARTED zone's guards/squad are discarded, not persisted —
-//              v1 semantics, see design note below). The player object itself
-//              is also rebuilt (Game.createPlayer only takes its world at
+//              opts.guardConfigs defaults from — see file header above, UNLESS
+//              a stash exists for the target zone id, in which case guards/
+//              squad/director/doors are instead RESTORED from it — see the
+//              ZONE PERSISTENCE / STASH section below; this REPLACES the old
+//              v1 "departed zone's guards/squad are discarded" semantics).
+//              The DEPARTING zone's own full state is itself stashed first
+//              (also documented below) so a LATER re-entry can restore it.
+//              The player object itself is also rebuilt (Game.createPlayer
+//              only takes its world at
 //              construction, see src/player.js contract — there is no hook to
 //              swap a live player's world), but its stance, facing, hp, and
 //              alive are copied onto the new instance (hp/alive copied so a
@@ -5740,6 +5762,146 @@
 //          when ALERT interrupts, then the squad stands down while they're
 //          still standing there, no second zoneBlocked fires (it reads as one
 //          continuous, uninterrupted "entry").
+//
+//   ZONE PERSISTENCE / STASH (NEW — per-zone state persistence cycle,
+//   REPLACES v1's "departed zone forgets everything" semantics): every zone
+//   this engine has ever DEPARTED gets its full live state captured into a
+//   private zoneStash map ({ [zoneId]: stashEntry }, mission-scoped, never
+//   cleared) the instant switchZone() runs, BEFORE the departing zone's own
+//   world/guards/squad/director are replaced — see stashZone()'s own doc
+//   comment (just above switchZone in the source) for the exact shape. On a
+//   LATER re-entry to that same zone id, switchZone() checks the stash: a hit
+//   rebuilds guards (base AND any reinforcements — rebuildGuardsFromStash()),
+//   a squad, and a director from the stashed data (each restored via that
+//   module's own published getState()/setState() pair — the SAME mechanism
+//   src/saveState.js already uses for a save/restore round-trip, just
+//   triggered by a zone crossing instead of a save file) instead of building
+//   fresh ones from ZONE_GUARDS; a miss (a zone never departed before) falls
+//   back to the original v1-shaped construction, unchanged.
+//
+//   DECISIONS (worth reading before touching any of this):
+//
+//   - FROZEN TIME OFF-SCREEN: a departed zone's guards/squad/director do not
+//     simulate at all while the player is elsewhere — nothing ticks them,
+//     nothing ages them. A guard tranq'd with 50s of GUARD.SLEEP_S left when
+//     the player walks away still has ~50s left the moment the player walks
+//     back, no matter how long (in real mission time) the player spent in
+//     other zones — sleepTime is just a frozen number inside the stashed
+//     guard.getState() blob until rebuildGuardsFromStash()/guard.setState()
+//     thaws it back onto a live guard. Same freeze applies to a partially-
+//     decayed CAUTION widened-cone state, an in-flight INVESTIGATE search
+//     arc, a door's auto-close countdown (see doors below), etc. — literally
+//     every closure var guard.getState()/squad.getState()/director.getState()
+//     capture. This is a deliberate simplification (a real facility's guards
+//     wouldn't literally freeze) traded for a MUCH simpler, fully
+//     deterministic model with no "simulate N absent zones in the
+//     background" engine — see DETERMINISM below for why that tradeoff
+//     matters here specifically.
+//
+//   - INFILTRATION-ONLY EXIT GATE STILL HOLDS, UNCHANGED (tryZoneTransition's
+//     own `if (squad.phase !== "INFILTRATION") return;` above is untouched by
+//     this cycle) — which means every stash is captured at a moment
+//     squad.phase reads exactly "INFILTRATION" (phaseTime/alertCount can
+//     still be any accumulated value, and ARE captured — see DETERMINISM
+//     below — but phase itself is always this one value). guard.state,
+//     however, is NOT similarly constrained: guardAI.js's own RADIO CALL /
+//     SQUAD-PHASE SYNC step forces every non-SLEEPING guard's state to track
+//     squad.phase (ALERT/EVASION/CAUTION -> matching state; back to
+//     INFILTRATION -> forced to PATROL) the SAME tick squad.phase changes —
+//     so by the time squad.phase reads INFILTRATION (a precondition for
+//     ANY switchZone call), every awake guard has ALREADY been synced back
+//     to PATROL that same tick. A SLEEPING guard is the one exception (its
+//     own short-circuit skips the sync step entirely — see guardAI.js's
+//     SLEEPING contract), so a stash can and does hold a mix of PATROL and
+//     SLEEPING guards, but never a lingering CAUTION/ALERT/EVASION one. A
+//     guard can still be SUSPICIOUS/INVESTIGATE at stash time, though (those
+//     are a guard's own independent reaction to a faint/strong stimulus,
+//     not gated on squad.phase at all) — restored exactly as-is, same as
+//     every other state, via the same generic guard.setState() call.
+//
+//   - REINFORCEMENT COUNTER IS ZONE-LIFETIME, NOT PER-VISIT: reinforcement
+//     guards are REAL Game.createGuard instances (see src/director.js's own
+//     ESCALATION contract) that now persist in the stash exactly like any
+//     other guard — a zone re-entered with 2 of its +3 reinforcements already
+//     spawned comes back with those SAME 2 guards present, not a clean
+//     roster. Old semantics ("reinforcementCount is zone-VISIT-scoped,
+//     director itself IS the visit, a fresh director naturally resets it")
+//     stop being the right mental model once a visit can end and resume:
+//     RECONSIDERED here as ZONE-LIFETIME instead — a zone that spent its +3
+//     across one ALERT stays spent for the rest of the mission, even across
+//     any number of departures/re-entries. Enforced by engine.js itself via
+//     the private zoneReinforcementUsed var (seeded from the stash on every
+//     switchZone, written back into the stash on the next departure) — see
+//     that var's own declaration comment and the ESCALATION event-processing
+//     step (tick(), just after director.tickEscalation()) for the actual
+//     cap check. director.js's OWN reinforcementCount is deliberately left
+//     alone (out of scope for this cycle, and it doesn't need to change): it
+//     remains a fresh per-VISIT ceiling of 3, which is always >= the TRUE
+//     remaining cross-visit budget, so it never blocks a spawn engine's own
+//     stricter check would still allow — engine.js is simply the one place
+//     that also enforces the tighter, correct number, silently discarding
+//     (splicing back out of the live guards array, suppressing the event)
+//     any spawn director allowed that the true budget had already used up.
+//
+//   - PICKUPS DO NOT RESPAWN, VERIFIED NOT CHANGED: collectedPickups was
+//     ALREADY mission-scoped (keyed by "<zoneId>#<index>", never reset by
+//     switchZone) before this cycle — investigated per this cycle's own task
+//     brief, confirmed correct under BOTH the old discard-on-exit semantics
+//     and this cycle's persistence, so it is untouched. See
+//     tests/zonePersistence.test.js's own pickup test for the verification.
+//
+//   - CHECK-IN SCHEDULING NEEDS NO STASHING (a documented non-gap): the radio
+//     check-in boundary a guard lands on is a PURE function of (global,
+//     never-reset engine.time, dt, that guard's roster index) — see
+//     src/director.js's own PURE-FUNCTION CHECK-IN SCHEDULE note — with no
+//     stored "next check-in at" to seed or lose, so it keeps computing
+//     correctly across any number of zone departures/re-entries with zero
+//     help from this stash. The one piece of check-in bookkeeping that ISN'T
+//     pure — missingSearchers, "who's already been dispatched to search whom"
+//     — is NOT captured (director.js doesn't expose it, and director.js is
+//     out of scope for this cycle's task packet; see director.js's own
+//     SAVE/RESTORE — HONEST GAP note for the identical precedent this
+//     mirrors). Losing it is benign: at worst a re-entered zone's very next
+//     missed check-in redispatches a searcher that (per the OLD, forgotten
+//     bookkeeping) might already have one in flight — never a crash, never a
+//     spurious alert, just possibly one redundant dispatch.
+//
+//   - RNG STAYS SHARED, RE-ENTRY DOES NOT REWIND IT: unchanged from before
+//     this cycle — the single seeded Game.createRng stream keeps advancing
+//     across every zone transition, departure or re-entry alike (see
+//     switchZone's own "rng is NOT rebuilt" note). A re-entered zone's guards
+//     therefore do NOT replay the same rng draws they got on a previous
+//     visit — they continue drawing from wherever the shared cursor now sits,
+//     which has moved forward by however many draws happened in every OTHER
+//     zone visited in between. This means a run that crosses zones repeatedly
+//     diverges from what a naive "v1 discard, always-fresh guards" baseline
+//     would have produced at the same tickCount — that divergence is
+//     EXPECTED and correct, not a determinism bug: determinism (below) only
+//     ever promises same-seed + same-input-log -> identical output, never
+//     "matches what an older engine version would have done."
+//
+//   - DETERMINISM (the hard gate): same seed + an identical scripted input
+//     log (including one that crosses zones back and forth any number of
+//     times) must produce byte-identical engine.snapshot() output at every
+//     corresponding tick, for any two engine instances. This holds because
+//     every piece of the stash is itself either a plain deterministic value
+//     (zoneReinforcementUsed, a door's open flag/elapsed-near duration) or
+//     produced by a module's own getState(), and rebuildGuardsFromStash's
+//     reinforcement-waypoint reconstruction is a PURE function of
+//     (zone.guardDoor, a freshly built world) — see
+//     buildReinforcementWaypointsForZone's own comment for why it
+//     reproduces the exact same points director.js originally used. See
+//     tests/zonePersistence.test.js's own determinism test (two engines,
+//     identical seed + scripted crossing/tranq log, asserting
+//     JSON.stringify(engine.snapshot()) equality at the end).
+//
+//   - SAVE/RESTORE CARRIES THE STASH: the whole zoneStash map (plus
+//     zoneReinforcementUsed) rides along inside engine.getState()/setState()
+//     (see those functions' own doc comments) and therefore inside
+//     src/saveState.js's capture()/restore() for free — SAVE_VERSION was
+//     bumped there for exactly this shape change; see that file's own
+//     comment.
+//
 //       8. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
@@ -5981,6 +6143,108 @@
     });
   }
 
+  // ---- ZONE PERSISTENCE (NEW — per-zone state stash cycle, see file header
+  // ZONE TRANSITIONS / STASH section) ------------------------------------------
+  // ZONE_REINFORCEMENT_CAP mirrors src/director.js's own REINFORCEMENT_MAX
+  // (3) — duplicated, not imported, because director.js is out of scope for
+  // this cycle's task packet (see file header STASH note on the reinforcement
+  // counter). This is the TRUE, zone-LIFETIME cap engine.js itself enforces
+  // across visits (see zoneReinforcementUsed below); director's own internal
+  // counter is a fresh per-VISIT ceiling that is always >= what's actually
+  // left, so it never falsely blocks a spawn this cap would still allow.
+  var ZONE_REINFORCEMENT_CAP = 3;
+
+  // REINFORCEMENT WAYPOINTS — duplicated from src/director.js's own private
+  // buildReinforcementWaypoints/REINFORCEMENT_OFFSETS (see that file's
+  // REINFORCEMENTS section) for exactly the same out-of-scope reason above.
+  // This is a PURE function of (zone.guardDoor, world) using only world.js's
+  // published isBlockedCircle — given the SAME zone + a freshly built world
+  // (switchZone always builds a fresh Game.createWorld(targetZone) before
+  // this ever runs), it reproduces the IDENTICAL offsets director's own
+  // spawnReinforcement used when the guard being restored was first spawned,
+  // so a rebuilt reinforcement guard's waypointIndex (restored verbatim by
+  // guard.setState(), see rebuildGuardsFromStash below) points at the same
+  // physical points, not an incompatible array. Kept in sync deliberately —
+  // a future cycle that changes director.js's own offsets must mirror the
+  // change here (both files' own comments cross-reference this fact).
+  var REINFORCEMENT_OFFSETS = [
+    { dx: 2, dy: 0 },
+    { dx: -2, dy: 0 },
+    { dx: 0, dy: 2 },
+    { dx: 0, dy: -2 },
+    { dx: 2, dy: 2 },
+    { dx: -2, dy: -2 },
+    { dx: 2, dy: -2 },
+    { dx: -2, dy: 2 },
+    { dx: 3, dy: 0 },
+    { dx: -3, dy: 0 },
+    { dx: 0, dy: 3 },
+    { dx: 0, dy: -3 },
+  ];
+
+  function buildReinforcementWaypointsForZone(zone, world) {
+    var door = zone.guardDoor;
+    if (!door) return [{ x: 0, y: 0 }];
+    var pts = [{ x: door.x, y: door.y }];
+    for (var i = 0; i < REINFORCEMENT_OFFSETS.length && pts.length < 3; i++) {
+      var cx = door.x + REINFORCEMENT_OFFSETS[i].dx;
+      var cy = door.y + REINFORCEMENT_OFFSETS[i].dy;
+      if (!world.isBlockedCircle(cx, cy, 0.6)) {
+        pts.push({ x: cx, y: cy });
+      }
+    }
+    return pts;
+  }
+
+  // rebuildGuardsFromStash(stashedGuards, targetZone, newWorld, newVision,
+  // rng, newSquad) -> [guard, ...] — reconstructs the FULL roster a stashed
+  // zone had at departure (base guards AND any reinforcements — see file
+  // header), same order as stashedGuards, then applies each one's own
+  // guard.getState()/setState() round-trip (identical mechanism
+  // src/saveState.js already relies on for a save/restore cycle — this is
+  // just that same per-guard contract, triggered by a zone re-entry instead
+  // of a save file). A stashed id matching this zone's own ZONE_GUARDS table
+  // is a base guard (rebuilt with its authored spawn/waypoints); anything
+  // else is assumed a reinforcement (rebuilt with the SAME deterministic
+  // guardDoor-anchored loop above — see buildReinforcementWaypointsForZone).
+  function rebuildGuardsFromStash(stashedGuards, targetZone, newWorld, newVision, rng, newSquad) {
+    var baseConfigs = guardConfigsForZone(targetZone);
+    var configById = {};
+    for (var i = 0; i < baseConfigs.length; i++) configById[baseConfigs[i].id] = baseConfigs[i];
+
+    var reinfWaypoints = null; // lazily built only if a reinforcement is actually present
+    var door = targetZone.guardDoor || { x: 0, y: 0 };
+
+    return stashedGuards.map(function (sg) {
+      var cfg = configById[sg.id];
+      var newGuard;
+      if (cfg) {
+        newGuard = Game.createGuard({
+          world: newWorld,
+          vision: newVision,
+          rng: rng,
+          squad: newSquad,
+          spawn: cfg.spawn,
+          waypoints: cfg.waypoints,
+          id: cfg.id,
+        });
+      } else {
+        if (!reinfWaypoints) reinfWaypoints = buildReinforcementWaypointsForZone(targetZone, newWorld);
+        newGuard = Game.createGuard({
+          world: newWorld,
+          vision: newVision,
+          rng: rng,
+          squad: newSquad,
+          spawn: { x: door.x, y: door.y },
+          waypoints: reinfWaypoints,
+          id: sg.id,
+        });
+      }
+      newGuard.setState(sg.state);
+      return newGuard;
+    });
+  }
+
   function createEngine(opts) {
     opts = opts || {};
     var zone = opts.zoneData || Game.ZONES.loadingDock;
@@ -6051,6 +6315,32 @@
     // once per tick spent standing there. Reset whenever a zone switch
     // actually happens (fresh zone, fresh region state).
     var inBlockedExitRegion = false;
+
+    // ZONE STASH (NEW — per-zone state persistence cycle, see file header
+    // ZONE TRANSITIONS / STASH section): { [zoneId]: stashEntry }, one entry
+    // per zone this engine has ever DEPARTED at least once (a zone visited
+    // only via direct construction, never departed, has no entry — see
+    // switchZone below). MISSION-scoped (never cleared), keyed by zone id so
+    // each zone's own history is independent. Written at the top of every
+    // switchZone() call (stashing the DEPARTING zone) and consulted when
+    // switchZone() builds the TARGET zone's stack — see stashZone()/
+    // switchZone() below for the full read/write contract. Plain JSON-safe
+    // data only (every field comes from some module's own getState(), or a
+    // plain number/boolean) — safe to carry through src/saveState.js's
+    // capture()/restore() verbatim via engine.getState()/setState() below.
+    var zoneStash = {};
+
+    // Cumulative reinforcements ever spawned in the CURRENT zone, across
+    // EVERY visit (not just this one) — see file header STASH section's
+    // reinforcement-counter DECISION. Seeded from zoneStash[zone.id] on
+    // every switchZone (0 for a zone with no stash yet); persisted back into
+    // the stash the next time this zone is departed. Enforced by engine
+    // itself in the ESCALATION event-processing step below (see tick()) —
+    // director's own per-visit REINFORCEMENT_MAX is always a looser (or
+    // equal) ceiling, so it never blocks a spawn this cap would still allow,
+    // but it also never remembers a PRIOR visit's spend, so engine is the
+    // one true enforcement point across zone re-entries.
+    var zoneReinforcementUsed = 0;
 
     var guards = buildGuards(guardConfigs, world, vision, rng, squad);
 
@@ -6279,33 +6569,159 @@
       }
     }
 
+    // STASH THE DEPARTING ZONE (NEW — per-zone state persistence cycle, see
+    // file header ZONE TRANSITIONS / STASH section). Captures everything the
+    // v1 "discard the departed zone" comment used to just throw away:
+    //   guards  — every guard.getState() (base AND any live reinforcements —
+    //             the live `guards` array already contains both, see
+    //             src/director.js's own note on ctx.guards being engine's
+    //             live array), keyed by id so rebuildGuardsFromStash can
+    //             match identity later exactly like src/saveState.js already
+    //             does for a save/restore round-trip.
+    //   squad   — squad.getState() (phase/phaseTime/lastKnown/alertCount). In
+    //             practice phase reads "INFILTRATION" every single time this
+    //             runs (see DESIGN RULE below — tryZoneTransition only ever
+    //             calls switchZone while squad.phase IS "INFILTRATION"), but
+    //             phaseTime/alertCount can still be arbitrary nonzero values,
+    //             and capturing the full shape is what makes a restored
+    //             snapshot byte-identical to a live one (the DETERMINISM
+    //             hard gate — see file header).
+    //   director — director.getState() (camera meters/disabled/wasSuspicious,
+    //             laser active flags). REINFORCEMENT/CHECK-IN bookkeeping
+    //             (reinforcementCount, the spawn-timer, missingSearchers) is
+    //             NOT in this shape — director.js doesn't expose it (see that
+    //             file's own SAVE/RESTORE — HONEST GAP note) and director.js
+    //             is out of scope for this cycle's task packet. The
+    //             reinforcement COUNT half of that gap is covered separately,
+    //             for real, by zoneReinforcementUsed below (engine's own
+    //             cross-visit enforcement, not director's per-visit one) —
+    //             only the check-in dispatch tracking (missingSearchers)
+    //             stays a genuine gap, and it's a benign one: the check-in
+    //             SCHEDULE itself is a pure function of (global engine.time,
+    //             guard index) with no memory to lose (see director.js's own
+    //             PURE-FUNCTION CHECK-IN SCHEDULE note), so it keeps working
+    //             correctly, memorylessly, across any number of zone visits;
+    //             only "was a searcher already dispatched for guard X"
+    //             forgets, which at worst redispatches a search that was
+    //             already in flight — never a crash, never a false alert.
+    //   doors   — { [doorId]: { open, elapsedNear } } — open flag from
+    //             world.isDoorOpen(id); elapsedNear is engine.time MINUS
+    //             doorLastNear[id] (seconds since a door open enough to still
+    //             be auto-closing was last stood near), NOT the raw absolute
+    //             timestamp — engine.time keeps climbing mission-wide while
+    //             this zone sits dormant (see FROZEN TIME note below), so an
+    //             elapsed DURATION is what correctly resumes the 3s
+    //             auto-close countdown on re-entry rather than replaying a
+    //             stale absolute instant against a much-later clock.
+    //   reinforcementBudgetUsed — zoneReinforcementUsed's current value (see
+    //             its own declaration comment above).
+    // collectedPickups is deliberately NOT part of this shape — it's already
+    // mission-scoped (keyed by "<zoneId>#<index>", never reset by switchZone,
+    // see its own declaration comment) and was ALREADY correct before this
+    // cycle: a picked-up item never respawns whether the old discard-on-exit
+    // semantics or this cycle's persistence is in effect. Verified, not
+    // touched — see tests/zonePersistence.test.js's own pickup test.
+    function stashZone(zoneIdToStash) {
+      var doorsStashed = {};
+      var doorList = zone.doors || [];
+      for (var i = 0; i < doorList.length; i++) {
+        var d = doorList[i];
+        var isOpen = world.isDoorOpen(d.id);
+        var lastNear = doorLastNear[d.id];
+        var elapsedNear = isOpen && lastNear !== undefined ? Math.max(0, engine.time - lastNear) : 0;
+        doorsStashed[d.id] = { open: isOpen, elapsedNear: elapsedNear };
+      }
+
+      zoneStash[zoneIdToStash] = {
+        guards: guards.map(function (g) {
+          return { id: g.id, state: g.getState() };
+        }),
+        squad: squad.getState(),
+        director: director.getState(),
+        doors: doorsStashed,
+        reinforcementBudgetUsed: zoneReinforcementUsed,
+      };
+    }
+
     // ZONE TRANSITIONS (see file header, tick() step 6). Rebuilds the entire
     // world/soundEvents/vision/squad/guards stack for `targetZone`, and a
     // fresh player positioned at targetZone.entrances[entranceKey] (falling
     // back to targetZone.playerSpawn if that entrance is somehow missing —
     // defensive only, every shipped zone defines the entrances its own exits
     // point at). rng is deliberately NOT rebuilt — the single seeded stream
-    // continues across the switch. Reassigns every closure var AND the
-    // matching `engine.*` prop so both tick()/snapshot() (which close over
-    // the vars directly) and external readers (engine.player, etc.) see the
-    // new zone immediately.
+    // continues across the switch (see file header RNG note — re-entry does
+    // NOT rewind it). Reassigns every closure var AND the matching
+    // `engine.*` prop so both tick()/snapshot() (which close over the vars
+    // directly) and external readers (engine.player, etc.) see the new zone
+    // immediately.
+    //
+    // PERSISTENCE (NEW — see file header): first stashes the DEPARTING zone
+    // (stashZone above), then checks zoneStash[targetZone.id] — a zone never
+    // departed before (including the very first zone this engine ever booted
+    // into) has no entry, and falls back to the ORIGINAL v1-shaped
+    // construction (fresh squad/guards/director from ZONE_GUARDS, exactly as
+    // before this cycle). A zone WITH a stash instead: rebuilds guards via
+    // rebuildGuardsFromStash (base + any reinforcements, each guard.setState()
+    // restored verbatim), a fresh squad immediately setState()'d from the
+    // stash, a fresh director immediately setState()'d from the stash
+    // (camera/laser live numbers only — see stashZone's own note on the
+    // reinforcement/check-in gap), reopens any door that was left open (with
+    // its auto-close countdown resumed via the elapsed-duration trick), and
+    // seeds zoneReinforcementUsed from the stash so the +3 cap holds across
+    // the whole zone's LIFETIME, not just this one visit (see file header).
     function switchZone(targetZone, entranceKey) {
       var fromId = zone.id;
+
+      stashZone(fromId);
 
       var newWorld = Game.createWorld(targetZone);
       var newSoundEvents = Game.createSoundEvents({ world: newWorld });
       var newVision = Game.createVision({ world: newWorld });
-      var newSquad = Game.createSquad();
-      var newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
-      // DIRECTOR (see src/director.js contract) — rebuilt fresh for the
-      // target zone's own camera roster, same "discard the departed zone's
-      // instance, never carry it across" rule as world/vision/squad/guards
-      // above (a departed zone's cameras belong to a world that no longer
-      // exists). This ALSO discards the departed zone's own reinforcement
-      // count/spawn-timer bookkeeping (see director.js's own ESCALATION
-      // contract) — exactly what makes a zone-visit-scoped +3 cap "reset on
-      // zone change" true with no special-case reset code needed here.
-      var newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad, rng: rng });
+
+      var stash = zoneStash[targetZone.id];
+
+      var newSquad, newGuards, newDirector, newReinforcementUsed;
+      var newDoorLastNear = {};
+
+      if (stash) {
+        newSquad = Game.createSquad();
+        newSquad.setState(stash.squad);
+
+        newGuards = rebuildGuardsFromStash(stash.guards, targetZone, newWorld, newVision, rng, newSquad);
+
+        newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad, rng: rng });
+        newDirector.setState(stash.director);
+
+        // DOORS — reopen anything that was open when this zone was last
+        // departed, and resume its auto-close countdown from where it was
+        // frozen (see stashZone's own elapsedNear note): doorLastNear[id] is
+        // set to engine.time MINUS the elapsed duration, so the very next
+        // tick's `engine.time - doorLastNear[id] >= DOOR_AUTO_CLOSE_S` check
+        // continues counting from exactly where it left off rather than
+        // resetting to a fresh 3s or, worse, reading as already-expired
+        // against the new (much later) global clock.
+        var targetDoors = targetZone.doors || [];
+        for (var di = 0; di < targetDoors.length; di++) {
+          var dId = targetDoors[di].id;
+          var dStash = stash.doors[dId];
+          if (dStash && dStash.open) {
+            newWorld.setDoorOpen(dId, true);
+            newDoorLastNear[dId] = engine.time - dStash.elapsedNear;
+          }
+        }
+
+        newReinforcementUsed = stash.reinforcementBudgetUsed || 0;
+      } else {
+        newSquad = Game.createSquad();
+        newGuards = buildGuards(guardConfigsForZone(targetZone), newWorld, newVision, rng, newSquad);
+        // DIRECTOR (see src/director.js contract) — rebuilt fresh for the
+        // target zone's own camera roster, same "discard the departed zone's
+        // instance, never carry it across" rule as world/vision/squad/guards
+        // above (a departed zone's cameras belong to a world that no longer
+        // exists).
+        newDirector = Game.createDirector({ world: newWorld, vision: newVision, squad: newSquad, rng: rng });
+        newReinforcementUsed = 0;
+      }
 
       var entrance = (targetZone.entrances && targetZone.entrances[entranceKey]) || targetZone.playerSpawn;
       var newPlayer = Game.createPlayer({ world: newWorld });
@@ -6333,20 +6749,25 @@
       director = newDirector;
       player = newPlayer;
       inBlockedExitRegion = false;
+      zoneReinforcementUsed = newReinforcementUsed;
 
       // DOORS (see file header, Laboratory cycle) — ZONE-SCOPED, discarded
       // alongside the departed zone's own world/guards/squad (see
-      // doorLastNear's own declaration comment above). collectedPickups is
-      // deliberately NOT touched here — it's mission-scoped, keyed by zone
-      // id, so a different zone's pickups are unaffected and the SAME
-      // zone's pickups (on a later re-entry) correctly stay collected.
-      doorLastNear = {};
+      // doorLastNear's own declaration comment above), but NOW (see
+      // PERSISTENCE above) seeded from the stash rather than always starting
+      // empty, so a re-entered zone's auto-close timers resume correctly.
+      // collectedPickups is deliberately NOT touched here — it's
+      // mission-scoped, keyed by zone id, so a different zone's pickups are
+      // unaffected and the SAME zone's pickups (on a later re-entry)
+      // correctly stay collected.
+      doorLastNear = newDoorLastNear;
 
       // ZONE-SCOPED drag/locker state (see file header CQC VERB / DRAG VERB /
       // LOCKER VERB) — a dragged guard belongs to the departing zone's now-
       // discarded roster, and a hidden-in-a-locker player has no locker to
       // return to in the new zone, so both reset on every transition, same
-      // v1 semantics as the guard roster itself not persisting.
+      // v1 semantics as before this cycle (persistence covers the ZONE's own
+      // guards/squad/director/doors, not the player's own drag/locker verbs).
       engine.dragging = null;
       engine.playerHidden = false;
       hiddenLocker = null;
@@ -6844,7 +7265,37 @@
         guards: guards,
       });
       for (var esi = 0; esi < escalationEvents.length; esi++) {
-        engine.events.push(escalationEvents[esi]);
+        var esEvent = escalationEvents[esi];
+        // ZONE-LIFETIME REINFORCEMENT CAP (NEW — see zoneReinforcementUsed's
+        // own declaration comment / file header STASH section): director's
+        // own REINFORCEMENT_MAX only ever ceilings THIS visit (a fresh
+        // director rebuilt on re-entry starts that counter back at 0 — see
+        // src/director.js's own ESCALATION contract), so a zone that already
+        // spent some of its +3 budget across an EARLIER visit would
+        // otherwise get topped back up to +3 MORE this visit. Engine is the
+        // one place that remembers the true cross-visit spend
+        // (zoneReinforcementUsed, seeded from the stash by switchZone above)
+        // — if director just spawned one anyway (its own looser per-visit
+        // gate allowed it), and the TRUE budget is already exhausted, this
+        // undoes the spawn: the guard director just pushed onto the live
+        // `guards` array (see ctx.guards note above) is spliced back out
+        // BEFORE anything else this tick ever sees it (this runs before the
+        // guard-update loop's NEXT tick, and before squad.tick()/snapshot()
+        // later THIS tick), and the event itself is suppressed — as far as
+        // the rest of the simulation is concerned, it never happened.
+        if (esEvent.type === "reinforcement") {
+          if (zoneReinforcementUsed >= ZONE_REINFORCEMENT_CAP) {
+            for (var gi2 = guards.length - 1; gi2 >= 0; gi2--) {
+              if (guards[gi2].id === esEvent.guardId) {
+                guards.splice(gi2, 1);
+                break;
+              }
+            }
+            continue;
+          }
+          zoneReinforcementUsed++;
+        }
+        engine.events.push(esEvent);
       }
 
       // GAME OVER CHECK (see file header, tick() step 4) — generic on
@@ -6993,6 +7444,25 @@
     //     the moment the run finally completes); miss `missionComplete` and
     //     a save captured AFTER a (theoretical) extraction would restore into
     //     a live, ticking engine instead of the frozen one it was saved as.
+    //   zoneStash (NEW — per-zone state persistence cycle, see file header
+    //     ZONE TRANSITIONS / STASH section) — the FULL { [zoneId]: stashEntry
+    //     } map (see stashZone's own contract above), JSON-round-tripped via
+    //     JSON.parse(JSON.stringify(...)) rather than Object.assign's shallow
+    //     copy: unlike collectedPickups/doorLastNear (flat maps of
+    //     primitives), a stash entry nests guard-state arrays/squad/director
+    //     objects several levels deep, and a shallow copy would leave THOSE
+    //     inner objects aliased to this engine's own live zoneStash — safe in
+    //     practice (nothing mutates a stash entry in place once written; a
+    //     later departure from the same zone always REPLACES the whole
+    //     entry, never edits it — see stashZone), but a full deep clone here
+    //     costs nothing (getState()/setState() only run at save/restore
+    //     time, never per-tick) and matches this module's own "cheap,
+    //     JSON-safe, no aliasing surprises" posture for everything else in
+    //     this shape. Miss this field and a save/restore round-trip would
+    //     forget every zone ever departed before the save — e.g. test 8's
+    //     "tranq dock guard, go to warehouse, F5-capture, restore, return to
+    //     dock" scenario would come back to a guard reset to spawn instead of
+    //     still sleeping.
     function getState() {
       var lockerIndex = -1;
       if (hiddenLocker) {
@@ -7021,6 +7491,10 @@
         // header) — mission-scoped like collectedPickups above.
         stats: Object.assign({}, engine.stats),
         missionComplete: engine.missionComplete,
+        // ZONE STASH (new — per-zone state persistence cycle, see this
+        // function's own file header note above) — deep-cloned, not aliased.
+        zoneStash: JSON.parse(JSON.stringify(zoneStash)),
+        zoneReinforcementUsed: zoneReinforcementUsed,
       };
     }
 
@@ -7055,6 +7529,14 @@
       collectedPickups = Object.assign({}, state.collectedPickups);
       doorLastNear = Object.assign({}, state.doorLastNear);
       inBlockedExitRegion = state.inBlockedExitRegion;
+      // ZONE STASH (new — per-zone state persistence cycle) — a save
+      // captured from a build before this cycle simply won't have this field
+      // (falls back to {}/0, same defensive posture as `stats` above; SAVE_
+      // VERSION was bumped in src/saveState.js for exactly this shape change
+      // so this fallback should never actually be exercised by a
+      // version-gated restore() call in practice).
+      zoneStash = state.zoneStash ? JSON.parse(JSON.stringify(state.zoneStash)) : {};
+      zoneReinforcementUsed = state.zoneReinforcementUsed || 0;
     }
 
     engine.tick = tick;
@@ -19600,6 +20082,723 @@ Game.selfTests.push({
         hit === null,
         legLabel + " raycast hit at (" + (hit ? hit.x.toFixed(2) : "?") + "," + (hit ? hit.y.toFixed(2) : "?") + ")"
       );
+    }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/zonePersistence.test.js ====
+(function (global) {
+// tests/zonePersistence.test.js — headless assertions for src/engine.js's
+// per-zone state persistence (ZONE PERSISTENCE / STASH — see that file's own
+// contract, right after the ZONE TRANSITIONS section): a departed zone's
+// guards/squad/director/doors are now STASHED and RESTORED on re-entry
+// rather than discarded (the old v1 semantics). Same registry pattern as
+// every other tests/*.test.js file: push onto the shared Game.selfTests
+// list; test.js runs every entry and reports ok/FAIL with real exit codes.
+//
+// Zones used: loadingDock <-> warehouse is the only bidirectional pair this
+// game ships (laboratory/commsTower are one-way, linear-progression zones —
+// see src/world.js's own zone comments), so every real round-trip test below
+// uses that pair. Test 9 (door persistence) needs a door, and neither
+// loadingDock nor warehouse ships one, so it temporarily registers two tiny
+// throwaway zones into Game.ZONES (fresh ids, never colliding with a real
+// zone) for the duration of a single test, removing them in a `finally` —
+// see that test's own comment for why this is safe.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+function farPlayer() {
+  return {
+    x: -9999,
+    y: -9999,
+    facing: 0,
+    visionProfile: function () {
+      return 1.0;
+    },
+  };
+}
+
+function findGuard(engine, id) {
+  for (var i = 0; i < engine.guards.length; i++) {
+    if (engine.guards[i].id === id) return engine.guards[i];
+  }
+  return null;
+}
+
+function crossExit(engine, exit) {
+  engine.player.x = exit.x + exit.w / 2;
+  engine.player.y = exit.y + exit.h / 2;
+  engine.player.stance = "crawl"; // minimize detection risk during the crossing tick itself
+  engine.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+}
+
+// ---------------------------------------------------------------------------
+// 1. Tranq the dock guard, exit to warehouse, return: guard STILL SLEEPING
+//    with plausible remaining time (frozen while away).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: tranq'd dock guard stays SLEEPING with frozen remaining sleep time across a round trip",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9001, zoneData: dock });
+
+    var g1 = findGuard(engine, "g1");
+    assert(g1, "setup: expected default guard g1 in loadingDock");
+    g1.tranq(true); // headshot -> instantly SLEEPING, sleepTime = 0
+    assert(g1.state === "SLEEPING", "setup: expected g1 asleep immediately after a headshot");
+
+    // Let 5s pass in the dock before departing, so "remaining" is a genuinely
+    // partial (not full) value at exit time.
+    var PRE_DEPART_TICKS = Math.round(5 / DT);
+    for (var i = 0; i < PRE_DEPART_TICKS; i++) engine.tick();
+    assert(engine.guards[0].state === "SLEEPING", "setup: expected g1 still asleep before departure");
+    var remainingAtExit = Game.GUARD.SLEEP_S - engine.guards[0].getState().sleepTime;
+    assert(remainingAtExit > 0 && remainingAtExit < Game.GUARD.SLEEP_S, "setup: expected a genuinely partial remaining sleep time, got " + remainingAtExit);
+
+    // Cross out to the warehouse, then straight back.
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "setup: expected to have crossed into the warehouse, got " + engine.zone.id);
+
+    var southExit = warehouse.exits[0];
+    assert(southExit.to === "loadingDock", "setup: expected warehouse.exits[0] to lead back to loadingDock");
+    crossExit(engine, southExit);
+    assert(engine.zone.id === "loadingDock", "expected to be back in loadingDock, got " + engine.zone.id);
+
+    var g1Again = findGuard(engine, "g1");
+    assert(g1Again, "expected guard g1 to exist again after re-entering loadingDock");
+    assert(g1Again.state === "SLEEPING", "expected g1 STILL SLEEPING after the round trip, got " + g1Again.state);
+
+    var remainingAfterReturn = Game.GUARD.SLEEP_S - g1Again.getState().sleepTime;
+    var TOLERANCE_S = 2 * DT;
+    assert(
+      Math.abs(remainingAfterReturn - remainingAtExit) <= TOLERANCE_S,
+      "expected remaining sleep time frozen at ~" + remainingAtExit.toFixed(4) + "s, got " + remainingAfterReturn.toFixed(4) + "s"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2. Sleeping guard's wake clock resumes on re-entry: 30s spent away must NOT
+//    subtract 30s from the remaining sleep time.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: a sleeping guard's wake clock stays frozen while the zone is unvisited (30s away costs it nothing)",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9002, zoneData: dock });
+
+    var g1 = findGuard(engine, "g1");
+    g1.tranq(true);
+    assert(g1.state === "SLEEPING", "setup: expected g1 asleep");
+
+    var PRE_DEPART_TICKS = Math.round(10 / DT);
+    for (var i = 0; i < PRE_DEPART_TICKS; i++) engine.tick();
+    var remainingAtExit = Game.GUARD.SLEEP_S - engine.guards[0].getState().sleepTime; // ~50s
+
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "setup: expected the warehouse");
+
+    // Spend 30s actually simulating the warehouse -- parked off-map so w1/w2's
+    // own patrol loops (which pass close to the entrance point) never spot a
+    // stationary player and drag squad.phase out of INFILTRATION, which would
+    // block the return crossing this test needs (this test is about the
+    // sleep clock, not about surviving the warehouse guards).
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    var AWAY_TICKS = Math.round(30 / DT);
+    for (var t = 0; t < AWAY_TICKS; t++) engine.tick();
+
+    var southExit = warehouse.exits[0];
+    crossExit(engine, southExit);
+    assert(engine.zone.id === "loadingDock", "expected back in loadingDock");
+
+    var g1Again = findGuard(engine, "g1");
+    assert(g1Again.state === "SLEEPING", "expected g1 still SLEEPING right after the return, got " + g1Again.state);
+    var remainingRightAfterReturn = Game.GUARD.SLEEP_S - g1Again.getState().sleepTime;
+    assert(
+      Math.abs(remainingRightAfterReturn - remainingAtExit) <= 2 * DT,
+      "expected the 30s spent away to cost the sleep clock nothing, remaining was ~" +
+        remainingAtExit.toFixed(2) + "s at exit, ~" + remainingRightAfterReturn.toFixed(2) + "s right after return"
+    );
+
+    // Now confirm the wake actually happens ~remainingAtExit later (NOT 30s
+    // sooner, i.e. not at ~remainingAtExit - 30).
+    var wokeAtTick = null;
+    var MAX_WAIT_TICKS = Math.round((remainingAtExit + 3) / DT);
+    for (var w = 0; w < MAX_WAIT_TICKS && wokeAtTick === null; w++) {
+      engine.tick();
+      var g = findGuard(engine, "g1");
+      if (g.state !== "SLEEPING") wokeAtTick = w;
+    }
+    assert(wokeAtTick !== null, "g1 never woke up within the expected window");
+    var wokeAfterS = wokeAtTick * DT;
+    assert(
+      Math.abs(wokeAfterS - remainingAtExit) < 0.5,
+      "expected g1 to wake ~" + remainingAtExit.toFixed(2) + "s after the return, got " + wokeAfterS.toFixed(2) + "s " +
+        "(a 30s-sooner bug would read ~" + (remainingAtExit - 30).toFixed(2) + "s here)"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 3. Post-CAUTION widened-cone decay never leaks: a fully-decayed zone
+//    re-enters as INFILTRATION with the guard mid-patrol at its stashed
+//    position, not reset to spawn/waypoint 0.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: a decayed CAUTION zone re-enters as INFILTRATION with the guard mid-patrol, not at spawn",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9003, zoneData: dock });
+
+    var spawn = dock.waypoints[0];
+    var g1 = findGuard(engine, "g1");
+    assert(
+      Math.abs(g1.x - spawn.x) < 0.01 && Math.abs(g1.y - spawn.y) < 0.01,
+      "setup: expected g1 to start exactly at waypoints[0]"
+    );
+
+    // Keep the player far away and out of every guard's cone the whole time
+    // (this test is about the CAUTION->INFILTRATION decay/persistence, not
+    // about surviving detection).
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    // Force CAUTION directly (same "assign squad.phase by hand" precedent
+    // tests/escalation.test.js / tests/feedback.test.js already use) --
+    // guardAI's own RADIO CALL / SQUAD-PHASE SYNC step forces g1 into
+    // "CAUTION" (widened-cone patrol) on its very next update() regardless
+    // of how squad.phase got there.
+    engine.squad.phase = "CAUTION";
+    engine.squad.phaseTime = 0;
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.tick();
+    assert(engine.guards[0].state === "CAUTION", "setup: expected g1 synced into CAUTION, got " + engine.guards[0].state);
+
+    // Let it patrol (at CAUTION_SPEED, wider cone) for a few seconds so its
+    // position visibly moves away from spawn.
+    var CAUTION_WALK_TICKS = Math.round(3 / DT);
+    for (var i = 0; i < CAUTION_WALK_TICKS; i++) {
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      engine.tick();
+    }
+    var movedX = engine.guards[0].x;
+    var movedY = engine.guards[0].y;
+    assert(
+      Math.abs(movedX - spawn.x) > 0.3 || Math.abs(movedY - spawn.y) > 0.3,
+      "setup: expected g1 to have visibly moved during CAUTION, still near spawn (" + movedX.toFixed(2) + "," + movedY.toFixed(2) + ")"
+    );
+
+    // Force the CAUTION->INFILTRATION decay (same direct-assignment
+    // precedent) -- two ticks: one for squad.tick() to actually flip the
+    // phase, one more for guardAI's own sync step to react to the NEW phase
+    // and force the guard back to PATROL (see src/engine.js's own STATE <->
+    // SQUAD.PHASE MAPPING / RADIO CALL SYNC note on why this takes a tick to
+    // propagate).
+    engine.squad.phaseTime = Game.GUARD.CAUTION_S;
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.tick();
+    assert(engine.squad.phase === "INFILTRATION", "expected squad to have decayed to INFILTRATION, got " + engine.squad.phase);
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.tick();
+    assert(engine.guards[0].state === "PATROL", "expected g1 synced back to PATROL, got " + engine.guards[0].state);
+
+    var preExitX = engine.guards[0].x;
+    var preExitY = engine.guards[0].y;
+
+    // Cross out and back.
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "expected warehouse");
+    crossExit(engine, warehouse.exits[0]);
+    assert(engine.zone.id === "loadingDock", "expected loadingDock again");
+
+    var g1Again = findGuard(engine, "g1");
+    assert(g1Again.state === "PATROL", "expected g1 to re-enter as PATROL (no leaked CAUTION), got " + g1Again.state);
+    assert(engine.squad.phase === "INFILTRATION", "expected the restored squad to read INFILTRATION, got " + engine.squad.phase);
+    assert(
+      Math.abs(g1Again.x - spawn.x) > 0.3 || Math.abs(g1Again.y - spawn.y) > 0.3,
+      "expected g1 to re-enter at its stashed mid-patrol position, not spawn -- got (" + g1Again.x.toFixed(2) + "," + g1Again.y.toFixed(2) + ")"
+    );
+    assert(
+      Math.abs(g1Again.x - preExitX) < 0.05 && Math.abs(g1Again.y - preExitY) < 0.05,
+      "expected g1's position to match exactly what it was at the moment of departure"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 4. Guard positions persist: note the dock guard's position mid-patrol at
+//    exit, return, he's there (not back at waypoint 0).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: guard position mid-patrol persists across a round trip (not reset to waypoint 0)",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9004, zoneData: dock });
+
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    var WALK_TICKS = Math.round(4 / DT);
+    for (var i = 0; i < WALK_TICKS; i++) {
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      engine.tick();
+    }
+
+    var spawn = dock.waypoints[0];
+    var midX = engine.guards[0].x;
+    var midY = engine.guards[0].y;
+    assert(
+      Math.abs(midX - spawn.x) > 0.3 || Math.abs(midY - spawn.y) > 0.3,
+      "setup: expected g1 to have walked away from waypoint 0 by now"
+    );
+
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "expected warehouse");
+    crossExit(engine, warehouse.exits[0]);
+    assert(engine.zone.id === "loadingDock", "expected loadingDock again");
+
+    var g1Again = findGuard(engine, "g1");
+    assert(
+      Math.abs(g1Again.x - spawn.x) > 0.3 || Math.abs(g1Again.y - spawn.y) > 0.3,
+      "expected g1 to still be away from waypoint 0 after the round trip, got (" + g1Again.x.toFixed(2) + "," + g1Again.y.toFixed(2) + ")"
+    );
+    assert(
+      Math.abs(g1Again.x - midX) < 0.05 && Math.abs(g1Again.y - midY) < 0.05,
+      "expected g1's exact mid-patrol position to persist, expected (" + midX.toFixed(2) + "," + midY.toFixed(2) +
+        ") got (" + g1Again.x.toFixed(2) + "," + g1Again.y.toFixed(2) + ")"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 5. Reinforcement persistence: 2 reinforcements spawn and survive a round
+//    trip (4 guards total); the +3 budget stays spent -- a fresh ALERT after
+//    re-entry spawns only 1 more, never a 3rd/4th.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: reinforcements + the zone-lifetime +3 budget both survive a round trip",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9005, zoneData: warehouse });
+    assert(engine.guards.length === 2, "setup: expected 2 base warehouse guards, got " + engine.guards.length);
+
+    // Park the player off-map so converging reinforcements never gain real
+    // LOS and open fire (same precedent as tests/escalation.test.js's own
+    // perf test) -- this test is about spawn/persistence counts, not combat.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.squad.phase = "ALERT";
+    engine.squad.lastKnown = { x: 20, y: 15 };
+
+    // Hold ALERT open for ~20s: reinforcements spawn at +6s and +16s (see
+    // src/director.js's own REINFORCEMENT_FIRST_DELAY_S/INTERVAL_S, mirrored
+    // as literal seconds here exactly like tests/escalation.test.js already
+    // does), so 20s captures exactly 2 without reaching the 3rd (+26s).
+    var HOLD_TICKS = Math.round(20 / DT);
+    for (var i = 0; i < HOLD_TICKS; i++) {
+      if (engine.squad.phase !== "ALERT") engine.squad.phase = "ALERT";
+      engine.tick();
+    }
+    assert(engine.guards.length === 4, "setup: expected 2 base + 2 reinforcements = 4 guards, got " + engine.guards.length);
+
+    // Force the ladder down to INFILTRATION (direct-assignment precedent,
+    // see test 3 above) -- two ticks for the phase flip + guard resync.
+    engine.squad.phase = "INFILTRATION";
+    engine.squad.phaseTime = 0;
+    engine.squad.lastKnown = null;
+    engine.tick();
+    engine.tick();
+    assert(engine.squad.phase === "INFILTRATION", "expected INFILTRATION before departing, got " + engine.squad.phase);
+    assert(engine.guards.length === 4, "expected still 4 guards heading into the exit crossing");
+
+    // Cross out to loadingDock and straight back.
+    crossExit(engine, warehouse.exits[0]);
+    assert(engine.zone.id === "loadingDock", "expected loadingDock");
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "expected warehouse again");
+
+    assert(engine.guards.length === 4, "expected 4 guards (2 original + 2 reinforcements) after the round trip, got " + engine.guards.length);
+    var reinfIds = engine.guards
+      .map(function (g) { return g.id; })
+      .filter(function (id) { return id.indexOf("reinf-") === 0; });
+    assert(reinfIds.length === 2, "expected exactly 2 reinforcement guards restored, got " + JSON.stringify(reinfIds));
+
+    // A NEW alert after re-entry: only 1 more reinforcement should ever
+    // spawn (2 already spent + 1 new = 3, the zone-lifetime cap), even
+    // across a window long enough for all 3 of director's OWN per-visit
+    // schedule slots (+6s/+16s/+26s) to fire if the cross-visit cap weren't
+    // being enforced.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.squad.phase = "ALERT";
+    engine.squad.lastKnown = { x: 20, y: 15 };
+    var reinforcementEvents = 0;
+    var SECOND_BOUT_TICKS = Math.round(35 / DT);
+    for (var t = 0; t < SECOND_BOUT_TICKS; t++) {
+      if (engine.squad.phase !== "ALERT") engine.squad.phase = "ALERT";
+      engine.tick();
+      for (var e = 0; e < engine.events.length; e++) {
+        if (engine.events[e].type === "reinforcement") reinforcementEvents++;
+      }
+    }
+    assert(reinforcementEvents === 1, "expected exactly 1 more reinforcement (2/3 already spent), got " + reinforcementEvents);
+    assert(engine.guards.length === 5, "expected 5 guards total (2 base + 2 old + 1 new reinforcement), got " + engine.guards.length);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 6. Collected pickups don't respawn on re-entry (L1 keycard, warehouse).
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: a collected pickup (L1 keycard) never respawns on re-entry",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9006, zoneData: dock });
+
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "expected warehouse");
+    assert(engine.inventory.keycards.L1 === false, "setup: expected no L1 keycard yet");
+
+    var pickup = warehouse.pickups[0];
+    assert(pickup.item === "keycardL1", "setup: expected warehouse.pickups[0] to be keycardL1");
+    engine.player.x = pickup.x;
+    engine.player.y = pickup.y;
+    engine.tick({ moveX: 0, moveY: 0 });
+
+    var pickupEvents = engine.events.filter(function (e) { return e.type === "pickup"; });
+    assert(pickupEvents.length === 1, "expected exactly one pickup event, got " + pickupEvents.length);
+    assert(engine.inventory.keycards.L1 === true, "expected the L1 keycard collected");
+
+    // Leave and come back.
+    crossExit(engine, warehouse.exits[0]);
+    assert(engine.zone.id === "loadingDock", "expected loadingDock");
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "expected warehouse again");
+
+    assert(engine.inventory.keycards.L1 === true, "expected the L1 keycard to STAY collected across the round trip");
+
+    // Standing right on top of it again must not re-grant/re-fire pickup.
+    engine.player.x = pickup.x;
+    engine.player.y = pickup.y;
+    engine.tick({ moveX: 0, moveY: 0 });
+    var secondPickupEvents = engine.events.filter(function (e) { return e.type === "pickup"; });
+    assert(secondPickupEvents.length === 0, "expected NO second pickup event -- the item must not respawn, got " + JSON.stringify(secondPickupEvents));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 7. Determinism across repeated crossings (the hard gate): identical seed +
+//    scripted input log crossing dock<->warehouse 3 times with a tranq
+//    mid-way -> byte-identical snapshots on two independent engines.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: determinism holds across repeated zone crossings with a tranq mid-script (same seed -> identical snapshots)",
+  fn: function () {
+    var SEED = 9007;
+
+    function buildScript() {
+      var dock = Game.ZONES.loadingDock;
+      var warehouse = Game.ZONES.warehouse;
+      var steps = [];
+
+      // A small scripted log: idle a bit, cross dock->warehouse, idle +
+      // tranq w1, cross back, idle, cross out again, idle, cross back once
+      // more. Every step is a plain function(engine) so it's trivially
+      // replayable identically against two independent engines. Every idle
+      // block parks the player off-map first (same "no incidental
+      // detection" precedent as this file's other multi-second idle waits
+      // in the warehouse) -- this test is about STASH DETERMINISM, not about
+      // surviving w1/w2's patrols, and a stray real alert would make the two
+      // engines' snapshots diverge for reasons unrelated to what's under
+      // test here.
+      steps.push(function (e) {
+        for (var i = 0; i < 60; i++) e.tick({ moveX: 0, moveY: 0 });
+      });
+      steps.push(function (e) {
+        e.player.x = dock.exit.x + dock.exit.w / 2;
+        e.player.y = dock.exit.y + dock.exit.h / 2;
+        e.player.stance = "crawl";
+        e.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+      });
+      steps.push(function (e) {
+        e.player.x = -1000;
+        e.player.y = -1000;
+        for (var i = 0; i < 30; i++) e.tick({ moveX: 0, moveY: 0 });
+        var w1 = e.guards[0];
+        w1.tranq(true);
+      });
+      steps.push(function (e) {
+        e.player.x = -1000;
+        e.player.y = -1000;
+        for (var i = 0; i < 45; i++) e.tick({ moveX: 0, moveY: 0 });
+      });
+      steps.push(function (e) {
+        var southExit = warehouse.exits[0];
+        e.player.x = southExit.x + southExit.w / 2;
+        e.player.y = southExit.y + southExit.h / 2;
+        e.player.stance = "crawl";
+        e.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+      });
+      steps.push(function (e) {
+        for (var i = 0; i < 90; i++) e.tick({ moveX: 0, moveY: 0 });
+      });
+      steps.push(function (e) {
+        e.player.x = dock.exit.x + dock.exit.w / 2;
+        e.player.y = dock.exit.y + dock.exit.h / 2;
+        e.player.stance = "crawl";
+        e.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+      });
+      steps.push(function (e) {
+        e.player.x = -1000;
+        e.player.y = -1000;
+        for (var i = 0; i < 60; i++) e.tick({ moveX: 0, moveY: 0 });
+      });
+      steps.push(function (e) {
+        var southExit = warehouse.exits[0];
+        e.player.x = southExit.x + southExit.w / 2;
+        e.player.y = southExit.y + southExit.h / 2;
+        e.player.stance = "crawl";
+        e.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+      });
+      steps.push(function (e) {
+        for (var i = 0; i < 60; i++) e.tick({ moveX: 0, moveY: 0 });
+      });
+      return steps;
+    }
+
+    var engineA = Game.createEngine({ seed: SEED, zoneData: Game.ZONES.loadingDock });
+    var engineB = Game.createEngine({ seed: SEED, zoneData: Game.ZONES.loadingDock });
+
+    var scriptA = buildScript();
+    var scriptB = buildScript();
+    assert(scriptA.length === scriptB.length, "sanity: identical script length");
+
+    for (var i = 0; i < scriptA.length; i++) {
+      scriptA[i](engineA);
+      scriptB[i](engineB);
+    }
+
+    // The script crosses dock->warehouse->dock->warehouse->dock (4 crossings,
+    // an even number), so it ends back in loadingDock, not the warehouse.
+    assert(engineA.zone.id === "loadingDock", "sanity: expected engineA to have ended in loadingDock, got " + engineA.zone.id);
+    assert(engineB.zone.id === "loadingDock", "sanity: expected engineB to have ended in loadingDock, got " + engineB.zone.id);
+    assert(engineA.tickCount === engineB.tickCount, "sanity: expected identical tickCount");
+
+    var snapA = JSON.stringify(engineA.snapshot());
+    var snapB = JSON.stringify(engineB.snapshot());
+    assert(snapA === snapB, "expected byte-identical snapshots for two engines given the identical seed + input log, diverged");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 8. Save/restore carries the stash: tranq the dock guard, go to warehouse,
+//    F5-capture, restore, return to dock -> guard still sleeping with the
+//    correct remaining time.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: a save/restore round-trip carries the zone stash (tranq dock guard survives capture+restore+return)",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var warehouse = Game.ZONES.warehouse;
+    var engine = Game.createEngine({ seed: 9008, zoneData: dock });
+
+    var g1 = findGuard(engine, "g1");
+    g1.tranq(true);
+    var PRE_DEPART_TICKS = Math.round(8 / DT);
+    for (var i = 0; i < PRE_DEPART_TICKS; i++) engine.tick();
+    var remainingAtExit = Game.GUARD.SLEEP_S - engine.guards[0].getState().sleepTime;
+
+    crossExit(engine, dock.exit);
+    assert(engine.zone.id === "warehouse", "setup: expected warehouse");
+
+    // F5 -- capture, then restore into a brand new engine instance.
+    var saveState = Game.createSaveState();
+    var save = saveState.capture(engine);
+    assert(save.zoneId === "warehouse", "sanity: expected the save's zoneId to be warehouse, got " + save.zoneId);
+
+    var restored = saveState.restore(save);
+    assert(restored.zone.id === "warehouse", "expected the restored engine to be in the warehouse, got " + restored.zone.id);
+
+    // Return to the dock on the RESTORED engine.
+    crossExit(restored, warehouse.exits[0]);
+    assert(restored.zone.id === "loadingDock", "expected the restored engine back in loadingDock, got " + restored.zone.id);
+
+    var g1Restored = findGuard(restored, "g1");
+    assert(g1Restored, "expected g1 to exist again on the restored engine after re-entering loadingDock");
+    assert(g1Restored.state === "SLEEPING", "expected g1 still SLEEPING on the restored engine, got " + g1Restored.state);
+
+    var remainingAfterRestore = Game.GUARD.SLEEP_S - g1Restored.getState().sleepTime;
+    assert(
+      Math.abs(remainingAfterRestore - remainingAtExit) <= 2 * DT,
+      "expected the save/restore round trip to preserve the frozen remaining sleep time ~" +
+        remainingAtExit.toFixed(4) + "s, got " + remainingAfterRestore.toFixed(4) + "s"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 9. (bonus) Door open-flag + auto-close timer persist across a round trip.
+//    Neither loadingDock nor warehouse ships a door (see world.js's own zone
+//    comments), so this test temporarily registers two tiny throwaway zones
+//    into Game.ZONES (ids "zpDoorA"/"zpDoorB", guaranteed not to collide
+//    with any real zone) for the DURATION OF THIS TEST ONLY, deregistering
+//    them in a `finally` so no other test (in this file or any other) ever
+//    observes them -- test.js runs each test's fn() to full completion,
+//    including the finally, before moving to the next one.
+// ---------------------------------------------------------------------------
+Game.selfTests.push({
+  name: "zonePersistence: an open door's auto-close countdown persists (frozen) across a round trip",
+  fn: function () {
+    var zoneA = {
+      id: "zpDoorA",
+      name: "ZP DOOR TEST A",
+      bounds: { w: 40, h: 30 },
+      walls: [
+        { x: 0, y: 0, w: 40, h: 1 },
+        { x: 0, y: 29, w: 40, h: 1 },
+        { x: 0, y: 0, w: 1, h: 30 },
+        { x: 39, y: 0, w: 1, h: 30 },
+      ],
+      doors: [{ x: 18, y: 14, w: 4, h: 1, lock: null, id: "zpDoor" }],
+      playerSpawn: { x: 20, y: 20 },
+      exits: [{ x: 18, y: 0, w: 4, h: 3, to: "zpDoorB", entranceKey: "fromA" }],
+      entrances: { fromB: { x: 20, y: 20 } },
+      waypoints: [
+        { x: 5, y: 5 },
+        { x: 35, y: 5 },
+        { x: 35, y: 25 },
+        { x: 5, y: 25 },
+      ],
+      darkZones: [],
+      lockers: [],
+      cameras: [],
+      pickups: [],
+      lasers: [],
+    };
+    zoneA.exit = zoneA.exits[0];
+
+    var zoneB = {
+      id: "zpDoorB",
+      name: "ZP DOOR TEST B",
+      bounds: { w: 40, h: 30 },
+      walls: [
+        { x: 0, y: 0, w: 40, h: 1 },
+        { x: 0, y: 29, w: 40, h: 1 },
+        { x: 0, y: 0, w: 1, h: 30 },
+        { x: 39, y: 0, w: 1, h: 30 },
+      ],
+      doors: [],
+      playerSpawn: { x: 20, y: 15 },
+      exits: [{ x: 18, y: 26, w: 4, h: 3, to: "zpDoorA", entranceKey: "fromB" }],
+      entrances: { fromA: { x: 20, y: 4 } },
+      waypoints: [
+        { x: 5, y: 5 },
+        { x: 35, y: 5 },
+        { x: 35, y: 25 },
+        { x: 5, y: 25 },
+      ],
+      darkZones: [],
+      lockers: [],
+      cameras: [],
+      pickups: [],
+      lasers: [],
+    };
+    zoneB.exit = zoneB.exits[0];
+
+    assert(!Game.ZONES.zpDoorA && !Game.ZONES.zpDoorB, "sanity: throwaway zone ids must not already exist");
+
+    try {
+      Game.ZONES.zpDoorA = zoneA;
+      Game.ZONES.zpDoorB = zoneB;
+
+      var engine = Game.createEngine({ seed: 9009, zoneData: zoneA, guardConfigs: [] });
+      assert(engine.world.isDoorOpen("zpDoor") === false, "setup: expected the door to start closed");
+
+      // Walk up to the door to open it (unlocked -- opens on proximity).
+      engine.player.x = 20;
+      engine.player.y = 14.5;
+      engine.tick({ moveX: 0, moveY: 0 });
+      assert(engine.world.isDoorOpen("zpDoor") === true, "setup: expected the door to have opened on proximity");
+
+      // Step away immediately and hold there for ~2.0s of the door's 3s
+      // auto-close budget (DOOR_AUTO_CLOSE_S), leaving ~1.0s remaining --
+      // deliberately a LARGE, easy-to-distinguish remainder rather than a
+      // near-zero one, so "resumed at ~1s remaining" (expected) reads
+      // nothing like "reset to a fresh 3s" (~3s) or "expired while away"
+      // (~0s) once we measure how long the door takes to close after return.
+      engine.player.x = 2;
+      engine.player.y = 2;
+      var HOLD_AWAY_TICKS = Math.round(2.0 / DT);
+      for (var i = 0; i < HOLD_AWAY_TICKS; i++) engine.tick({ moveX: 0, moveY: 0 });
+      assert(engine.world.isDoorOpen("zpDoor") === true, "setup: expected the door still open just before departure (~1s of its 3s budget left)");
+
+      engine.player.x = zoneA.exit.x + zoneA.exit.w / 2;
+      engine.player.y = zoneA.exit.y + zoneA.exit.h / 2;
+      engine.tick({ moveX: 0, moveY: 0 });
+      assert(engine.zone.id === "zpDoorB", "expected to have crossed into zpDoorB, got " + engine.zone.id);
+
+      // Spend a while in zpDoorB -- the door in zpDoorA must NOT advance its
+      // countdown while nobody is there to see it (frozen time, see file
+      // header) and must NOT have silently auto-closed by the time we
+      // return, even though real (global) engine.time keeps climbing well
+      // past the door's own 3s budget during this stretch. Parked off-map
+      // (zpDoorB gets its own default single guard patrolling near the
+      // entrance point, same "no incidental detection" precedent as this
+      // file's other multi-second idle waits) -- this test is about the
+      // door's countdown, not about surviving zpDoorB's guard.
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+      var AWAY_TICKS = Math.round(5 / DT);
+      for (var t = 0; t < AWAY_TICKS; t++) engine.tick({ moveX: 0, moveY: 0 });
+
+      engine.player.x = zoneB.exit.x + zoneB.exit.w / 2;
+      engine.player.y = zoneB.exit.y + zoneB.exit.h / 2;
+      engine.tick({ moveX: 0, moveY: 0 });
+      assert(engine.zone.id === "zpDoorA", "expected to be back in zpDoorA, got " + engine.zone.id);
+
+      assert(
+        engine.world.isDoorOpen("zpDoor") === true,
+        "expected the door to STILL read open right after re-entry (its ~1s-remaining countdown must not have silently elapsed while away)"
+      );
+
+      // Confirm the countdown actually RESUMES from ~1s remaining rather
+      // than restarting a fresh 3s window: keep the player away from the
+      // door and time how long it takes to auto-close.
+      var closedAtTick = null;
+      var MAX_TICKS = Math.round(2.5 / DT);
+      for (var w = 0; w < MAX_TICKS && closedAtTick === null; w++) {
+        engine.player.x = 2; // keep the player away from the door this whole time
+        engine.player.y = 2;
+        engine.tick({ moveX: 0, moveY: 0 });
+        if (!engine.world.isDoorOpen("zpDoor")) closedAtTick = w;
+      }
+      assert(closedAtTick !== null, "expected the door to eventually auto-close after re-entry, within 2.5s");
+      var closedAfterS = (closedAtTick + 1) * DT;
+      assert(
+        closedAfterS > 0.5 && closedAfterS < 2.0,
+        "expected the door to close ~1s after re-entry (countdown RESUMED from where it was frozen, not reset to a fresh 3s and not already expired), got " +
+          closedAfterS.toFixed(2) + "s"
+      );
+    } finally {
+      delete Game.ZONES.zpDoorA;
+      delete Game.ZONES.zpDoorB;
     }
   },
 });

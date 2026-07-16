@@ -102,15 +102,26 @@
 //                                 // completes; miss `missionComplete` and a save captured after
 //                                 // a (theoretical) extraction would restore into a live,
 //                                 // ticking engine instead of the frozen one it was saved as.
-//                                 // SAVE_VERSION was bumped 1 -> 2 for exactly this shape
-//                                 // change (see restore()'s VERSION GATE below) — an old-format
-//                                 // save simply lacks these two fields, which src/engine.js's
-//                                 // own setState() tolerates defensively (falls back to the
-//                                 // freshly-built engine's own zeroed stats/false
-//                                 // missionComplete rather than clobbering them with
-//                                 // `undefined`), but the version gate means that fallback
-//                                 // should never actually be reachable via a real restore()
-//                                 // call in practice.
+//                                 // ALSO NEW this cycle (zone persistence, see src/engine.js's
+//                                 // own ZONE PERSISTENCE / STASH contract) — `zoneStash` (the
+//                                 // FULL { [zoneId]: stashEntry } map every departed-and-not-
+//                                 // yet-revisited zone's guards/squad/director/door state lives
+//                                 // in) and `zoneReinforcementUsed` (the CURRENT zone's cross-
+//                                 // visit reinforcement spend). Both mission-scoped like `stats`
+//                                 // above; miss `zoneStash` and a save/restore round-trip
+//                                 // forgets every zone ever departed before the save — e.g.
+//                                 // tranq a guard, leave, save, restore, return: the guard would
+//                                 // come back fresh at spawn instead of still sleeping (see
+//                                 // tests/zonePersistence.test.js's own save/restore test).
+//                                 // SAVE_VERSION was bumped 1 -> 2 -> 3 for exactly these two
+//                                 // shape changes (see restore()'s VERSION GATE below) — an
+//                                 // old-format save simply lacks these fields, which
+//                                 // src/engine.js's own setState() tolerates defensively (falls
+//                                 // back to the freshly-built engine's own zeroed stats/false
+//                                 // missionComplete/empty zoneStash/0 zoneReinforcementUsed
+//                                 // rather than clobbering them with `undefined`), but the
+//                                 // version gate means that fallback should never actually be
+//                                 // reachable via a real restore() call in practice.
 //     }
 //   CODEC IS DELIBERATELY EXCLUDED — v1 (documented, not a gap): codecDirector's
 //   one-shot trigger memory (src/codec.js) is UI/narrative bookkeeping ("has
@@ -132,10 +143,12 @@
 //        cycle that changes what any getState()/setState() captures MUST
 //        bump SAVE_VERSION) must never be silently half-applied into a
 //        corrupt engine; see tests/saveState.test.js's version-mismatch test.
-//        SAVE_VERSION is 2 as of this cycle (win-state) — bumped from 1
-//        because engine.getState() grew two new fields (`stats`,
-//        `missionComplete`, see the `engine` field note above); a save
-//        captured by an older build simply won't have them.
+//        SAVE_VERSION is 3 as of this cycle (zone persistence) — bumped from
+//        2 because engine.getState() grew two more new fields (`zoneStash`,
+//        `zoneReinforcementUsed`, see the `engine` field note above), on top
+//        of the win-state cycle's earlier bump (1 -> 2, `stats`/
+//        `missionComplete`); a save captured by an older build simply won't
+//        have any of these.
 //     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
 //        if that zone no longer exists (defensive; every zone this cycle
 //        ships is a fixed module-level Game.ZONES entry, so this should never
@@ -196,7 +209,11 @@
   // field, and src/engine.js's MISSION STATS / EXTRACTION / RANK contract) —
   // a genuine shape change to what capture()/restore() round-trip, so per
   // this module's own VERSION GATE rule the version bumps.
-  var SAVE_VERSION = 2;
+  // SAVE_VERSION 2 -> 3 (zone persistence cycle): engine.getState() grew
+  // `zoneStash` and `zoneReinforcementUsed` (see this file's own header note
+  // on the `engine` field, and src/engine.js's ZONE PERSISTENCE / STASH
+  // contract) — another genuine shape change, same rule.
+  var SAVE_VERSION = 3;
 
   function capture(engine) {
     var player = engine.player;

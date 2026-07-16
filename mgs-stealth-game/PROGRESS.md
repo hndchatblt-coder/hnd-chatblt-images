@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.33 (cycle 33 — feedback polish pack)
+**Version:** v0.34 (cycle 34 — zone-state persistence)
 
 ## Module status
 
@@ -38,6 +38,8 @@
 
 ## Changelog (last 5)
 
+- cycle 34: zone-state persistence — stash/thaw via getState machinery,
+  zone-lifetime reinforcement budget, SAVE_VERSION 3 (222/222, 23/23)
 - cycle 33: polish — hit flash, noise-radius ripples (run/walk/knock, sized
   to real emit radii), death sting + bed duck (213/213, 22/22)
 - cycle 32: crash fix — wedge trackers with graceful give-up on INVESTIGATE/

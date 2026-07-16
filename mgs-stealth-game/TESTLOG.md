@@ -1,5 +1,29 @@
 # TESTLOG.md
 
+## Cycle 34 (zone-state persistence)
+
+222/222; 23/23; 5/5 shots. Departed zones freeze instead of forgetting:
+guard blobs (sleep clocks, wedge trackers) stash on exit and thaw on
+re-entry via the same getState/setState machinery saves use. Reinforcement
+budget is now zone-LIFETIME (engine-side counter, director untouched).
+Doors stash elapsed countdowns, not timestamps. SAVE_VERSION 2→3. The
+INFILTRATION-only exit gate means stashes are always calm-phase — verified,
+documented. Zero test replacements needed (all prior transition tests
+exercised first visits only).
+
+**Problems:** (1) missingSearchers dispatch tracking not stashed (documented
+honest gap mirroring director's own save-gap note) — a search pending at
+exit is dropped; minor, ledger for the cycle-40 audit sweep. (2) game.html
+crossed 1MB — fine for file://, but watch: minify-comments at build time is
+now worth a backlog item (never test exclusion). (3) frozen-time off-screen
+is a design simplification players may notice (guard asleep forever if you
+never return... no — clock resumes on re-entry; the noticeable case is
+alerts never cooling off-screen, which can't occur due to the exit gate).
+
+**Delight:** the whole feature reused the save/restore machinery — cycle
+27's determinism rigor made cycle 34 mostly wiring. Compounding returns on
+the ratchet.
+
 ## Cycle 33 (polish: event-feedback pack)
 
 213/213; 22/22; 5/5 shots + a knock-ripple evidence shot verified by eye

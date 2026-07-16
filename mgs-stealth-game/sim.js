@@ -2427,6 +2427,109 @@ scenarios.push({
   },
 });
 
+// ---------------------------------------------------------------------------
+// "The facility remembers": zone persistence (see src/engine.js's own ZONE
+// PERSISTENCE / STASH contract) end to end through an ordinary playtest
+// shape -- tranq the dock guard, flee across the border into the warehouse,
+// come back, confirm he's exactly as we left him, then just sit there and
+// let the real 60s wake clock run out in-zone: INVESTIGATE, then a clean
+// return to PATROL, no alerts, no thrown errors anywhere in the whole
+// sequence. This is the "no imagined playtest confidently misses this"
+// bar sim.js exists for -- tests/zonePersistence.test.js already proves each
+// piece in isolation (frozen sleep clock, position persistence, wake
+// sequencing); this scenario proves they compose correctly back to back in
+// one continuous run, the shape an actual player would produce.
+scenarios.push({
+  name: "the facility remembers: tranq, flee, return",
+  seed: 20260716050,
+  run: function (G) {
+    const dock = G.ZONES.loadingDock;
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({ seed: this.seed, zoneData: dock });
+
+    const g1 = engine.guards[0];
+    if (g1.id !== "g1") throw new Error("setup: expected the default loadingDock guard g1, got " + g1.id);
+
+    g1.tranq(true); // headshot -> instantly SLEEPING
+    if (g1.state !== "SLEEPING") throw new Error("setup: expected g1 asleep immediately after the headshot");
+
+    // Let a few seconds pass in the dock before fleeing, so the remaining
+    // sleep clock is genuinely partial (not full) at the moment of departure.
+    for (let i = 0; i < Math.round(6 / DT); i++) engine.tick();
+    const remainingAtDeparture = G.GUARD.SLEEP_S - engine.guards[0].getState().sleepTime;
+
+    // Flee across the border into the warehouse.
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    engine.player.stance = "crawl";
+    engine.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+    if (engine.zone.id !== "warehouse") throw new Error("expected to have fled into the warehouse, got " + engine.zone.id);
+
+    // Spend some real time in the warehouse -- parked off the w1/w2 patrol
+    // lines (same "no incidental detection" precedent tests/
+    // zonePersistence.test.js's own multi-second idle waits use) so this
+    // scenario stays about the STASH, not about surviving the warehouse's
+    // own guards.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    for (let i = 0; i < Math.round(10 / DT); i++) engine.tick();
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("expected the warehouse squad to stay INFILTRATION the whole time, got " + engine.squad.phase);
+    }
+
+    // Return to the loading dock.
+    const southExit = warehouse.exits[0];
+    if (southExit.to !== "loadingDock") throw new Error("setup: expected warehouse.exits[0] to lead back to loadingDock");
+    engine.player.x = southExit.x + southExit.w / 2;
+    engine.player.y = southExit.y + southExit.h / 2;
+    engine.player.stance = "crawl";
+    engine.tick({ moveX: 0, moveY: 0, stance: "crawl" });
+    if (engine.zone.id !== "loadingDock") throw new Error("expected to be back in loadingDock, got " + engine.zone.id);
+
+    // Still sleeping, with plausibly the SAME remaining time (frozen while
+    // away) -- not reset to full, not aged by however long the warehouse
+    // detour took.
+    const g1Again = engine.guards.find((g) => g.id === "g1");
+    if (!g1Again) throw new Error("expected g1 to exist again after re-entering loadingDock");
+    if (g1Again.state !== "SLEEPING") throw new Error("expected g1 STILL SLEEPING right after the return, got " + g1Again.state);
+    const remainingAfterReturn = G.GUARD.SLEEP_S - g1Again.getState().sleepTime;
+    if (Math.abs(remainingAfterReturn - remainingAtDeparture) > 2 * DT) {
+      throw new Error(
+        "expected the flee-and-return round trip to freeze the remaining sleep time at ~" +
+          remainingAtDeparture.toFixed(3) + "s, got " + remainingAfterReturn.toFixed(3) + "s"
+      );
+    }
+
+    // Now just sit here (staying off any future exit trigger) and let the
+    // real wake clock run out: SLEEPING -> INVESTIGATE -> back to PATROL,
+    // no alerts, engine never throws.
+    engine.player.x = 2;
+    engine.player.y = 2;
+    let sawInvestigate = false;
+    let sawPatrolAfterWake = false;
+    let sawAlert = false;
+    const WAKE_WINDOW_TICKS = Math.round((remainingAfterReturn + 20) / DT);
+    for (let t = 0; t < WAKE_WINDOW_TICKS; t++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+      engine.player.x = 2;
+      engine.player.y = 2;
+      for (const ev of engine.events) {
+        if (ev.type === "alert") sawAlert = true;
+      }
+      const g = engine.guards.find((gg) => gg.id === "g1");
+      if (g.state === "INVESTIGATE") sawInvestigate = true;
+      if (sawInvestigate && g.state === "PATROL") sawPatrolAfterWake = true;
+    }
+
+    if (sawAlert) throw new Error("expected zero alerts across the whole wake-up window");
+    if (!sawInvestigate) throw new Error("expected g1 to wake into INVESTIGATE");
+    if (!sawPatrolAfterWake) throw new Error("expected g1 to settle back into ordinary PATROL after investigating");
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("expected the squad to have stayed INFILTRATION throughout, got " + engine.squad.phase);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {
