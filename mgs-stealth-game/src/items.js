@@ -78,6 +78,15 @@
 //         so no branch of engine.js's handleDragKey() runs at all (not
 //         "attach is blocked but release still works" — the whole key is
 //         dead while boxed).
+//       - E (fire tranq) is BLOCKED while inv.boxOn is true — emits { type:
+//         "busy" } instead; no dart is spent. Hands-full logic: same as dragging.
+//       - Q (CQC takedown) is BLOCKED while inv.boxOn is true — emits
+//         { type: "busy" } instead; target remains awake. Hands-full logic:
+//         same as dragging.
+//       - K (knock) is ALWAYS ALLOWED while inv.boxOn — reaching out to tap
+//         a wall is tactically interesting and feasible.
+//       - R (ration) and C (chaff) are ALWAYS ALLOWED while inv.boxOn —
+//         consumables do not conflict with the disguise.
 //       Because of the two rules above, boxOn and (dragging || playerHidden)
 //       can never be true at the same time — there is no live "box mid-drag"
 //       state to transition OUT of, so no separate "auto-off when a drag/

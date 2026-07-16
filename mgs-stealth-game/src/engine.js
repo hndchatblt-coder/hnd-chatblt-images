@@ -1159,8 +1159,11 @@
 
       var cqcEdge = normalized.cqc && !prevCqc;
       prevCqc = normalized.cqc;
-      if (cqcEdge && !engine.playerHidden && !engine.dragging) {
+      if (cqcEdge && !engine.playerHidden && !engine.dragging && !inventory.boxOn) {
         tryCqc();
+      } else if (cqcEdge && (engine.dragging || inventory.boxOn)) {
+        // NO CQC WHILE DRAGGING or BOXED — both hands are full in either case.
+        engine.events.push({ type: "busy" });
       }
 
       // BOX VERB (see file header) — B is a TOGGLE, not a one-shot action,
@@ -1262,10 +1265,10 @@
       if (fireEdge && engine.playerHidden) {
         // Frozen input while hidden (see file header LOCKER VERB) — the
         // button press is silently swallowed, same as movement.
-      } else if (fireEdge && engine.dragging) {
-        // NO FIRING WHILE DRAGGING (see file header DRAG VERB) — both hands
-        // are full; the edge is consumed (no repeat spam while held) but
-        // no dart is spent.
+      } else if (fireEdge && (engine.dragging || inventory.boxOn)) {
+        // NO FIRING WHILE DRAGGING or BOXED (see file header DRAG VERB / BOX
+        // VERB) — both hands are full in either case; the edge is consumed
+        // (no repeat spam while held) but no dart is spent.
         engine.events.push({ type: "busy" });
       } else if (fireEdge) {
         var fireResult = inventory.fireTranq(engine);

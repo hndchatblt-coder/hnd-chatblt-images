@@ -39,7 +39,7 @@ content rotation) take over. L items must be split before selection.
 
 ## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
 
-- **A1: box doesn't gate fire/CQC** | bugfix | S | Readability | sniping/choking from inside the box is an undocumented loophole; decide + gate + regression test. TOP PRIORITY.
+- ~~A1: box doesn't gate fire/CQC~~ FIXED cycle 21 (regression test in tests/regressions/).
 - A2: ration/chaff ungated while hidden/dragging | bugfix | S | Readability | decide semantics explicitly (ration-always-ok may stand), document, test.
 - A3: engine contract block missing gameOver/inventory/chaffUntil | polish | S | Readability | fold the last 4 cycles' props into the canonical list.
 - A4: chaff has no HUD slot + dangling "see BACKLOG" comment | polish | S | Readability | show chaff count; fix comment.

@@ -1,5 +1,16 @@
 # TESTLOG.md
 
+## Cycle 21 (bugfix: audit A1 — box gates fire/CQC)
+
+135/135; 14/14; screens clean. Fire and CQC now blocked while boxed (busy
+event, mirrors drag gating); knock/ration/chaff stay allowed; interaction
+matrix documentation extended; 4-assertion regression test in
+tests/regressions/. The audit's top finding closed within one cycle.
+
+Problems/delights: minimal cycle by design — one bug, one gate, one
+regression test. Delight: the busy-event pattern absorbed a third consumer
+without modification.
+
 ## Cycle 20 (AUDIT — no building)
 
 Fresh-eyes Sonnet audit of the whole repo at HEAD 8d485bb (131/131, 14/14

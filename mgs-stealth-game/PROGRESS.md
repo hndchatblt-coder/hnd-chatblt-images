@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.20 (cycle 20 — audit; 12 findings → backlog A1-A12)
+**Version:** v0.21 (cycle 21 — audit fix A1)
 
 ## Module status
 
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 21: bugfix A1 — box gates fire/CQC (busy event), matrix docs,
+  regression test (135/135, 14/14)
 - cycle 20: AUDIT — 12 findings (box/fire gate gap tops the list), clean bill
   on architecture rules; findings → BACKLOG A1-A12
 - cycle 19: box (0.05 stationary/blown moving), ration (+0.35, x3), chaff
