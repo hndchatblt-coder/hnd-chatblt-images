@@ -130,3 +130,41 @@ Game.selfTests.push({
     assert(interior >= 6, "expected at least 6 interior walls, got " + interior);
   },
 });
+
+// 9. Every consecutive waypoint leg is walkably clear (r=0.6 sampled, raycast also clear).
+Game.selfTests.push({
+  name: "world: every consecutive waypoint leg is walkably clear (r=0.6 sampled)",
+  fn: function () {
+    var waypoints = zone.waypoints;
+    assert(waypoints.length >= 4, "expected at least 4 waypoints for patrol loop");
+
+    for (var i = 0; i < waypoints.length; i++) {
+      var a = waypoints[i];
+      var b = waypoints[(i + 1) % waypoints.length];
+      var legLabel = "leg " + i + " (" + i + "->" + ((i + 1) % waypoints.length) + ")";
+
+      // Sample every 0.25m along the segment and verify no collision.
+      var dx = b.x - a.x;
+      var dy = b.y - a.y;
+      var legLen = Math.sqrt(dx * dx + dy * dy);
+      var samples = Math.ceil(legLen / 0.25);
+
+      for (var s = 0; s <= samples; s++) {
+        var t = samples > 0 ? s / samples : 0;
+        var px = a.x + dx * t;
+        var py = a.y + dy * t;
+        assert(
+          !world.isBlockedCircle(px, py, 0.6),
+          legLabel + " blocked at sample (" + px.toFixed(2) + "," + py.toFixed(2) + ")"
+        );
+      }
+
+      // Also verify raycast is clear.
+      var hit = world.raycast(a.x, a.y, b.x, b.y);
+      assert(
+        hit === null,
+        legLabel + " raycast hit at (" + (hit ? hit.x.toFixed(2) : "?") + "," + (hit ? hit.y.toFixed(2) : "?") + ")"
+      );
+    }
+  },
+});

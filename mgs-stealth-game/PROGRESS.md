@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.4 (cycle 4 — guardAI part A)
+**Version:** v0.5 (cycle 5 — waypoint bugfix)
 
 ## Module status
 
@@ -24,14 +24,15 @@
 
 ## Known issues
 
-- **loadingDock waypoint leg NW→NE crosses the guard-hut wall** — guard wedges
-  without pathfinding. Fix scheduled cycle 5 (route + stronger sanity test).
 - ALERT is a placeholder: stand-still, no exit. Part B (cycle 6) replaces it.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 5: bugfix — waypoint route rerouted around guard hut; leg-clearance
+  sanity test (r=0.6 sampled + raycast, wrap-around); first regression test
+  (guard walks real loop 180s). 38/38, 4/4
 - cycle 4: guardAI part A — PATROL/SUSPICIOUS/INVESTIGATE FSM, hearNoise API,
   head-sweep, determinism test, 3 sim scenarios (36/36, 4/4)
 - cycle 3: vision — 70°/14m cone, exact LOS, fill meter (0.8s confirm at 2m),

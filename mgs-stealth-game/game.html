@@ -247,10 +247,10 @@
     playerSpawn: { x: 20, y: 27 },
     exit: { x: 18, y: 0, w: 4, h: 3 },
     waypoints: [
-      { x: 4, y: 5 }, // NW corner
-      { x: 36, y: 5 }, // NE corner
-      { x: 35, y: 26 }, // SE corner
-      { x: 5, y: 26 }, // SW corner
+      { x: 3, y: 2 }, // NW corner (above all obstacles for clear north leg)
+      { x: 37, y: 2 }, // NE corner
+      { x: 37, y: 27 }, // SE corner (south of crate clusters, north of perimeter)
+      { x: 3, y: 27 }, // SW corner
     ],
     darkZones: [
       { x: 2, y: 9, w: 5, h: 11 }, // shadow west of the container, along the left flank

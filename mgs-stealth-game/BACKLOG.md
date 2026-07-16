@@ -12,7 +12,7 @@ content rotation) take over. L items must be split before selection.
 3. ~~Player movement set~~ DONE cycle 2.
 4. ~~Vision~~ DONE cycle 3 (staggering deferred to engine cycle with guardAI).
 5a. ~~GuardAI part A (PATROL/SUSPICIOUS/INVESTIGATE)~~ DONE cycle 4.
-5b. **FIX FIRST (bugfix, cycle 5): loadingDock waypoint route crosses guard hut** | bugfix | S | Readability | reroute NW→NE leg around the hut; strengthen zone sanity test to raycast every consecutive waypoint leg (append-only: new stricter test + keep old); regression test in tests/regressions/ that a guard walks the REAL zone waypoint loop hitting every waypoint.
+5b. ~~Waypoint route bugfix~~ DONE cycle 5.
 5c. GuardAI part B: ALERT/EVASION/CAUTION + convergence | feature | M | Consequence | per SPEC: "!", radio call, zone guards converge, reinforcements (max +3), EVASION 30s sweep at last-known-position, CAUTION 45s wider cones then decay; sim scenarios for full escalation→de-escalation ladder.
 6. SoundEvents | feature | M | Toybox | emit radii per SPEC; wall attenuation 50%/wall; guards receive stimuli; knock verb; sim asserts guard INVESTIGATEs a knock within 2s.
 7. Radar | feature | M | Readability | top-right soliton radar: walls, player, guards + live cones; static during ALERT/EVASION; canvas-drawn, gorgeous.
@@ -27,6 +27,7 @@ content rotation) take over. L items must be split before selection.
 ## Non-bootstrap items (from playtests)
 
 - moveCircle substep guard vs wall tunneling | bugfix | S | Consequence | a single-tick displacement of any magnitude never crosses a wall; regression test with a 2m/tick displacement into a 1m wall. (Blocked-by-need: do before any dash/throw physics.)
+- Mid-yard patrol waypoint | polish | S | Tension | perimeter-only loop leaves the center weave unwatched; add a 5th waypoint through the yard interior (leg-clearance test guards placement); check with radar once visible.
 - Peripheral vision band | feature | S | Tension | 70–90° arc fills at half rate; tests for band edges. (Candidate — check readability cost first.)
 - Per-guard fill multiplier | polish | S | Tension | Comms Tower heavies detect faster; plumb viewer.fillMult through computeSight.
 - Stance transition timers | polish | S | Readability | crouch↔crawl↔stand take real time (e.g. 0.25s), blocking visionProfile strobing; test asserts profile changes only after the timer.

@@ -1,5 +1,33 @@
 # TESTLOG.md
 
+## Cycle 5 (bugfix: waypoint route through guard hut)
+
+`node build.js && node test.js` 38/38; `node sim.js` 4/4. Route rerouted to a
+perimeter loop with verified ≥0.6m clearance; leg-clearance sanity test added
+(samples every 0.25m at r=0.6 + raycast per leg, wrap-around included); first
+regression test landed: a real guard walks the real loop for 180s and must
+visit all 4 waypoints without leaving PATROL.
+
+**3 problems:**
+1. The fixed loop hugs the perimeter (y=2/27, x=3/37) — the yard interior is
+   now unpatrolled, so the center weave route may be tension-free. Revisit
+   when radar lands and coverage is visible; likely wants a 5th mid-yard
+   waypoint (clearance test will catch bad placement now). → backlog.
+2. Leg-clearance test uses r=0.6 while guards are r=0.4 — good margin, but the
+   0.6 constant is duplicated in test and route design informally. Acceptable;
+   note only.
+3. Regression test costs 10800 simulated ticks (~instant in node today) —
+   watch total test-suite wall time as regressions accumulate; budget check at
+   the cycle-20 audit.
+
+**3 delights:**
+1. The bug became three permanent artifacts: fixed data, a stricter invariant
+   for EVERY future zone, and a full-stack regression walk. Classic ratchet.
+2. Error messages in the leg test name the leg and coordinates — future zone
+   authoring failures will be self-explaining.
+3. Haiku handled the whole packet cleanly on numbers alone — cheap-model
+   delegation for data+scaffold work is validated.
+
 ## Cycle 4 (guardAI part A: PATROL/SUSPICIOUS/INVESTIGATE)
 
 `node build.js && node test.js` 36/36; `node sim.js` 4/4 (first 3 real
