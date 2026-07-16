@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.24 (cycle 24 — Laboratory: doors/keycards/lasers)
+**Version:** v0.25 (cycle 25 — Comms Tower; all 4 zones live)
 
 ## Module status
 
@@ -8,7 +8,7 @@
 |----------------|-------------|------------------------------------------|
 | rng            | stub        | seeded RNG single source                 |
 | boot           | v1          | self-test gate, title, input, fixed-step loop |
-| world          | v3          | 3 zones + dynamic doors; commsTower stub remains |
+| world          | v4          | all 4 zones; extraction stub remains (win state next) |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
@@ -34,6 +34,8 @@
 
 ## Changelog (last 5)
 
+- cycle 25: Comms Tower — 4 interlocking heavy patrols, searchlight cameras,
+  extraction stub; full-facility zero-alert scenario passes (166/166, 18/18)
 - cycle 24: Laboratory — keycard doors (dynamic blockers), duty-cycle lasers,
   3-camera installation, L1 pickup seeded in warehouse (158/158, 17/17)
 - cycle 23: cameras — sweeping cones via shared vision math + perception

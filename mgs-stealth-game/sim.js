@@ -1663,6 +1663,255 @@ scenarios.push({
   },
 });
 
+// ---- Comms Tower playtest scenario (new — Comms Tower cycle) ---------------
+// The longest scenario in the suite: a full-facility run, dock (west flank,
+// same route as the "engine-driven infiltration" scenario above) -> warehouse
+// (grab L1) -> laboratory (badge through L1, time the west laser to grab L2
+// via the west wing, cross doorL2 into the east wing, grab the bonus chaff
+// grenade and use it to blind every camera in the zone before timing the
+// east laser to grab L3, badge back through doorL2, badge through doorL3)
+// -> north corridor -> the Comms Tower's own south entrance -> the tower's
+// south dark zone.
+//
+// REAL GUARDS/CAMERAS THE WHOLE WAY — unlike the "lab run" scenario above
+// (which constructs its engine directly IN the Warehouse specifically so
+// its own opts.guardConfigs: [] override applies there), this scenario
+// starts at the Loading Dock, so every later zone transition repopulates
+// guards from src/engine.js's own ZONE_GUARDS table for real (there is no
+// hook to silence a zone's guards once a transition INTO it has already
+// happened) — dock g1, warehouse w1/w2, laboratory lab-g1/lab-g2 are all
+// live, and every camera/laser is live too. Three routing lessons this
+// scenario's own development surfaced, each worth naming since they're easy
+// to get wrong by eye:
+//   1. Warehouse's own south exit trigger (back to loadingDock) sits at
+//      x:18-22,y:26-29 — directly under the entrance from loadingDock
+//      (x:18-22,y:25) — so the straight-line "duck south, then west" route
+//      the far-west-aisle L1 grab wants MUST detour around x:18-22 before
+//      dropping below y:26, or it walks straight back out to the Dock.
+//   2. Warehouse's w2 patrols a rectangle (x:17-22,y:5-25) that overlaps the
+//      entrance column entirely — the only genuinely guard-free stretch is
+//      the far-west aisle (row1's shelving, x:8-9.5, physically blocks LOS
+//      into it), so every leg between the entrance and that aisle has to
+//      clear w2's rectangle's x-range BEFORE lingering, not cross it
+//      diagonally.
+//   3. A camera's SWEEP (sweepDeg) stacks with its own FOV (fovDeg) — the
+//      cone's reach at a given range is NOT bounded by facing +/- fovDeg/2,
+//      it swings out to facing +/- (sweepDeg/2 + fovDeg/2) as the sweep
+//      carries it — so "stay outside the camera's static facing cone" is
+//      not a real safety guarantee the way it is for a laser's fixed line.
+//      The Laboratory's east wing camera (cameras[2]) watches the L3
+//      keycard at exactly its own facing height, where no such geometric
+//      dodge exists at all — the reliable answer is the tool actually built
+//      for this: grab the bonus chaff pickup and throw it, which disables
+//      EVERY camera in the zone for CHAFF_S (15s), turning the rest of the
+//      east wing into a pure laser-timing problem, same technique as the
+//      west wing.
+scenarios.push({
+  name: "tower approach: full-facility run dock->tower unseen",
+  seed: 20260716031,
+  run: function (G) {
+    const dock = G.ZONES.loadingDock;
+    const lab = G.ZONES.laboratory;
+    const engine = G.createEngine({ seed: this.seed, zoneData: dock });
+
+    const MAX_LEG_TICKS = Math.round(30 / DT);
+
+    // Real zoneChange events land here as they actually fire (see walkLeg
+    // below) -- the final assertion at the end of this scenario checks THIS
+    // array, not a hardcoded guess, so it only passes if every crossing
+    // really happened via engine.js's own ZONE TRANSITIONS step.
+    const zoneChanges = [];
+
+    // Same "stop dead on a zoneChange" steering convention as the lab run
+    // scenario above.
+    function walkLeg(tx, ty, opts, legLabel) {
+      opts = opts || {};
+      const stance = opts.stance || "stand";
+      const run = opts.run !== false;
+      const arrive = opts.arrive || 0.5;
+      const zoneAtStart = engine.zone.id;
+      for (let i = 0; i < MAX_LEG_TICKS; i++) {
+        if (engine.zone.id !== zoneAtStart) return;
+        const dx = tx - engine.player.x;
+        const dy = ty - engine.player.y;
+        const d = Math.hypot(dx, dy);
+        if (d <= arrive) return;
+        engine.tick({ moveX: d > 0 ? dx / d : 0, moveY: d > 0 ? dy / d : 0, run: run, stance: stance });
+        engine.events.forEach((e) => {
+          if (e.type === "zoneChange") zoneChanges.push(e.to);
+        });
+        if (engine.squad.phase !== "INFILTRATION") {
+          throw new Error(
+            legLabel + ": squad left INFILTRATION (phase=" + engine.squad.phase + ") at player (" +
+              engine.player.x.toFixed(2) + "," + engine.player.y.toFixed(2) + ")"
+          );
+        }
+      }
+      throw new Error(legLabel + ": stalled short of (" + tx + "," + ty + "), at (" + engine.player.x.toFixed(2) + "," + engine.player.y.toFixed(2) + ")");
+    }
+
+    // Stands still for up to maxTicks waiting for `check()` to return true;
+    // throws (with legLabel) if it never does. Asserts INFILTRATION every
+    // tick, same discipline as walkLeg.
+    function waitUntil(check, maxTicks, legLabel) {
+      for (let i = 0; i < maxTicks; i++) {
+        if (check()) return;
+        engine.tick({ moveX: 0, moveY: 0 });
+        if (engine.squad.phase !== "INFILTRATION") {
+          throw new Error(legLabel + ": squad left INFILTRATION while waiting, phase=" + engine.squad.phase);
+        }
+      }
+      throw new Error(legLabel + ": condition never became true within " + maxTicks + " ticks");
+    }
+
+    function guardById(id) {
+      return engine.guards.find((g) => g.id === id);
+    }
+
+    function outsideCameraFov(camIndex) {
+      const cam = lab.cameras[camIndex];
+      const panAngle = engine.director.cameraStates()[camIndex].panAngle;
+      const offsetDeg = (Math.abs(panAngle - cam.facing) * 180) / Math.PI;
+      return offsetDeg > cam.fovDeg / 2 + 2;
+    }
+
+    // ---- Loading Dock: west flank to the north exit (same route as the
+    // "engine-driven infiltration" scenario above) ----
+    walkLeg(3, 27, { stance: "stand" }, "dock: west along the open south corridor");
+    walkLeg(3, 9, { stance: "crouch" }, "dock: north through the west-flank dark zone");
+    walkLeg(3, 2, { stance: "crouch" }, "dock: NW corner, still sneaking near the guard hut");
+    walkLeg(dock.exit.x + dock.exit.w / 2, dock.exit.y + dock.exit.h / 2, { stance: "stand" }, "dock: dash for the exit gap");
+    if (engine.zone.id !== "warehouse") {
+      throw new Error("expected to have crossed into the warehouse, got zone " + engine.zone.id);
+    }
+
+    // ---- Warehouse: grab the L1 keycard, routed around w2's rectangle and
+    // clear of the south exit trigger back to the Dock (see lessons #1/#2
+    // in this scenario's own header comment) ----
+    walkLeg(16.5, 24, { stance: "crouch" }, "warehouse: diagonal off the entrance column, north of the south exit trigger");
+    walkLeg(16.5, 27.5, { stance: "crouch" }, "warehouse: drop into the south corridor, west of the exit trigger");
+    walkLeg(2, 27.5, { stance: "crouch" }, "warehouse: west along the south corridor, south of every shelving row");
+    walkLeg(2, 8, { stance: "crouch" }, "warehouse: north up the far-west aisle");
+    walkLeg(4, 7, { stance: "crouch", arrive: 0.3 }, "warehouse: L1 keycard pickup");
+    if (!engine.inventory.keycards.L1) {
+      throw new Error("setup failed: expected the L1 keycard to be collected by now");
+    }
+
+    // ---- to the Warehouse's own north exit, into the Laboratory ----
+    walkLeg(4, 2, { stance: "crouch" }, "warehouse: to the north band");
+    walkLeg(20, 2, { stance: "crouch" }, "warehouse: north exit crossing");
+    if (engine.zone.id !== "laboratory") {
+      throw new Error("expected to have crossed into the laboratory, got zone " + engine.zone.id);
+    }
+
+    // ---- Laboratory, lobby: time camera0's blind window, badge doorL1 ----
+    waitUntil(() => outsideCameraFov(0), Math.round(lab.cameras[0].sweepPeriodS / DT) + 10, "laboratory: waiting out camera0's sweep");
+    walkLeg(20, 17.6, { stance: "stand", run: true, arrive: 0.3 }, "laboratory: approach the L1 door");
+    const doorL1 = engine.snapshot().doors.find((d) => d.id === "doorL1");
+    if (!doorL1 || !doorL1.open) {
+      throw new Error("expected doorL1 to have auto-opened for the keyed player, got " + JSON.stringify(doorL1));
+    }
+    walkLeg(20, 12, { stance: "stand", run: true, arrive: 0.3 }, "laboratory: through the L1 door");
+
+    // ---- west wing: time the west laser to grab L2 first (lab-g2's own
+    // rectangle, x:3-17,y:5-15, is not yet a concern for this short
+    // above-the-beam dash — verified clear at this scenario's fixed seed) ----
+    const westLaser = lab.lasers[0];
+    walkLeg(10, 12, { stance: "crouch" }, "laboratory: into the west wing above the beam");
+    waitUntil(() => !engine.director.laserStates()[0].active, Math.round((westLaser.periodS + 1) / DT), "laboratory: waiting out the west laser's duty cycle");
+    walkLeg(10, 6, { stance: "stand", arrive: 0.5 }, "laboratory: dash across the beam to the L2 keycard");
+    if (!engine.inventory.keycards.L2) {
+      throw new Error("expected the L2 keycard to be collected by now");
+    }
+
+    // ---- wait for lab-g2 to be clear of the return path (its rectangle,
+    // x:3-17,y:5-15, covers this whole stretch regardless of y — see lesson
+    // #2), THEN time the west laser again for the crossing back south, then
+    // east to doorL2 staying south of the beam so camera1's own sweep (see
+    // lesson #3) never comes into play for this leg at all ----
+    waitUntil(() => guardById("lab-g2").x < 7, Math.round(60 / DT), "laboratory: waiting for lab-g2 clear of the west wing return path");
+    waitUntil(() => !engine.director.laserStates()[0].active, Math.round((westLaser.periodS + 1) / DT), "laboratory: waiting out the west laser's duty cycle (return)");
+    walkLeg(10, 12, { stance: "stand", run: true, arrive: 0.5 }, "laboratory: back south across the beam");
+    walkLeg(17.5, 12, { stance: "stand", run: true }, "laboratory: east toward doorL2, south of camera1's reach");
+    walkLeg(23, 11, { stance: "stand", run: true }, "laboratory: approach doorL2");
+    walkLeg(30, 12, { stance: "stand", run: true, arrive: 0.3 }, "laboratory: through doorL2 into the east wing, south of the beam");
+    const doorL2 = engine.snapshot().doors.find((d) => d.id === "doorL2");
+    if (!doorL2 || !doorL2.open) {
+      throw new Error("expected doorL2 to have auto-opened for the keyed player, got " + JSON.stringify(doorL2));
+    }
+
+    // ---- east wing: grab the bonus chaff, throw it to blind camera2 (see
+    // lesson #3), then it's a pure laser-timing problem to reach L3 ----
+    walkLeg(30, 14, { stance: "crouch" }, "laboratory: chaff pickup");
+    engine.tick({ moveX: 0, moveY: 0, chaff: true });
+    engine.events.forEach((e) => {
+      if (e.type === "zoneChange") zoneChanges.push(e.to);
+    });
+    if (!(engine.chaffUntil > engine.time)) {
+      throw new Error("setup failed: expected chaff to have armed");
+    }
+    if (engine.squad.phase !== "INFILTRATION") {
+      throw new Error("laboratory: squad left INFILTRATION off the chaff pop's own noise, phase=" + engine.squad.phase);
+    }
+    const eastLaser = lab.lasers[1];
+    walkLeg(30, 11, { stance: "crouch" }, "laboratory: back toward the beam, chaff still live");
+    waitUntil(() => !engine.director.laserStates()[1].active, Math.round((eastLaser.periodS + 1) / DT), "laboratory: waiting out the east laser's duty cycle (chaffed)");
+    walkLeg(34, 6, { stance: "stand", run: true, arrive: 0.5 }, "laboratory: dash across the beam to the L3 keycard");
+    if (!engine.inventory.keycards.L3) {
+      throw new Error("expected the L3 keycard to be collected by now");
+    }
+
+    // ---- back through doorL2, west to doorL3, into the north corridor and
+    // the Comms Tower. Stage close to the beam first, THEN wait for the
+    // laser's OFF phase, for a short final crossing rather than a long
+    // one — a long approach gives the duty cycle time to flip back before
+    // arrival, same lesson the outbound crossings above already apply. ----
+    walkLeg(32, 9.3, { stance: "crouch" }, "laboratory: stage just north of the beam for the return crossing");
+    waitUntil(() => !engine.director.laserStates()[1].active, Math.round((eastLaser.periodS + 1) / DT), "laboratory: waiting out the east laser's duty cycle (return, staged)");
+    walkLeg(30, 11, { stance: "stand", run: true, arrive: 0.3 }, "laboratory: back across the beam toward doorL2");
+    walkLeg(23, 11, { stance: "stand", run: true, arrive: 0.3 }, "laboratory: recross doorL2 westbound");
+    walkLeg(20, 4, { stance: "crouch" }, "laboratory: approach doorL3");
+    const doorL3 = engine.snapshot().doors.find((d) => d.id === "doorL3");
+    if (!doorL3 || !doorL3.open) {
+      throw new Error("expected doorL3 to have auto-opened for the keyed player, got " + JSON.stringify(doorL3));
+    }
+    walkLeg(20, 1.5, { stance: "crouch", arrive: 0.3 }, "laboratory: through doorL3 into the north corridor, to the tower entrance");
+
+    // ---- END OF ROUTE: the Comms Tower's own south entrance ----
+    if (engine.zone.id !== "commsTower") {
+      throw new Error("expected to have crossed into the commsTower, got zone " + engine.zone.id);
+    }
+    const tower = G.ZONES.commsTower;
+    const southShadow = tower.darkZones.find((dz) => dz.x <= 20 && 20 <= dz.x + dz.w && dz.y <= 26 && 26 <= dz.y + dz.h);
+    if (!southShadow) {
+      throw new Error("expected the tower's south entrance to land inside a dark zone");
+    }
+    if (Math.abs(engine.player.x - tower.entrances.fromLaboratory.x) > 1e-6 || Math.abs(engine.player.y - tower.entrances.fromLaboratory.y) > 1e-6) {
+      throw new Error("expected the player at commsTower.entrances.fromLaboratory, got " + JSON.stringify({ x: engine.player.x, y: engine.player.y }));
+    }
+
+    // zoneChanges was appended to LIVE by walkLeg every time a real
+    // zoneChange event actually fired (see its own declaration above) — this
+    // is the real chain, not a guess.
+    const expectedChain = ["warehouse", "laboratory", "commsTower"].join(",");
+    if (zoneChanges.join(",") !== expectedChain) {
+      throw new Error("expected the zoneChange chain [warehouse, laboratory, commsTower], got [" + zoneChanges.join(", ") + "]");
+    }
+
+    if (engine.squad.phase !== "INFILTRATION" || engine.squad.alertCount !== 0) {
+      throw new Error(
+        "expected zero alerts across the entire route, got phase=" + engine.squad.phase + " alertCount=" + engine.squad.alertCount
+      );
+    }
+    if (engine.player.hp !== 1) {
+      throw new Error("expected the player to still be at full hp, got " + engine.player.hp);
+    }
+    if (!engine.player.alive) {
+      throw new Error("expected the player to still be alive");
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

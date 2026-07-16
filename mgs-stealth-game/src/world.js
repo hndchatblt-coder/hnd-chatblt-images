@@ -33,6 +33,19 @@
 //                                          // define it (see warehouse below). Same shape/
 //                                          // rules as `waypoints`: closed loop, every leg
 //                                          // must be walkable at r=0.6 (see world.test.js).
+//       waypoints3/waypoints4: [ { x, y }, ... ], // NEW (Comms Tower cycle) — patrol loops
+//                                          // #3/#4, same shape/rules as waypoints/
+//                                          // waypoints2 above, for a THIRD/FOURTH
+//                                          // simultaneous guard. OPTIONAL — only
+//                                          // commsTower this cycle needs 4 guards (see
+//                                          // its own PATROL INTERLOCK comment below /
+//                                          // src/engine.js's ZONE_GUARDS.commsTower).
+//                                          // tests/zones.test.js's own generalized
+//                                          // loop-clearance test only ever iterates
+//                                          // `waypoints`/`waypoints2` (a fixed pair, not
+//                                          // a `waypoints*` wildcard scan) — a zone
+//                                          // using waypoints3/4 must cover them in its
+//                                          // OWN test file (see tests/commsTower.test.js).
 //       darkZones: [ { x, y, w, h }, ... ], // shadowed regions (vision uses these)
 //       lockers: [ { x, y, facing }, ... ], // NEW — data only this cycle (no collision/
 //                                          // interaction yet; the future items cycle makes
@@ -652,8 +665,194 @@
   };
   laboratory.exit = laboratory.exits[0]; // back-compat alias, see schema note above
 
+  // ---- zone data: COMMS TOWER --------------------------------------------------
+  // 40x30. The finale zone (pillar: Tension) — heaviest patrol density in the
+  // game. South entrance (entrances.fromLaboratory) mirrors the Laboratory's
+  // own north exit exactly (x:18-22, same shared spine column every other
+  // zone's south entrance has used) -> a SOUTH YARD leads up to an unlocked
+  // door (doorCore, no lock) into the CORE STAIRWELL, a hollow 10x10 tower
+  // footprint dead center (x:15-25, y:11-21) -> a ring corridor of open floor
+  // wraps every side of the core (west/east YARDS flanking it, a NORTH YARD
+  // above it) -> a wide north perimeter gap (x:15-25) is the HELIPAD APPROACH,
+  // leading to the roof helipad extraction point at the very top of the map
+  // (the exit trigger itself, y:0-3) -> exits[0].to is "extraction", a
+  // deliberate stub (see KNOWN_STUBS in tests/zones.test.js — win-state lands
+  // a future cycle; engine.js's tryZoneTransition already resolves an unknown
+  // `to` generically by staying put + emitting zoneBlocked, same mechanism
+  // every previous cycle's stub exit used, so no engine.js change was needed
+  // to make this safe to ship ahead of the zone it points to).
+  //
+  // ENTRANCEKEY NOTE: the schema comment above frames entranceKey as indexing
+  // the TARGET zone's `entrances` map, meaningless for a stub with no target
+  // zone at all — but tests/zones.test.js's own well-formedness check (test
+  // #3) asserts every exit's entranceKey is a non-empty string UNCONDITIONALLY
+  // (before it ever looks at whether `to` resolves), so `entranceKey: null`
+  // would fail that pre-existing assertion. "fromCommsTower" is used here
+  // instead, following the exact same forward-looking-name convention the
+  // Warehouse's own now-resolved Laboratory stub used before it was built
+  // (entranceKey: "fromWarehouse", picked before Laboratory.entrances existed
+  // at all) — whichever future cycle builds ZONES.extraction just needs to
+  // define entrances.fromCommsTower to make this resolve for real.
+  //
+  // PATROL INTERLOCK (4 guards — see engine.js's ZONE_GUARDS.commsTower):
+  // four independent loops chosen so their reach overlaps at every seam,
+  // approximating near-continuous coverage without any one guard's route
+  // being redundant with another's:
+  //   waypoints  (tower-g1): the OUTER PERIMETER ring (same corners-of-the-
+  //     map shape every previous zone's primary loop used) — the widest,
+  //     slowest loop, its reach touching every yard's outer edge.
+  //   waypoints2 (tower-g2): the CORE RING, a tight loop 2m clear of every
+  //     face of the tower core — the only loop that ever comes within sight
+  //     of doorCore, so a player badging into or out of the stairwell always
+  //     has to clock this guard's position first.
+  //   waypoints3 (tower-g3): the EAST YARD, a loop confined to x:29-37 east
+  //     of the core, its west edge (x:29) sitting 2m clear of the core ring's
+  //     own east edge (x:27) — the two loops run in close parallel along
+  //     that seam rather than ever touching, so a player threading between
+  //     them has a real but narrow gap, not a free lane.
+  //   waypoints4 (tower-g4): the WEST YARD, the exact mirror of waypoints3
+  //     (x:3-11), same 2m seam against the core ring's own west edge (x:13).
+  // Together: the perimeter ring bounds the whole map, the core ring bounds
+  // the tower, and the two yard loops fill the space between them on either
+  // flank — the only gaps wide enough to actually stand still in unseen are
+  // the 4 dark zones + the timing window on the single north laser, exactly
+  // the "dark zones + timing gaps + lockers + tools" route design this cycle
+  // calls for (see darkZones/lockers/lasers/pickups below).
+  var commsTower = {
+    id: "commsTower",
+    name: "COMMS TOWER",
+    bounds: { w: 40, h: 30 },
+    walls: [
+      // perimeter (6 segments: top split around the wide helipad-approach
+      // gap x:15-25, bottom split around the south entrance gap x:18-22
+      // shared with every other zone's spine column, left, right)
+      { x: 0, y: 0, w: 15, h: 1 }, // top-left (gap: x 15-25, helipad approach)
+      { x: 25, y: 0, w: 15, h: 1 }, // top-right
+      { x: 0, y: 29, w: 18, h: 1 }, // bottom-left (gap: x 18-22, entrance from laboratory)
+      { x: 22, y: 29, w: 18, h: 1 }, // bottom-right
+      { x: 0, y: 0, w: 1, h: 30 }, // left
+      { x: 39, y: 0, w: 1, h: 30 }, // right
+      // CORE STAIRWELL — a hollow 10x10 footprint (x:15-25, y:11-21) dead
+      // center, four wall segments forming its border, split on the south
+      // face around doorCore's own gap (x:18-22) — the only way in/out.
+      { x: 15, y: 11, w: 10, h: 1 }, // core north face
+      { x: 15, y: 20, w: 3, h: 1 }, // core south face, west of doorCore
+      { x: 22, y: 20, w: 3, h: 1 }, // core south face, east of doorCore
+      { x: 15, y: 11, w: 1, h: 9 }, // core west face
+      { x: 24, y: 11, w: 1, h: 9 }, // core east face
+      // guard posts (small huts), one per yard, well clear of every
+      // waypoint loop below (>=2m clearance on every side at r=0.6)
+      { x: 5, y: 12, w: 3, h: 3 }, // west yard guard post
+      { x: 32, y: 12, w: 3, h: 3 }, // east yard guard post
+      // sandbag lines (low crates) flanking the core door's own south
+      // approach, forcing a slight weave rather than a straight walk-up
+      { x: 15, y: 24, w: 2, h: 2 }, // south approach, west flank
+      { x: 23, y: 24, w: 2, h: 2 }, // south approach, east flank
+      // sandbag lines flanking the north helipad approach, same purpose
+      { x: 13, y: 5, w: 2, h: 2 }, // north approach, west flank
+      { x: 25, y: 5, w: 2, h: 2 }, // north approach, east flank
+    ],
+    doors: [
+      // Unlocked — auto-opens on mere proximity (see src/engine.js's DOORS
+      // step) — into the core stairwell. No lock; nothing to badge, this is
+      // flavor/structure this cycle, same "data now, mechanics later" posture
+      // as the stairwell interior itself (x:16-24, y:12-20, otherwise empty).
+      { x: 18, y: 20, w: 4, h: 1, lock: null, id: "doorCore" },
+    ],
+    playerSpawn: { x: 20, y: 26 },
+    // Only exit this cycle: the roof helipad -> extraction stub (see zone
+    // header note above). The trigger spans the full x:15-25 helipad-approach
+    // gap at the very top of the map.
+    exits: [{ x: 15, y: 0, w: 10, h: 3, to: "extraction", entranceKey: "fromCommsTower" }],
+    entrances: { fromLaboratory: { x: 20, y: 26 } },
+    // tower-g1: outer perimeter ring (see PATROL INTERLOCK above).
+    waypoints: [
+      { x: 3, y: 2 },
+      { x: 37, y: 2 },
+      { x: 37, y: 27 },
+      { x: 3, y: 27 },
+    ],
+    // tower-g2: core ring, 2m clear of every face of the tower core.
+    waypoints2: [
+      { x: 13, y: 9 },
+      { x: 27, y: 9 },
+      { x: 27, y: 23 },
+      { x: 13, y: 23 },
+    ],
+    // tower-g3: east yard loop.
+    waypoints3: [
+      { x: 29, y: 5 },
+      { x: 37, y: 5 },
+      { x: 37, y: 25 },
+      { x: 29, y: 25 },
+    ],
+    // tower-g4: west yard loop (mirror of waypoints3).
+    waypoints4: [
+      { x: 3, y: 5 },
+      { x: 11, y: 5 },
+      { x: 11, y: 25 },
+      { x: 3, y: 25 },
+    ],
+    // Generator shadows (>=3 required this cycle; 4 shipped) — one per yard
+    // plus the north/south approach bands, each a real route past the
+    // nearest camera/laser (see cameras/lasers below).
+    darkZones: [
+      { x: 2, y: 16, w: 4, h: 6 }, // west yard shadow
+      { x: 34, y: 16, w: 4, h: 6 }, // east yard shadow
+      { x: 14, y: 23, w: 12, h: 3 }, // south approach shadow, around the sandbag flanks
+      { x: 14, y: 2, w: 12, h: 3 }, // north approach shadow, right at the helipad threshold
+    ],
+    lockers: [
+      { x: 3, y: 19, facing: 0 },
+      { x: 36, y: 19, facing: Math.PI },
+      { x: 20, y: 24.5, facing: Math.PI / 2 },
+      { x: 20, y: 3, facing: -Math.PI / 2 },
+    ],
+    // 2 searchlight-style cameras, WIDE sweep (sweepDeg 100, range 12) per
+    // this cycle's design brief — deliberately much wider swing than any
+    // earlier zone's 60deg cameras, covering almost the ENTIRE north/south
+    // approach corridor rather than one intersection, matching the finale's
+    // heavier coverage. Mounted 0.1m clear of the wall/doorway they watch
+    // over, same convention as every earlier zone's camera placement.
+    cameras: [
+      // Mounted on the core's own north face, facing north (-PI/2) up the
+      // full helipad approach corridor (the north yard, x:15-25's own gap
+      // above it) -- the last thing between the stairwell roof exit and the
+      // extraction point.
+      { x: 20, y: 10.9, facing: -Math.PI / 2, sweepDeg: 100, sweepPeriodS: 6, fovDeg: 70, range: 12 },
+      // Mounted just south of doorCore, facing south (PI/2) down the full
+      // south approach corridor from the entrance to the stairwell door --
+      // the first thing a player arriving from the Laboratory has to clock.
+      { x: 20, y: 21.1, facing: Math.PI / 2, sweepDeg: 100, sweepPeriodS: 6, fovDeg: 70, range: 12 },
+    ],
+    // 1 laser across the final approach to the helipad -- timed exactly like
+    // the Laboratory's own two (periodS 4, dutyOn 0.6 -> 1.6s clear per
+    // cycle), spanning the full width of the north yard right at the
+    // sandbag-flank line, so a player can't reach the extraction trigger
+    // without either timing this beam or working the dark zone beside it.
+    lasers: [{ x1: 13, y1: 5, x2: 27, y2: 5, periodS: 4, dutyOn: 0.6 }],
+    // Reward-exploration pickups (see this cycle's design brief) -- one
+    // ration, one chaff grenade, each tucked in a yard's own dark zone.
+    // HONEST GAP: src/items.js's inv.collectPickup(item) (out of scope this
+    // cycle -- see the file's own FILES YOU MAY TOUCH constraint) only
+    // recognizes "keycardL1"/"keycardL2"/"keycardL3"/"chaff" as of this
+    // cycle -- "ration" is not yet a wired-up pickup item, so walking over
+    // this one still marks it collected and fires a { type: "pickup" } event
+    // (src/engine.js's PICKUPS step never branches on collectPickup's return
+    // value) but does NOT actually increment inv.rations yet. Documented
+    // here, not hacked around, same posture as every other honest gap in
+    // this codebase (e.g. src/world.js's own DOORS DO NOT ATTENUATE SOUND
+    // note above) -- a future items.js cycle wiring up "ration" as a real
+    // collectPickup case is the natural follow-up (see BACKLOG.md).
+    pickups: [
+      { x: 4, y: 20, item: "ration" },
+      { x: 36, y: 20, item: "chaff" },
+    ],
+  };
+  commsTower.exit = commsTower.exits[0]; // back-compat alias, see schema note above
+
   Game.createWorld = createWorld;
-  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse, laboratory: laboratory };
+  Game.ZONES = { loadingDock: loadingDock, warehouse: warehouse, laboratory: laboratory, commsTower: commsTower };
   if (typeof module !== "undefined")
     module.exports = { createWorld: createWorld, ZONES: Game.ZONES };
 })(typeof window !== "undefined"

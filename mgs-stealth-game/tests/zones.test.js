@@ -85,15 +85,16 @@ Game.selfTests.push({
 // an actual spawn point on the target zone, EXCEPT a documented stub.
 // KNOWN_STUBS is the list of not-yet-built zone ids this cycle's Game.ZONES
 // is allowed to point at without resolving (see src/engine.js's zoneBlocked
-// handling) — UPDATED this cycle (Laboratory built): the warehouse's own
-// former "laboratory" stub now resolves for real (Game.ZONES.laboratory
+// handling) — UPDATED this cycle (Comms Tower built): the Laboratory's own
+// former "commsTower" stub now resolves for real (Game.ZONES.commsTower
 // exists), so it no longer hits the `!targetZone` branch below at all; the
-// Laboratory zone's own new north exit ("commsTower", not yet built) is the
-// one live stub exercising this branch now. This list simply tracks
-// whichever placeholder target(s) the CURRENT cycle's zone data legitimately
-// points at — same strictness as before (an unrecognized/typo'd `to` still
-// fails loudly), just not hardcoded to a name that stopped being a stub.
-var KNOWN_STUBS = ["commsTower"];
+// Comms Tower zone's own new north exit ("extraction", not yet built — the
+// win-state lands a future cycle) is the one live stub exercising this
+// branch now. This list simply tracks whichever placeholder target(s) the
+// CURRENT cycle's zone data legitimately points at — same strictness as
+// before (an unrecognized/typo'd `to` still fails loudly), just not
+// hardcoded to a name that stopped being a stub.
+var KNOWN_STUBS = ["extraction"];
 Game.selfTests.push({
   name: "zones: every exit's to+entranceKey resolves (except a known stub)",
   fn: function () {
@@ -268,23 +269,34 @@ Game.selfTests.push({
 
 // 7. Known stub: standing in a zone's stub exit emits zoneBlocked exactly
 // once (region-entry edge, not per tick), engine stays put, and keeps
-// ticking fine afterward. UPDATED this cycle (Laboratory built): the
-// warehouse's own former "laboratory" stub now resolves for real (see test
-// #3's KNOWN_STUBS note above), so this test is repointed to the
-// Laboratory's own new "commsTower" stub — same assertions, same mechanism,
-// just exercising the CURRENT cycle's live placeholder exit instead of one
-// that no longer is one.
+// ticking fine afterward. UPDATED this cycle (Comms Tower built): the
+// Laboratory's own former "commsTower" stub now resolves for real (see test
+// #3's KNOWN_STUBS note above), so this test is repointed to the Comms
+// Tower's own new "extraction" stub — same assertions, same mechanism, just
+// exercising the CURRENT cycle's live placeholder exit instead of one that
+// no longer is one (same repointing this test itself already went through
+// once before, when Laboratory was built).
 Game.selfTests.push({
-  name: "engine zone transition: commsTower stub emits zoneBlocked once and stays in laboratory",
+  name: "engine zone transition: extraction stub emits zoneBlocked once and stays in commsTower",
   fn: function () {
-    var lab = Game.ZONES.laboratory;
-    var engine = Game.createEngine({ seed: 3, zoneData: lab });
+    var tower = Game.ZONES.commsTower;
+    var engine = Game.createEngine({ seed: 3, zoneData: tower });
 
-    var northExit = lab.exits[0]; // to: commsTower
-    assert(northExit.to === "commsTower", "setup: expected laboratory.exits[0] to be the commsTower stub");
+    var northExit = tower.exits[0]; // to: extraction
+    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction stub");
 
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;
+    // The extraction trigger sits directly up the helipad-approach camera's
+    // own facing line (see src/world.js's commsTower cameras comment) --
+    // crawl keeps visionProfile() at its lowest multiplier (0.3) so this
+    // test's 60-tick stand stays nowhere near VISION.ALERT_AT (a camera
+    // reaching it would flip squad.phase off INFILTRATION and starve
+    // tryZoneTransition of the very phase it needs to evaluate this trigger
+    // at all -- see src/engine.js's DESIGN RULE) -- this test is about the
+    // zoneBlocked mechanic, not about surviving the camera, so the setup
+    // deliberately removes that variable rather than relying on sweep timing.
+    engine.player.stance = "crawl";
 
     var blockedCount = 0;
     var TOTAL_TICKS = 60;
@@ -297,14 +309,14 @@ Game.selfTests.push({
       engine.events.forEach(function (e) {
         if (e.type === "zoneBlocked") blockedCount++;
       });
-      assert(engine.zone.id === "laboratory", "expected to stay in laboratory at tick " + i + ", got " + engine.zone.id);
+      assert(engine.zone.id === "commsTower", "expected to stay in commsTower at tick " + i + ", got " + engine.zone.id);
     }
 
     assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
 
     // Leave the region and re-enter: the edge should re-arm and fire once more.
-    engine.player.x = lab.entrances.fromWarehouse.x;
-    engine.player.y = lab.entrances.fromWarehouse.y;
+    engine.player.x = tower.entrances.fromLaboratory.x;
+    engine.player.y = tower.entrances.fromLaboratory.y;
     engine.tick({ moveX: 0, moveY: 0 });
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;

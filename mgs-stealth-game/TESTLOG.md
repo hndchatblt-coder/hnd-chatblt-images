@@ -1,5 +1,30 @@
 # TESTLOG.md
 
+## Cycle 25 (Comms Tower — the facility is complete)
+
+166/166; 18/18; screens clean. Finale zone: hollow core stairwell with ring
+corridor, 4 interlocking patrol loops (perimeter/core/east/west, 2m seams),
+2 wide-sweep searchlight cameras (100°), laser on the final approach, 4 dark
+zones, extraction stub at the helipad. The capstone scenario — dock →
+warehouse → lab → tower, real guards/cameras/lasers all the way, ZERO alerts
+— passes. KNOWN_STUBS maintenance: commsTower resolved, extraction is the
+live stub (repoint-don't-weaken, same documented pattern).
+
+Notable route findings (documented in scenario header): camera sweep angle
+STACKS with FOV (staying outside the base cone is not safety); the lab's
+east-wing camera has no geometric dodge — the intended counter is the bonus
+chaff. The tower run needed real tool use, not just routing. Tension pillar
+delivering.
+
+**Gaps ledgered:** ration pickup is data-only (items.collectPickup doesn't
+know "ration" — items.js out of scope this packet) → next small cycle.
+
+**3 delights:** (1) a zero-alert full-facility ghost run exists and is
+machine-checked — the game's core promise, proven every test run. (2) 4-zone
+facility with 9 guards, 7 cameras, 3 lasers, all data-driven. (3) the sim
+bot keeps doing level QA — camera/sweep stacking was discovered by a failing
+scripted route, not by a player.
+
 ## Cycle 24 (Laboratory: doors, keycards, lasers)
 
 158/158; 17/17; screens clean. Keycard-gated progression (L1 found in the

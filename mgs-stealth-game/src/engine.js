@@ -908,6 +908,21 @@
         { id: "lab-g2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
       ];
     },
+    // Comms Tower (new — the finale zone, see src/world.js's own PATROL
+    // INTERLOCK comment for the full route design): 4 guards, one per loop —
+    // tower-g1 the outer perimeter ring, tower-g2 the tight core ring around
+    // the tower stairwell, tower-g3/tower-g4 the east/west yard loops. This
+    // is the heaviest guard roster shipped so far (previous zones topped out
+    // at 2) — see tests/commsTower.test.js's own perf-budget test for the
+    // <4ms/tick confirmation with all 4 plus 2 cameras + 1 laser live.
+    commsTower: function (zone) {
+      return [
+        { id: "tower-g1", spawn: zone.waypoints[0], waypoints: zone.waypoints },
+        { id: "tower-g2", spawn: zone.waypoints2[0], waypoints: zone.waypoints2 },
+        { id: "tower-g3", spawn: zone.waypoints3[0], waypoints: zone.waypoints3 },
+        { id: "tower-g4", spawn: zone.waypoints4[0], waypoints: zone.waypoints4 },
+      ];
+    },
   };
 
   function guardConfigsForZone(zone) {
