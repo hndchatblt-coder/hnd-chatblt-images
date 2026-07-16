@@ -1,5 +1,31 @@
 # TESTLOG.md
 
+## Cycle 2 (player movement set)
+
+`node build.js && node test.js` 19/19; `node sim.js` 1/1. 8 new player tests.
+
+Playtest (headless walk of all three routes with scripted inputs — no vision/
+guards yet, so this is movement feel on paper):
+
+**3 problems:**
+1. `player.moving` reflects INTENT (nonzero input), not actual displacement —
+   pushing into a wall counts as "moving" and will emit walk-radius noise
+   against a wall. Defensible (scraping is noisy) but must be a deliberate
+   choice once soundEvents lands. → backlog note.
+2. Stance switches are instant — crawl→stand→crawl toggling will look teleporty
+   and lets players strobe their visionProfile. Needs transition timers before
+   vision tuning is meaningful. → backlog.
+3. No wall-press verb yet; corner peek is core MGS grammar and affects vision
+   exposure. Scheduled with items/CQC group but may deserve promotion. → note.
+
+**3 delights:**
+1. Speed table (6/3/1.6/0.8) gives crawl-through-dark-zone a real cost — the
+   stealth route through the container alley takes ~14s vs ~5s run.
+2. Collision slide means hugging container edges feels frictionless — no
+   snagging on AABB corners during the center weave.
+3. visionProfile/noiseRadius as tiny pure functions on the player = the vision
+   and sound cycles get their inputs for free, no refactor needed.
+
 ## Cycle 1 (world: Loading Dock, walls, collision)
 
 `node build.js && node test.js` 11/11; `node sim.js` 1/1. 8 new world tests.

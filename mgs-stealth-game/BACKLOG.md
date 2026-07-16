@@ -9,7 +9,7 @@ content rotation) take over. L items must be split before selection.
 
 1. ~~Boot + tests~~ DONE cycle 0.
 2. ~~World: one zone, walls, collision~~ DONE cycle 1.
-3. Player movement set | feature | M | Expression | walk/run/crouch/crawl with distinct speeds; collision-respecting movement; stance affects profile (for vision later); headless input-driven tests.
+3. ~~Player movement set~~ DONE cycle 2.
 4. Vision: one guard, cone, detect meter | feature | M | Tension | 70° 14m cone, raycast vs walls, fill-meter detection with stance/darkness modifiers; staggered per tick; tests for occlusion + modifier math.
 5. GuardAI: full FSM | feature | L→split | Tension | PATROL→SUSPICIOUS→INVESTIGATE→ALERT→EVASION→CAUTION→PATROL per SPEC timings; split into (a) PATROL+SUSPICIOUS+INVESTIGATE, (b) ALERT+EVASION+CAUTION+convergence before selection.
 6. SoundEvents | feature | M | Toybox | emit radii per SPEC; wall attenuation 50%/wall; guards receive stimuli; knock verb; sim asserts guard INVESTIGATEs a knock within 2s.
@@ -25,6 +25,8 @@ content rotation) take over. L items must be split before selection.
 ## Non-bootstrap items (from playtests)
 
 - moveCircle substep guard vs wall tunneling | bugfix | S | Consequence | a single-tick displacement of any magnitude never crosses a wall; regression test with a 2m/tick displacement into a 1m wall. (Blocked-by-need: do before any dash/throw physics.)
+- Stance transition timers | polish | S | Readability | crouch↔crawl↔stand take real time (e.g. 0.25s), blocking visionProfile strobing; test asserts profile changes only after the timer.
+- Decide wall-scrape noise semantics | polish | S | Readability | `player.moving` is intent-based; once soundEvents lands, decide whether pushing a wall emits noise and document + test the choice.
 - Exit-approach cover in Loading Dock | polish | S | Expression | revisit after vision lands: if the final 6m to the exit is a flat dash under a cone, add a crate or darkZone near the gap.
 
 ## Post-bootstrap wells (refill source — see CLAUDE.md)

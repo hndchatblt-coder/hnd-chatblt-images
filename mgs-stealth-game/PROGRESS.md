@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.1 (cycle 1 — world)
+**Version:** v0.2 (cycle 2 — player)
 
 ## Module status
 
@@ -9,7 +9,7 @@
 | rng            | stub        | seeded RNG single source                 |
 | boot           | stub        | game loop shell + boot self-test hook    |
 | world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
-| player         | not started | movement set                             |
+| player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | not started | cones, detect meter, raycast             |
 | guardAI        | not started | full FSM                                 |
 | soundEvents    | not started | emit radii, wall attenuation             |
@@ -29,6 +29,8 @@
 
 ## Changelog (last 5)
 
+- cycle 2: player — walk/run/crouch/crawl (6/3/1.6/0.8 m/s), facing, collision
+  via world.moveCircle, visionProfile + noiseRadius hooks, 8 tests (19/19)
 - cycle 1: world — Loading Dock as data (8 interior obstacles, 3 routes, dark
   zones), exact slab raycast, sliding circle collision, 8 tests (11/11)
 - cycle 0: scaffold — repo layout, ledgers, build/test/sim harness skeletons, loop.sh
