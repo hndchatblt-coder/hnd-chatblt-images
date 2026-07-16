@@ -1,5 +1,21 @@
 # TESTLOG.md
 
+## Cycle 13 (polish: cone/marker readability)
+
+74/74; 9/9; shots eyeballed. Cone fills brightened + LineLoop rims from the
+same raycast-clipped fan vertices; markers doubled; meter 2x; SUSPICIOUS now
+distinctly amber. Green→amber→orange→red progression obvious at 720p.
+
+**3 problems:** (1) player facing wedge nearly invisible at this scale —
+minor, fold into next render pass. (2) cone rim z-nudge (0.005) may shimmer
+on other GPUs — watch in future screenshots. (3) no visual for knock (sound
+ripple) — players can't see their own noise; Readability gap → backlog.
+
+**3 delights:** (1) rim reuses exact fan vertices — outline can never
+disagree with fill. (2) meter pixel-sampled to match meterColor(1) — the
+subagent verified color truth, not just presence. (3) alert scene is now
+genuinely dramatic: red cone + "!" + banner + jammed radar all say RUN.
+
 ## Cycle 12 (HUD)
 
 74/74; 9/9; shots eyeballed — HUD complete (life/clock/alert count, phase

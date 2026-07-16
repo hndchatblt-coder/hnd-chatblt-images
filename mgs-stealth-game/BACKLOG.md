@@ -17,7 +17,8 @@ content rotation) take over. L items must be split before selection.
 5d. ~~Engine module~~ DONE cycle 8 (vision staggering deferred — see below).
 6. ~~SoundEvents~~ DONE cycle 9.
 6b. ~~Render layer~~ DONE cycle 10 (v0.10 released).
-6c. Cone/marker readability pass | polish | S | Readability | PATROL cone brighter (alpha/edge line); "?"/"!" and detection meter scaled to frustum (readable at 720p); screenshot diff verified by eye.
+6c. ~~Cone/marker readability~~ DONE cycle 13.
+6d. Knock ripple visual | polish | S | Readability | expanding ring at knock point (world-space, ~0.5s) so players see their own sound radius; also faint ring for run footsteps every ~0.5s.
 7. ~~Radar~~ DONE cycle 11 (chaff jam hook documented, wired when chaff lands).
 8. ~~HUD~~ DONE cycle 12.
 9. Music | feature | M | Tension | WebAudio state machine sneak→sting→combat→evasion→caution→resolve, crossfades only, failure-isolated no-op wrapper.

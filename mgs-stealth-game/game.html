@@ -2924,17 +2924,34 @@
 
     var CONE_SEGMENTS = 24;
     var CONE_Y = 0.02;
+    // Fill uses additive blending (fine against the dark floor), each state's
+    // color/opacity tuned so the green -> yellow -> orange -> red progression
+    // reads as an obvious escalation instead of a wash of similar green-ish
+    // blobs. The crisp edge outline (see EDGE_STYLE below) is what makes the
+    // cone boundary legible even where the fill itself stays subtle.
     var CONE_STYLE = {
-      PATROL: { color: 0x2e7d32, opacity: 0.18 },
-      SUSPICIOUS: { color: 0xf9a825, opacity: 0.25 },
-      INVESTIGATE: { color: 0xef6c00, opacity: 0.25 },
-      ALERT: { color: 0xc62828, opacity: 0.3 },
-      EVASION: { color: 0x6a1b9a, opacity: 0.25 },
-      CAUTION: { color: 0xff8f00, opacity: 0.22 },
+      PATROL: { color: 0x43a047, opacity: 0.32 },
+      SUSPICIOUS: { color: 0xffca28, opacity: 0.4 },
+      INVESTIGATE: { color: 0xff7043, opacity: 0.34 },
+      ALERT: { color: 0xe53935, opacity: 0.48 },
+      EVASION: { color: 0xab47bc, opacity: 0.34 },
+      CAUTION: { color: 0xffa726, opacity: 0.3 },
+    };
+    // Bright, near-opaque outline drawn along the cone's two straight edges +
+    // arc (a LineLoop over the exact same raycast-clipped fan points), so the
+    // boundary stays crisp regardless of how subtle the additive fill reads
+    // against a given patch of floor.
+    var EDGE_STYLE = {
+      PATROL: { color: 0x81c784, opacity: 0.85 },
+      SUSPICIOUS: { color: 0xffe082, opacity: 0.9 },
+      INVESTIGATE: { color: 0xffab91, opacity: 0.9 },
+      ALERT: { color: 0xff8a80, opacity: 1.0 },
+      EVASION: { color: 0xce93d8, opacity: 0.85 },
+      CAUTION: { color: 0xffd180, opacity: 0.85 },
     };
 
-    var METER_MAX_W = 1.1;
-    var METER_H = 0.14;
+    var METER_MAX_W = 2.0;
+    var METER_H = 0.32;
 
     // ---- renderer / scene / camera --------------------------------------------
 
@@ -3040,6 +3057,17 @@
       });
     });
 
+    var EDGE_MATERIALS = {};
+    Object.keys(EDGE_STYLE).forEach(function (state) {
+      var s = EDGE_STYLE[state];
+      EDGE_MATERIALS[state] = new THREE.LineBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: s.opacity,
+        depthWrite: false,
+      });
+    });
+
     // ---- static scene (built once) ---------------------------------------------
 
     var built = false;
@@ -3131,12 +3159,17 @@
       var base = makeActor(GUARD_COLOR, NOSE_COLOR);
 
       var marker = new THREE.Sprite(MARKER_MATERIALS.SUSPICIOUS);
-      marker.scale.set(0.85, 0.85, 1);
+      // Roughly doubled from the original 0.85 world-units so state glyphs
+      // ("?"/"!") and dots stay legible at 720p against the tilted camera.
+      marker.scale.set(1.8, 1.8, 1);
       marker.visible = false;
       scene.add(marker);
 
       var coneMesh = new THREE.Mesh(new THREE.BufferGeometry(), CONE_MATERIALS.PATROL);
       scene.add(coneMesh);
+
+      var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), EDGE_MATERIALS.PATROL);
+      scene.add(coneEdge);
 
       var actor = {
         group: base.group,
@@ -3144,6 +3177,7 @@
         nose: base.nose,
         marker: marker,
         cone: coneMesh,
+        coneEdge: coneEdge,
       };
       guardActors[guard.id] = actor;
       return actor;
@@ -3155,6 +3189,7 @@
     function updateVisionCone(actor, guard, world, squad) {
       var style = CONE_STYLE[guard.state] || CONE_STYLE.PATROL;
       actor.cone.material = CONE_MATERIALS[guard.state] || CONE_MATERIALS.PATROL;
+      actor.coneEdge.material = EDGE_MATERIALS[guard.state] || EDGE_MATERIALS.PATROL;
 
       var caution = squad.phase === "CAUTION";
       var fovDeg = Game.VISION.FOV_DEG * (caution ? Game.GUARD.CAUTION_FOV_MULT : 1);
@@ -3190,6 +3225,19 @@
       geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       geo.setIndex(indices);
       actor.cone.geometry = geo;
+
+      // The fan boundary (apex -> arc point 0 -> ... -> arc point N) is
+      // exactly the same vertex sequence already computed above; a LineLoop
+      // over it closes N -> apex, tracing both straight edges plus the arc
+      // in one pass — a crisp outline even where the additive fill is faint.
+      actor.coneEdge.geometry.dispose();
+      var edgePositions = positions.slice();
+      // Nudge the outline a hair above the fill plane so it never z-fights
+      // with it (both are depthWrite:false, but this keeps draw order moot).
+      for (var e = 1; e < edgePositions.length; e += 3) edgePositions[e] = CONE_Y + 0.005;
+      var edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute("position", new THREE.BufferAttribute(edgePositions, 3));
+      actor.coneEdge.geometry = edgeGeo;
       // style read above only to keep the CONE_STYLE lookup obviously alive
       // for future tuning (e.g. per-state fov override); currently unused
       // beyond material selection.
@@ -3210,7 +3258,9 @@
       // screen-up), so the marker needs more world-space clearance above the
       // guard's head than a straight top-down camera would — otherwise it
       // reads as sitting on top of the guard rather than floating above it.
-      actor.marker.position.set(guard.x, h + 1.3, guard.y);
+      // (Raised slightly further than the pre-polish 1.3 to keep clearance
+      // now that the marker itself is twice as large.)
+      actor.marker.position.set(guard.x, h + 1.5, guard.y);
     }
 
     // ---- detection meter (two quads above the player) --------------------------
@@ -3266,7 +3316,7 @@
       meterFill.visible = true;
 
       var player = engine.player;
-      var y = stanceHeight(player.stance) + 0.45;
+      var y = stanceHeight(player.stance) + 0.55;
       meterBg.position.set(player.x, y, player.y);
       meterFill.position.set(player.x, y, player.y);
       meterFill.scale.set(Math.max(0.001, METER_MAX_W * value), METER_H * 0.75, 1);

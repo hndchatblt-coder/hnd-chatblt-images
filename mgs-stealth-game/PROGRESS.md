@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.12 (cycle 12 — HUD)
+**Version:** v0.13 (cycle 13 — readability polish)
 
 ## Module status
 
@@ -32,6 +32,8 @@
 
 ## Changelog (last 5)
 
+- cycle 13: polish — cone fills brightened + crisp rims (same clipped verts),
+  markers/meter 2x, SUSPICIOUS amber; state progression legible at 720p
 - cycle 12: HUD — MGS1-style overlay (life, clock, alert counter, phase banner
   with EVASION/CAUTION countdowns, weapon/item boxes, zone card, detection
   vignette) (74/74, 9/9)
