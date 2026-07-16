@@ -1,5 +1,29 @@
 # TESTLOG.md
 
+## Cycle 26 (codec)
+
+175/175; 18/18; 4/4 shots (new 04-codec inspected by eye — the portraits
+read as faces: stern grey-olive COMMANDER, balaclava'd OPERATIVE). Pure
+director with one-shot priority-queued triggers (missionOpen/firstAlert/
+firstBody/lowDarts) consuming real engine events — A9's write-only event
+stream now has a production consumer. Engine freezes during calls; type-in
+runs off local rAF time; blips via isolated warn-once WebAudio; game-over
+force-dismisses the codec.
+
+**3 problems:** (1) codec pause is a free tactical timeout — MGS pauses too,
+so authentic, but firstAlert popping DURING a chase freezes the action mid-
+adrenaline; consider deferring non-critical calls until phase cools. →
+backlog (Tension). (2) only 4 calls; frequency dial input (manual dialing,
+easter eggs) not built. → backlog well. (3) screenshot scenes 02/03 now need
+dismissal choreography — scene setups are getting long; acceptable, watch
+complexity.
+
+**3 delights:** (1) the mirrored-half seeded pixel faces came out genuinely
+charming — ASCII-sanity-checked before canvas. (2) MEI's body-disposal call
+firing off your first tranq teaches the drag/locker mechanic exactly when
+relevant. (3) model/view split means every trigger is testable without a
+single DOM call.
+
 ## Cycle 25 (Comms Tower — the facility is complete)
 
 166/166; 18/18; screens clean. Finale zone: hollow core stairwell with ring

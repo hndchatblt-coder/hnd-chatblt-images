@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.25 (cycle 25 — Comms Tower; all 4 zones live)
+**Version:** v0.26 (cycle 26 — codec)
 
 ## Module status
 
@@ -19,7 +19,7 @@
 | saveState      | not started | snapshot() groundwork exists in engine   |
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
 | hud            | v1          | life/clock/phase/boxes/zone card/vignette; hp+items hooked |
-| codec          | not started |                                          |
+| codec          | v1          | 4 one-shot calls, seeded pixel portraits, engine-pause |
 | music          | v1          | pure director + synth beds, crossfades, no-op isolation |
 | render         | v1          | iso scene, state-colored wall-clipped cones, meters |
 
@@ -34,6 +34,9 @@
 
 ## Changelog (last 5)
 
+- cycle 26: codec — COMMANDER/MEI calls (missionOpen/firstAlert/firstBody/
+  lowDarts), procedural mirrored-half pixel portraits, type-in + blips,
+  engine pause, 04-codec screenshot scene (175/175, 18/18)
 - cycle 25: Comms Tower — 4 interlocking heavy patrols, searchlight cameras,
   extraction stub; full-facility zero-alert scenario passes (166/166, 18/18)
 - cycle 24: Laboratory — keycard doors (dynamic blockers), duty-cycle lasers,

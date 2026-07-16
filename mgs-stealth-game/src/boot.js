@@ -95,6 +95,15 @@
     var radar = Game.createRadar({ container: rootEl });
     var hud = Game.createHud({ container: rootEl });
     var music = Game.createMusic();
+    // CODEC (new — see src/codec.js's own contract for the full write-up):
+    // codecDirector is the PURE trigger brain (fed engine.events + inventory
+    // state once per frame, below); codec is the browser view it drives via
+    // codec.open(call). Both are fresh per playthrough, same posture as
+    // engine/renderer/radar/hud/music above — a retry after game over gets
+    // its own director with its own one-shot trigger memory, so e.g.
+    // "missionOpen" fires again on the very next playthrough.
+    var codecDirector = Game.createCodecDirector();
+    var codec = Game.createCodec({ container: rootEl });
 
     // AUDIO GESTURE: WebAudio requires a user gesture to construct/resume an
     // AudioContext. runGame() is only ever invoked synchronously from a
@@ -111,8 +120,12 @@
     music.update(engine);
 
     // Debug/screenshot hook ONLY — not read by any gameplay code. screenshot.js
-    // uses this to teleport the player and inspect guard state for its scenes.
-    window.Game._debug = { engine: engine, renderer: renderer };
+    // uses this to teleport the player and inspect guard state for its scenes
+    // (codec: NEW — screenshot.js's "04-codec" scene opens a throwaway call
+    // directly via this handle rather than fishing for a real trigger mid-
+    // playthrough, so it never disturbs the real codecDirector's one-shot
+    // trigger memory).
+    window.Game._debug = { engine: engine, renderer: renderer, codec: codec };
 
     // ---- input state -----------------------------------------------------
     var held = {}; // physical key -> boolean, level-triggered (movement/run)
@@ -137,6 +150,21 @@
     var pendingChaff = false; // set true on an X keydown edge, consumed once
 
     function onKeyDown(e) {
+      // CODEC (new — see src/codec.js's FROZEN INPUT / PAUSE note): while a
+      // call is open, Space/Enter drive codec.advance() instead of anything
+      // below, and every OTHER key is swallowed outright (not even `held`
+      // gets updated) — the engine is frozen this same frame (see frame()
+      // below), so there is nothing for a movement/verb key to legitimately
+      // do; swallowing here just prevents a verb's one-shot pending flag
+      // (knock/fire/cqc/etc.) from silently queuing up during the call and
+      // firing as a surprise the instant it's dismissed.
+      if (codec.isOpen()) {
+        if ((e.code === "Space" || e.code === "Enter") && !e.repeat) {
+          e.preventDefault();
+          codec.advance();
+        }
+        return;
+      }
       if (GAME_KEYS[e.code]) e.preventDefault();
       held[e.code] = true;
       if (e.repeat) return; // toggles/verbs below are edge-triggered only
@@ -210,19 +238,47 @@
       if (lastNow === null) lastNow = now;
       var frameDt = (now - lastNow) / 1000;
       lastNow = now;
-      acc += frameDt;
-      if (acc > MAX_ACC) acc = MAX_ACC;
+      // CODEC PAUSE (see src/codec.js's FROZEN INPUT / PAUSE note): while a
+      // call is open, the entire fixed-timestep accumulator loop below is
+      // skipped outright — no engine.tick() calls, so no simulation time
+      // passes (guards/player/timers all genuinely freeze, not just visually
+      // — engine.events can't produce anything new either). `acc` is reset
+      // to 0 rather than left to build up, so the instant the call ends
+      // there is no catch-up burst of queued ticks (same MAX_ACC-style
+      // reasoning as the suspended-tab cap below, just driven by a much more
+      // common/expected pause instead of a rare stall).
+      if (codec.isOpen()) {
+        acc = 0;
+      } else {
+        acc += frameDt;
+        if (acc > MAX_ACC) acc = MAX_ACC;
 
-      while (acc >= DT) {
-        engine.tick(buildInput());
-        pendingKnock = false; // consumed — only true for the tick right after the edge
-        pendingFire = false; // consumed — only true for the tick right after the edge
-        pendingCqc = false; // consumed — only true for the tick right after the edge
-        pendingDrag = false; // consumed — only true for the tick right after the edge
-        pendingBox = false; // consumed — only true for the tick right after the edge
-        pendingRation = false; // consumed — only true for the tick right after the edge
-        pendingChaff = false; // consumed — only true for the tick right after the edge
-        acc -= DT;
+        while (acc >= DT) {
+          engine.tick(buildInput());
+          pendingKnock = false; // consumed — only true for the tick right after the edge
+          pendingFire = false; // consumed — only true for the tick right after the edge
+          pendingCqc = false; // consumed — only true for the tick right after the edge
+          pendingDrag = false; // consumed — only true for the tick right after the edge
+          pendingBox = false; // consumed — only true for the tick right after the edge
+          pendingRation = false; // consumed — only true for the tick right after the edge
+          pendingChaff = false; // consumed — only true for the tick right after the edge
+          acc -= DT;
+        }
+
+        // CODEC TRIGGERS (new): fed once per frame, AFTER the tick drain,
+        // with this frame's freshest engine.events + inventory.darts — same
+        // "read engine.events right after tick()" posture as the GAME OVER
+        // scan just below (and the same honest gap: if the accumulator ran
+        // MORE than one tick this frame, only the LAST tick's events survive
+        // to be read here, since engine.events is overwritten every
+        // engine.tick() call — pre-existing, not new to this cycle). Only
+        // called while the codec is NOT already open (this whole branch is
+        // gated on that above) so a director.update() return value is never
+        // silently dropped because there was nowhere to put it — see
+        // src/codec.js's own PRIORITY / QUEUE contract for why a same-tick
+        // collision still resolves correctly across later frames either way.
+        var codecCall = codecDirector.update(engine.events, { darts: engine.inventory.darts });
+        if (codecCall) codec.open(codecCall);
       }
 
       // GAME OVER (see engine.js's GAME OVER / FROZEN ENGINE contract, and
@@ -234,6 +290,10 @@
         for (var i = 0; i < engine.events.length; i++) {
           if (engine.events[i].type === "gameOver") {
             gameOverShown = true;
+            // CODEC must never block the MISSION FAILED overlay — force-
+            // dismiss it if a call happens to be showing (or was just opened
+            // above, this very frame) the instant death lands.
+            if (codec.isOpen()) codec.dismiss();
             showGameOver(rootEl, function onRetry() {
               runGame(rootEl);
             });
@@ -246,6 +306,7 @@
       radar.render(engine);
       hud.render(engine);
       music.update(engine);
+      codec.render(now);
       requestAnimationFrame(frame);
     }
 

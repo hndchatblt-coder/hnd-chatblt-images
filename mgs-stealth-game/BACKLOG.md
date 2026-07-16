@@ -37,7 +37,8 @@ content rotation) take over. L items must be split before selection.
 - Aim line while F held | polish | S | Readability | faint ray preview so ranged darts are judgeable.
 - Hit flash / damage feedback | polish | S | Readability | brief red flash or player flinch on playerHit event in render.js.
 - Death sting | polish | S | Tension | music one-shot on gameOver event.
-12. Codec | feature | M | Toybox | overlay, two procedural pixel portraits, scrolling text + blips, frequency dial; calls: mission open, first body, first alert, low darts.
+12. ~~Codec~~ DONE cycle 26 (frequency-dial input + easter-egg calls → wells).
+- Defer non-critical codec calls while ALERT/EVASION | polish | S | Tension | firstBody/lowDarts queue until phase cools; firstAlert plays immediately (it's about the alert).
 13. SaveState | feature | S | Consequence | serialize/restore full sim state; deterministic resume proven by replay test.
 14. Win state + rank screen | feature | M | Consequence | extract from Comms Tower roof; rank on time/alerts/kills/darts; BIG BOSS for no-alert no-kill.
 
