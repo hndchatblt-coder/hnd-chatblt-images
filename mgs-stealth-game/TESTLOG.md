@@ -1,5 +1,33 @@
 # TESTLOG.md
 
+## Cycle 27 (saveState)
+
+184/184; 19/19; 4/4 shots; F5/F9 hand-verified in a live browser (localStorage
+round trip + toasts). Resume determinism is the gate and it holds: calm and
+chaos replays (ALERT + sleeping guard + open door + chaff, saved mid-EVASION,
+600 mixed ticks) produce byte-identical snapshots vs the unsaved timeline.
+
+The hunt found one genuinely dangerous bug class: guardAI already had an
+internal `setState` (the FSM transition helper) — a same-named save-API
+function silently REPLACED it (later declaration wins), breaking 51 tests
+with zero syntax errors. Caught because the full suite runs after every file
+edit. Renamed internals; external API unchanged. The closure-state list that
+had to be captured (pause/search/sweep sub-machines, fire cadence, sleep/
+stagger clocks, body-spot accumulators, camera pans, door timers, engine
+edge-trackers, rng cursor) is documented in saveState.js.
+
+Codec one-shots deliberately excluded v1 (narrative, not sim) — F9 re-briefs
+like the retry path; documented.
+
+**Problems:** (1) saves are single-slot; (2) a save during the codec pause
+captures a frozen-mid-call engine — allowed but untested edge; (3) version
+tag is a plain string compare — schema migrations someday. All → backlog.
+
+**Delights:** (1) the chaos gate is the strongest correctness statement the
+project has — the whole sim provably lives in enumerable state. (2) rng
+cursor save = replays and saves share one mechanism. (3) 51-test breakage
+caught in minutes by run-after-every-edit discipline.
+
 ## Cycle 26 (codec)
 
 175/175; 18/18; 4/4 shots (new 04-codec inspected by eye — the portraits

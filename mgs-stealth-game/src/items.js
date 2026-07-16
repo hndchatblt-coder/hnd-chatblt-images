@@ -309,10 +309,40 @@
       return { fired: true, hit: false, impact: impact };
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). inv's entire mutable surface is already flat, plain
+    // props (see file header) — no private closure state in this module —
+    // so this is a straight copy, deep-copying `keycards` (a nested object)
+    // so a caller mutating the returned snapshot can never reach back into
+    // this inventory's own live state.
+    function getState() {
+      return {
+        weapon: inv.weapon,
+        darts: inv.darts,
+        rations: inv.rations,
+        chaff: inv.chaff,
+        hasBox: inv.hasBox,
+        boxOn: inv.boxOn,
+        keycards: { L1: inv.keycards.L1, L2: inv.keycards.L2, L3: inv.keycards.L3 },
+      };
+    }
+
+    function setState(state) {
+      inv.weapon = state.weapon;
+      inv.darts = state.darts;
+      inv.rations = state.rations;
+      inv.chaff = state.chaff;
+      inv.hasBox = state.hasBox;
+      inv.boxOn = state.boxOn;
+      inv.keycards = { L1: state.keycards.L1, L2: state.keycards.L2, L3: state.keycards.L3 };
+    }
+
     inv.fireTranq = fireTranq;
     inv.useRation = useRation;
     inv.useChaff = useChaff;
     inv.collectPickup = collectPickup;
+    inv.getState = getState;
+    inv.setState = setState;
     return inv;
   }
 

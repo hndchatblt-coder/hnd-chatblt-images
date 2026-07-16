@@ -1810,8 +1810,102 @@
       };
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change to tick()/snapshot()). Captures every piece of THIS
+    // module's OWN mutable state that isn't already a flat `engine.*` prop
+    // (dragging/playerHidden/chaffUntil/gameOver/tickCount/time ARE already
+    // flat props — included here too, for convenience, so a caller can
+    // restore the engine's own state with one engine.setState(s) call rather
+    // than also having to poke those props directly) PLUS every private
+    // edge-tracker/bookkeeping closure var documented throughout this file
+    // that is NOT part of any other module's own getState()/setState()
+    // (world/player/guards/squad/vision/director/rng/inventory each own
+    // their OWN state — see src/saveState.js for how those are captured
+    // separately):
+    //   prevKnock/prevFire/prevCqc/prevDrag/prevBox/prevRation/prevChaff —
+    //     edge-trigger memory for every one-shot verb (see file header). Miss
+    //     ANY of these and a restored engine can double-fire (or swallow) the
+    //     very next tick's edge for whichever verb's key was HELD DOWN at
+    //     the moment of the save (a `true` input carried across a save/
+    //     restore boundary with a stale `false` prev-state reads as a FRESH
+    //     false->true edge that never actually happened).
+    //   hiddenLockerIndex — hiddenLocker (the {x,y,facing} locker object the
+    //     player is currently tucked into, or null) is a REFERENCE into this
+    //     zone's OWN zone.lockers array (see nearestLocker() above) — since
+    //     Game.ZONES.* entries are fixed module-level objects (never cloned
+    //     per createWorld() call, see src/world.js), that array is the same
+    //     object/index sequence every time this exact zone is loaded, so the
+    //     reference survives a save/restore round-trip as a plain array
+    //     index (-1 meaning "not hidden") rather than needing to serialize
+    //     the locker object itself.
+    //   collectedPickups — mission-scoped (NOT zone-scoped, see its own
+    //     declaration comment above) map of "<zoneId>#<index>" -> true; a
+    //     restored engine that forgets an already-collected pickup would let
+    //     the player collect it a second time.
+    //   doorLastNear — zone-scoped map of door.id -> the last engine.time
+    //     anyone was within DOOR_PROXIMITY_DIST of it; needed so a restored
+    //     engine's auto-close timer resumes counting from the correct
+    //     remaining time rather than restarting a fresh DOOR_AUTO_CLOSE_S
+    //     window (or closing immediately) the instant someone steps away.
+    //   inBlockedExitRegion — the zoneBlocked edge-tracker (see
+    //     tryZoneTransition above); miss it and a restored engine standing in
+    //     a blocked-exit trigger re-fires zoneBlocked on its very next tick
+    //     even though the "entry edge" already happened before the save.
+    function getState() {
+      var lockerIndex = -1;
+      if (hiddenLocker) {
+        var lockers = zone.lockers || [];
+        lockerIndex = lockers.indexOf(hiddenLocker);
+      }
+      return {
+        tickCount: engine.tickCount,
+        time: engine.time,
+        gameOver: engine.gameOver,
+        dragging: engine.dragging,
+        playerHidden: engine.playerHidden,
+        chaffUntil: engine.chaffUntil,
+        prevKnock: prevKnock,
+        prevFire: prevFire,
+        prevCqc: prevCqc,
+        prevDrag: prevDrag,
+        prevBox: prevBox,
+        prevRation: prevRation,
+        prevChaff: prevChaff,
+        hiddenLockerIndex: lockerIndex,
+        collectedPickups: Object.assign({}, collectedPickups),
+        doorLastNear: Object.assign({}, doorLastNear),
+        inBlockedExitRegion: inBlockedExitRegion,
+      };
+    }
+
+    function setState(state) {
+      engine.tickCount = state.tickCount;
+      engine.time = state.time;
+      engine.gameOver = state.gameOver;
+      engine.dragging = state.dragging;
+      engine.playerHidden = state.playerHidden;
+      engine.chaffUntil = state.chaffUntil;
+      prevKnock = state.prevKnock;
+      prevFire = state.prevFire;
+      prevCqc = state.prevCqc;
+      prevDrag = state.prevDrag;
+      prevBox = state.prevBox;
+      prevRation = state.prevRation;
+      prevChaff = state.prevChaff;
+      var lockers = zone.lockers || [];
+      hiddenLocker =
+        state.hiddenLockerIndex !== undefined && state.hiddenLockerIndex >= 0
+          ? lockers[state.hiddenLockerIndex] || null
+          : null;
+      collectedPickups = Object.assign({}, state.collectedPickups);
+      doorLastNear = Object.assign({}, state.doorLastNear);
+      inBlockedExitRegion = state.inBlockedExitRegion;
+    }
+
     engine.tick = tick;
     engine.snapshot = snapshot;
+    engine.getState = getState;
+    engine.setState = setState;
 
     return engine;
   }

@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.26 (cycle 26 — codec)
+**Version:** v0.27 (cycle 27 — saveState)
 
 ## Module status
 
@@ -16,7 +16,7 @@
 | items          | v3          | full SPEC set: tranq, CQC, drag, lockers, box, ration, chaff |
 | director       | v1          | cameras (sweep/chaff/alerts); reinforcements+check-ins pending |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
-| saveState      | not started | snapshot() groundwork exists in engine   |
+| saveState      | v1          | full capture/restore, resume-determinism gated, F5/F9 |
 | radar          | v1          | model/view split; jams (static) on ALERT/EVASION |
 | hud            | v1          | life/clock/phase/boxes/zone card/vignette; hp+items hooked |
 | codec          | v1          | 4 one-shot calls, seeded pixel portraits, engine-pause |
@@ -34,6 +34,9 @@
 
 ## Changelog (last 5)
 
+- cycle 27: saveState — full sim serialization (all FSM closure state
+  enumerated), resume determinism proven calm+chaos, F5/F9 + localStorage
+  (184/184, 19/19)
 - cycle 26: codec — COMMANDER/MEI calls (missionOpen/firstAlert/firstBody/
   lowDarts), procedural mirrored-half pixel portraits, type-in + blips,
   engine pause, 04-codec screenshot scene (175/175, 18/18)

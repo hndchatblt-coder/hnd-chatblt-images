@@ -13,11 +13,12 @@
 // in src/render.js.
 //
 // GAME OVER + RESTART (new — see src/engine.js's GAME OVER / FROZEN ENGINE
-// contract): runGame(rootEl) is the ONE code path that stands up a full
-// playthrough — engine, renderer, radar, hud, music, input listeners, and the
-// rAF frame loop. Both the very first playthrough (from the title screen) and
-// every RETRY after a game over go through this exact same function; there is
-// no separate "restart" implementation to drift out of sync with "start."
+// contract): runGame(rootEl, opts?) is the ONE code path that stands up a
+// full playthrough — engine, renderer, radar, hud, music, input listeners,
+// and the rAF frame loop. The very first playthrough (from the title
+// screen), every RETRY after a game over, AND a SAVE-STATE LOAD (see F9
+// below) all go through this exact same function; there is no separate
+// "restart"/"load" implementation to drift out of sync with "start."
 // Each call:
 //   - tears down the PREVIOUS instance first (if any): stops its frame loop
 //     (a closure `stopped` flag the old frame() checks before scheduling its
@@ -30,8 +31,11 @@
 //     renderer/radar/hud canvases (and the title screen div, and any
 //     game-over overlay) in one shot, so a fresh renderer/radar/hud can
 //     re-append their own canvases into a clean container.
-//   - builds a brand-new engine/renderer/radar/hud/music stack exactly like
-//     the original startGame() did, and starts its own frame loop.
+//   - builds a brand-new renderer/radar/hud/music stack exactly like the
+//     original startGame() did, and starts its own frame loop. The ENGINE
+//     itself is `opts && opts.engine`, if given — see F9 LOAD below — or a
+//     brand-new Game.createEngine() otherwise (the title-screen/retry path,
+//     unchanged from before this cycle).
 // Each playthrough's frame() checks engine.events for a "gameOver" entry
 // once per animation frame, right after draining the tick accumulator (see
 // engine.js: a frozen engine leaves its final tick's events sitting in
@@ -40,7 +44,109 @@
 // On first sight: shows the MISSION FAILED overlay (showGameOver below);
 // pressing Enter on it removes the overlay and calls runGame(rootEl) again —
 // the retry IS just another call to the one true startup path.
+//
+// F5 SAVE / F9 LOAD (new — see src/saveState.js's own contract for the full
+// capture()/restore() write-up): plain keydown edges, handled directly in
+// onKeyDown below (NOT threaded through buildInput()/engine.tick() the way
+// knock/fire/cqc/etc. are — saving/loading is a meta-level "which engine is
+// running" operation, the same category as the game-over retry above, not a
+// per-tick simulation verb).
+//   F5 — engine.getState()-style full capture (Game.createSaveState().
+//     capture(engine)) of the CURRENTLY RUNNING engine, JSON.stringify'd into
+//     localStorage under SAVE_KEY ("shadowloop-save"). Shows a "SAVED" toast
+//     (see showToast below). A localStorage failure (file:// origins can deny
+//     it entirely — see LOCALSTORAGE ISOLATION below) is swallowed exactly
+//     like a WebAudio failure in src/music.js: warn once to console, then
+//     silently no-op forever after — saving must never be the thing that
+//     crashes the game.
+//   F9 — reads SAVE_KEY back out of localStorage; a missing/corrupt entry
+//     (never saved this session, or a localStorage read failure) shows a
+//     "NO SAVE" toast and does nothing further. Otherwise: JSON.parse's the
+//     blob, calls Game.createSaveState().restore(save) to build a BRAND NEW
+//     engine at that exact state, and calls runGame(rootEl, { engine:
+//     restoredEngine }) — the SAME teardown-then-rebuild path the game-over
+//     retry uses (stop the old frame loop/listeners, wipe rootEl, stand up a
+//     fresh renderer/radar/hud/music/codec stack), just handed an
+//     already-restored engine instead of a fresh Game.createEngine() call.
+//     Shows a "LOADED" toast on success. A restore() that throws (e.g. a
+//     version-mismatch save from an older build — see saveState.js's VERSION
+//     GATE) is treated the same as "no save": a toast, no crash, the CURRENT
+//     playthrough keeps running untouched (restore() throwing happens BEFORE
+//     runGame() is ever called again, so nothing has been torn down yet).
+//
+// LOCALSTORAGE ISOLATION (project mandate, see CLAUDE.md's "audio exempt...
+// can never crash the game" precedent, applied here to storage): every
+// localStorage.getItem/setItem call in this file goes through
+// safeStorageGet/safeStorageSet below, each wrapping its single
+// try/catch — any throw logs ONE console.warn (never more than once, even
+// across many later calls) and flips a permanent module-level `storageBroken`
+// flag; every later call is then an immediate no-op returning null/false.
+// Same "warn-once no-op forever" shape as src/music.js's own warnOnce.
 (function (Game) {
+  var SAVE_KEY = "shadowloop-save";
+
+  // ---- localStorage isolation (see file header) --------------------------
+  var storageBroken = false;
+  var storageWarned = false;
+
+  function warnStorageOnce(err) {
+    if (storageWarned) return;
+    storageWarned = true;
+    try {
+      console.warn(
+        "[saveState] localStorage unavailable -- save/load disabled for this session:",
+        err && err.message ? err.message : err
+      );
+    } catch (e2) {
+      // even console.warn is inside the isolation boundary -- never let a
+      // logging failure escape (same posture as src/music.js's warnOnce).
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    if (storageBroken) return false;
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      storageBroken = true;
+      warnStorageOnce(e);
+      return false;
+    }
+  }
+
+  function safeStorageGet(key) {
+    if (storageBroken) return null;
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      storageBroken = true;
+      warnStorageOnce(e);
+      return null;
+    }
+  }
+
+  // Tiny "SAVED"/"LOADED"/"NO SAVE" toast — bottom-right corner, auto-removes
+  // itself after 2s. Purely decorative feedback for the F5/F9 verbs above;
+  // blocks nothing (no pointer-events handling needed, same posture as the
+  // MISSION FAILED overlay below) and never throws (wrapped defensively —
+  // a toast failing to render must never take the game down with it).
+  function showToast(rootEl, text) {
+    try {
+      var toast = document.createElement("div");
+      toast.style.cssText =
+        "position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.82);" +
+        "color:#9fb;font:13px monospace;letter-spacing:0.15em;padding:10px 16px;" +
+        "border:1px solid #5a7;z-index:9998;pointer-events:none";
+      toast.textContent = text;
+      rootEl.appendChild(toast);
+      setTimeout(function () {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 2000);
+    } catch (e) {
+      // never let a toast rendering failure escape.
+    }
+  }
   function runSelfTests() {
     // Game.selfTests is populated by src/tests.js (same assertions node runs).
     var results = [];
@@ -71,6 +177,12 @@
     // VERB / RATION VERB / CHAFF VERB contract for what each edge does.
     KeyB: true, KeyR: true, KeyX: true,
     Enter: true,
+    // F5/F9: NEW (save/restore cycle) — see file header's F5 SAVE / F9 LOAD
+    // note. preventDefault is ESPECIALLY important for F5 here: the browser
+    // default is a full page reload, which would blow away the entire
+    // playthrough (and this whole GAME_KEYS-gated preventDefault mechanism
+    // exists for exactly this class of key).
+    F5: true, F9: true,
   };
 
   // Handle to the currently-running playthrough's teardown, so a second
@@ -79,7 +191,7 @@
   // header's GAME OVER + RESTART note. null before the first playthrough.
   var currentGame = null;
 
-  function runGame(rootEl) {
+  function runGame(rootEl, opts) {
     if (currentGame) {
       currentGame.stop();
       currentGame = null;
@@ -90,7 +202,13 @@
     // function creates is appended fresh below.
     rootEl.innerHTML = "";
 
-    var engine = Game.createEngine();
+    // opts.engine (NEW — F9 LOAD, see file header): an already-restored
+    // engine (Game.createSaveState().restore(save)) takes the place of a
+    // fresh Game.createEngine() call. Both the title screen and the
+    // game-over retry path call runGame(rootEl) with no opts, so this is a
+    // pure additive branch — everything below treats `engine` identically
+    // either way.
+    var engine = (opts && opts.engine) || Game.createEngine();
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
     var radar = Game.createRadar({ container: rootEl });
     var hud = Game.createHud({ container: rootEl });
@@ -186,6 +304,14 @@
         pendingRation = true;
       } else if (e.code === "KeyX") {
         pendingChaff = true;
+      } else if (e.code === "F5") {
+        // F5 SAVE (see file header) — a meta-level action, handled directly
+        // here rather than threaded through buildInput()/engine.tick() like
+        // every verb above (there is no simulation-tick meaning to "save").
+        saveGame();
+      } else if (e.code === "F9") {
+        // F9 LOAD (see file header) — same meta-level shape as F5.
+        loadGame();
       }
     }
 
@@ -196,6 +322,55 @@
 
     function onResize() {
       renderer.resize();
+    }
+
+    // ---- F5 SAVE / F9 LOAD (see file header) ------------------------------
+    var saveStateApi = Game.createSaveState();
+
+    function saveGame() {
+      var save;
+      try {
+        save = saveStateApi.capture(engine);
+      } catch (e) {
+        // Capturing must never crash the game either -- treat exactly like a
+        // storage failure (see LOCALSTORAGE ISOLATION note): warn once, no
+        // toast (nothing was saved), keep playing.
+        warnStorageOnce(e);
+        return;
+      }
+      var ok = safeStorageSet(SAVE_KEY, JSON.stringify(save));
+      if (ok) showToast(rootEl, "SAVED");
+    }
+
+    function loadGame() {
+      var raw = safeStorageGet(SAVE_KEY);
+      if (!raw) {
+        showToast(rootEl, "NO SAVE");
+        return;
+      }
+      var save;
+      var restored;
+      try {
+        save = JSON.parse(raw);
+        restored = saveStateApi.restore(save);
+      } catch (e) {
+        // A corrupt blob or a version-mismatch save (see saveState.js's
+        // VERSION GATE) must never crash the running game -- the CURRENT
+        // playthrough is untouched (restore() throwing happens before
+        // runGame() is ever called again, so nothing has been torn down).
+        showToast(rootEl, "NO SAVE");
+        return;
+      }
+      runGame(rootEl, { engine: restored });
+      // NOTE: this call above tears down and rebuilds the entire
+      // renderer/radar/hud/music/codec/input stack (see runGame's own file
+      // header) -- everything after this point in THIS invocation of
+      // runGame() (the frame loop below, stop(), etc.) belongs to the now-
+      // superseded playthrough; the "LOADED" toast is shown by the FRESH
+      // runGame() call's own rootEl, appended after its rootEl.innerHTML =
+      // "" wipe, so it survives on screen for the new playthrough to render
+      // under.
+      showToast(rootEl, "LOADED");
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -361,7 +536,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

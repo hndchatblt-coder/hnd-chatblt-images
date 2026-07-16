@@ -723,10 +723,34 @@
       }
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change): squad's full mutable surface is exactly its four
+    // flat props (see file header) — no private closure state at all, unlike
+    // guard below. getState() deep-copies lastKnown (a nested {x,y} object,
+    // or null) so a caller mutating the returned snapshot can never reach
+    // back into this squad's own live state.
+    function getState() {
+      return {
+        phase: squad.phase,
+        phaseTime: squad.phaseTime,
+        lastKnown: squad.lastKnown ? { x: squad.lastKnown.x, y: squad.lastKnown.y } : null,
+        alertCount: squad.alertCount,
+      };
+    }
+
+    function setState(state) {
+      squad.phase = state.phase;
+      squad.phaseTime = state.phaseTime;
+      squad.lastKnown = state.lastKnown ? { x: state.lastKnown.x, y: state.lastKnown.y } : null;
+      squad.alertCount = state.alertCount;
+    }
+
     squad.broadcastAlert = broadcastAlert;
     squad.updateSighting = updateSighting;
     squad.loseContact = loseContact;
     squad.tick = tick;
+    squad.getState = getState;
+    squad.setState = setState;
     return squad;
   }
 
@@ -1319,11 +1343,116 @@
       lockerFacing = locker.facing;
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change to update()/hearNoise()/tranq()/cqc()/stuffInLocker()).
+    // getState() captures guard's ENTIRE mutable surface: both the flat,
+    // externally-readable props listed in the file header (x/y/facing/state/
+    // meter/stateTime/stimulus/waypointIndex/hasLOS/hidden — id/radius are
+    // immutable for this guard's lifetime, so they're omitted; guard.squad is
+    // a shared, externally-wired reference, not this guard's own state, so
+    // restoring it is the CALLER's job, not this method's) AND every private
+    // closure variable backing the pause/search/sweep/fire/sleep/stagger/
+    // locker machinery documented throughout this file (pausing/pauseTime/
+    // pauseBaseFacing, searching/searchTime/searchBaseFacing, sweeping/
+    // sweepTime/sweepBaseFacing/sweepOffset, fireTimer/nextFireAt, sleepTime/
+    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing) — miss ANY
+    // one of these and a restored guard can diverge from a live one the next
+    // time that particular sub-machine's timer/flag matters (a mid-pause
+    // head-sweep, a mid-search arc, a mid-EVASION coordinated sweep, an
+    // in-flight fire cadence, a partially-elapsed sleep/stagger clock, or a
+    // remembered locker-exit facing) — see src/saveState.js's REPLAY GATE
+    // tests for exactly this failure mode. bodySpotTimers is a plain
+    // {id: seconds} map — shallow-copied so a caller mutating the returned
+    // snapshot's map can never reach back into this guard's own live one.
+    // NAMED getSaveState/applySaveState (NOT getState/setState) INTERNALLY —
+    // this factory already declares a local function literally named
+    // setState(newState, stimulus) (the FSM transition helper used
+    // throughout PATROL/SUSPICIOUS/.../enterSleep/tranq/cqc above). A SECOND
+    // local function declaration also named `setState` in this same scope
+    // would hoist over/replace that first one (function declarations in the
+    // same scope don't overload — the later one wins outright), silently
+    // breaking every FSM transition in this file the instant this method was
+    // added (caught by tests/*.tranq*/engine* going red — every FSM
+    // transition started receiving a save-state OBJECT where it expected
+    // (newState, stimulus) args). Distinct internal names sidestep the
+    // collision entirely; guard.getState/guard.setState (the EXTERNAL,
+    // public method names the save/restore contract requires) are just
+    // assigned to point at these below.
+    function getSaveState() {
+      return {
+        x: guard.x,
+        y: guard.y,
+        facing: guard.facing,
+        state: guard.state,
+        meter: guard.meter,
+        stateTime: guard.stateTime,
+        stimulus: guard.stimulus ? { x: guard.stimulus.x, y: guard.stimulus.y } : null,
+        waypointIndex: guard.waypointIndex,
+        hasLOS: guard.hasLOS,
+        hidden: guard.hidden,
+        pausing: pausing,
+        pauseTime: pauseTime,
+        pauseBaseFacing: pauseBaseFacing,
+        searching: searching,
+        searchTime: searchTime,
+        searchBaseFacing: searchBaseFacing,
+        sweeping: sweeping,
+        sweepTime: sweepTime,
+        sweepBaseFacing: sweepBaseFacing,
+        sweepOffset: sweepOffset,
+        fireTimer: fireTimer,
+        nextFireAt: nextFireAt,
+        sleepTime: sleepTime,
+        staggerActive: staggerActive,
+        staggerElapsed: staggerElapsed,
+        bodySpotTimers: Object.assign({}, bodySpotTimers),
+        lockerFacing: lockerFacing,
+      };
+    }
+
+    // applySaveState(s) — the mirror of getSaveState() above: overwrites
+    // every flat prop AND every private closure var it captured. Deliberately
+    // does NOT touch guard.id/guard.radius (immutable) or guard.squad (a
+    // shared, externally-wired reference — see getSaveState's own note); the
+    // caller (src/saveState.js) is responsible for having wired this guard to
+    // the correct squad instance BEFORE calling guard.setState.
+    function applySaveState(s) {
+      guard.x = s.x;
+      guard.y = s.y;
+      guard.facing = s.facing;
+      guard.state = s.state;
+      guard.meter = s.meter;
+      guard.stateTime = s.stateTime;
+      guard.stimulus = s.stimulus ? { x: s.stimulus.x, y: s.stimulus.y } : null;
+      guard.waypointIndex = s.waypointIndex;
+      guard.hasLOS = s.hasLOS;
+      guard.hidden = s.hidden;
+      pausing = s.pausing;
+      pauseTime = s.pauseTime;
+      pauseBaseFacing = s.pauseBaseFacing;
+      searching = s.searching;
+      searchTime = s.searchTime;
+      searchBaseFacing = s.searchBaseFacing;
+      sweeping = s.sweeping;
+      sweepTime = s.sweepTime;
+      sweepBaseFacing = s.sweepBaseFacing;
+      sweepOffset = s.sweepOffset;
+      fireTimer = s.fireTimer;
+      nextFireAt = s.nextFireAt;
+      sleepTime = s.sleepTime;
+      staggerActive = s.staggerActive;
+      staggerElapsed = s.staggerElapsed;
+      bodySpotTimers = Object.assign({}, s.bodySpotTimers);
+      lockerFacing = s.lockerFacing;
+    }
+
     guard.update = update;
     guard.hearNoise = hearNoise;
     guard.tranq = tranq;
     guard.cqc = cqc;
     guard.stuffInLocker = stuffInLocker;
+    guard.getState = getSaveState;
+    guard.setState = applySaveState;
 
     // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
     // kept alive on the guard too in case future callers want it directly.

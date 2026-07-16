@@ -21,10 +21,25 @@
 //     next(): float in [0,1),
 //     int(min, max): inclusive integer,
 //     pick(array): element,
-//     seed: number  (the seed it was created with)
+//     seed: number,  (the seed it was created with)
+//     getState(): { s: number }  (NEW — save/restore cycle, see below),
+//     setState(state: { s: number }): void  (NEW — see below),
 //   }
 // Single source of randomness for the whole game. Same seed => identical
 // sequence => reproducible tests and replays (seed + input log = identical run).
+//
+// getState()/setState() (NEW — additive, no behavior change to next/int/pick):
+// the mulberry32 generator's ENTIRE mutable state is the single internal
+// counter `s` (seeded from `seed` at construction, then advanced by every
+// next() call) — getState() returns a plain JSON-safe { s } snapshot of it;
+// setState({s}) overwrites it, after which next()/int()/pick() continue
+// exactly as if this rng instance had been advanced to that point from its
+// original seed (the counter, not the constructor's `seed` value, is what
+// setState() restores — `seed`/the closure var it was read from stays
+// whatever this instance was originally constructed with, same as before;
+// only the live cursor moves). This is what src/saveState.js's capture/
+// restore cycle uses to make a restored engine's rng draw the EXACT SAME
+// future sequence a live engine would have drawn from that point on.
 (function (Game) {
   function createRng(seed) {
     let s = seed >>> 0;
@@ -42,7 +57,13 @@
     function pick(arr) {
       return arr[Math.floor(next() * arr.length)];
     }
-    return { next: next, int: int, pick: pick, seed: seed };
+    function getState() {
+      return { s: s };
+    }
+    function setState(state) {
+      s = state.s >>> 0;
+    }
+    return { next: next, int: int, pick: pick, seed: seed, getState: getState, setState: setState };
   }
   Game.createRng = createRng;
   if (typeof module !== "undefined") module.exports = { createRng: createRng };
@@ -371,6 +392,24 @@
       return !!doorOpen[id];
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). This world instance's ONLY mutable state is the
+    // per-door open/closed flag map (doorOpen) — everything else
+    // (walls/zoneData) is immutable, already restored by rebuilding a fresh
+    // world for save.zoneId. getState() shallow-copies doorOpen so a caller
+    // mutating the returned snapshot can never reach back into this world's
+    // own live map; setState() REPLACES the closure's doorOpen var outright
+    // (safe: blockers()/setDoorOpen()/isDoorOpen() above all read/write
+    // `doorOpen` by closure reference, not a captured-at-construction copy,
+    // so a reassignment here is visible to every one of them immediately).
+    function getState() {
+      return { doorOpen: Object.assign({}, doorOpen) };
+    }
+
+    function setState(state) {
+      doorOpen = Object.assign({}, state.doorOpen);
+    }
+
     return {
       isBlocked: isBlocked,
       isBlockedCircle: isBlockedCircle,
@@ -379,6 +418,8 @@
       inRegion: inRegion,
       setDoorOpen: setDoorOpen,
       isDoorOpen: isDoorOpen,
+      getState: getState,
+      setState: setState,
       zone: zoneData,
     };
   }
@@ -2257,10 +2298,34 @@
       }
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change): squad's full mutable surface is exactly its four
+    // flat props (see file header) — no private closure state at all, unlike
+    // guard below. getState() deep-copies lastKnown (a nested {x,y} object,
+    // or null) so a caller mutating the returned snapshot can never reach
+    // back into this squad's own live state.
+    function getState() {
+      return {
+        phase: squad.phase,
+        phaseTime: squad.phaseTime,
+        lastKnown: squad.lastKnown ? { x: squad.lastKnown.x, y: squad.lastKnown.y } : null,
+        alertCount: squad.alertCount,
+      };
+    }
+
+    function setState(state) {
+      squad.phase = state.phase;
+      squad.phaseTime = state.phaseTime;
+      squad.lastKnown = state.lastKnown ? { x: state.lastKnown.x, y: state.lastKnown.y } : null;
+      squad.alertCount = state.alertCount;
+    }
+
     squad.broadcastAlert = broadcastAlert;
     squad.updateSighting = updateSighting;
     squad.loseContact = loseContact;
     squad.tick = tick;
+    squad.getState = getState;
+    squad.setState = setState;
     return squad;
   }
 
@@ -2853,11 +2918,116 @@
       lockerFacing = locker.facing;
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change to update()/hearNoise()/tranq()/cqc()/stuffInLocker()).
+    // getState() captures guard's ENTIRE mutable surface: both the flat,
+    // externally-readable props listed in the file header (x/y/facing/state/
+    // meter/stateTime/stimulus/waypointIndex/hasLOS/hidden — id/radius are
+    // immutable for this guard's lifetime, so they're omitted; guard.squad is
+    // a shared, externally-wired reference, not this guard's own state, so
+    // restoring it is the CALLER's job, not this method's) AND every private
+    // closure variable backing the pause/search/sweep/fire/sleep/stagger/
+    // locker machinery documented throughout this file (pausing/pauseTime/
+    // pauseBaseFacing, searching/searchTime/searchBaseFacing, sweeping/
+    // sweepTime/sweepBaseFacing/sweepOffset, fireTimer/nextFireAt, sleepTime/
+    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing) — miss ANY
+    // one of these and a restored guard can diverge from a live one the next
+    // time that particular sub-machine's timer/flag matters (a mid-pause
+    // head-sweep, a mid-search arc, a mid-EVASION coordinated sweep, an
+    // in-flight fire cadence, a partially-elapsed sleep/stagger clock, or a
+    // remembered locker-exit facing) — see src/saveState.js's REPLAY GATE
+    // tests for exactly this failure mode. bodySpotTimers is a plain
+    // {id: seconds} map — shallow-copied so a caller mutating the returned
+    // snapshot's map can never reach back into this guard's own live one.
+    // NAMED getSaveState/applySaveState (NOT getState/setState) INTERNALLY —
+    // this factory already declares a local function literally named
+    // setState(newState, stimulus) (the FSM transition helper used
+    // throughout PATROL/SUSPICIOUS/.../enterSleep/tranq/cqc above). A SECOND
+    // local function declaration also named `setState` in this same scope
+    // would hoist over/replace that first one (function declarations in the
+    // same scope don't overload — the later one wins outright), silently
+    // breaking every FSM transition in this file the instant this method was
+    // added (caught by tests/*.tranq*/engine* going red — every FSM
+    // transition started receiving a save-state OBJECT where it expected
+    // (newState, stimulus) args). Distinct internal names sidestep the
+    // collision entirely; guard.getState/guard.setState (the EXTERNAL,
+    // public method names the save/restore contract requires) are just
+    // assigned to point at these below.
+    function getSaveState() {
+      return {
+        x: guard.x,
+        y: guard.y,
+        facing: guard.facing,
+        state: guard.state,
+        meter: guard.meter,
+        stateTime: guard.stateTime,
+        stimulus: guard.stimulus ? { x: guard.stimulus.x, y: guard.stimulus.y } : null,
+        waypointIndex: guard.waypointIndex,
+        hasLOS: guard.hasLOS,
+        hidden: guard.hidden,
+        pausing: pausing,
+        pauseTime: pauseTime,
+        pauseBaseFacing: pauseBaseFacing,
+        searching: searching,
+        searchTime: searchTime,
+        searchBaseFacing: searchBaseFacing,
+        sweeping: sweeping,
+        sweepTime: sweepTime,
+        sweepBaseFacing: sweepBaseFacing,
+        sweepOffset: sweepOffset,
+        fireTimer: fireTimer,
+        nextFireAt: nextFireAt,
+        sleepTime: sleepTime,
+        staggerActive: staggerActive,
+        staggerElapsed: staggerElapsed,
+        bodySpotTimers: Object.assign({}, bodySpotTimers),
+        lockerFacing: lockerFacing,
+      };
+    }
+
+    // applySaveState(s) — the mirror of getSaveState() above: overwrites
+    // every flat prop AND every private closure var it captured. Deliberately
+    // does NOT touch guard.id/guard.radius (immutable) or guard.squad (a
+    // shared, externally-wired reference — see getSaveState's own note); the
+    // caller (src/saveState.js) is responsible for having wired this guard to
+    // the correct squad instance BEFORE calling guard.setState.
+    function applySaveState(s) {
+      guard.x = s.x;
+      guard.y = s.y;
+      guard.facing = s.facing;
+      guard.state = s.state;
+      guard.meter = s.meter;
+      guard.stateTime = s.stateTime;
+      guard.stimulus = s.stimulus ? { x: s.stimulus.x, y: s.stimulus.y } : null;
+      guard.waypointIndex = s.waypointIndex;
+      guard.hasLOS = s.hasLOS;
+      guard.hidden = s.hidden;
+      pausing = s.pausing;
+      pauseTime = s.pauseTime;
+      pauseBaseFacing = s.pauseBaseFacing;
+      searching = s.searching;
+      searchTime = s.searchTime;
+      searchBaseFacing = s.searchBaseFacing;
+      sweeping = s.sweeping;
+      sweepTime = s.sweepTime;
+      sweepBaseFacing = s.sweepBaseFacing;
+      sweepOffset = s.sweepOffset;
+      fireTimer = s.fireTimer;
+      nextFireAt = s.nextFireAt;
+      sleepTime = s.sleepTime;
+      staggerActive = s.staggerActive;
+      staggerElapsed = s.staggerElapsed;
+      bodySpotTimers = Object.assign({}, s.bodySpotTimers);
+      lockerFacing = s.lockerFacing;
+    }
+
     guard.update = update;
     guard.hearNoise = hearNoise;
     guard.tranq = tranq;
     guard.cqc = cqc;
     guard.stuffInLocker = stuffInLocker;
+    guard.getState = getSaveState;
+    guard.setState = applySaveState;
 
     // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
     // kept alive on the guard too in case future callers want it directly.
@@ -3187,10 +3357,40 @@
       return { fired: true, hit: false, impact: impact };
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). inv's entire mutable surface is already flat, plain
+    // props (see file header) — no private closure state in this module —
+    // so this is a straight copy, deep-copying `keycards` (a nested object)
+    // so a caller mutating the returned snapshot can never reach back into
+    // this inventory's own live state.
+    function getState() {
+      return {
+        weapon: inv.weapon,
+        darts: inv.darts,
+        rations: inv.rations,
+        chaff: inv.chaff,
+        hasBox: inv.hasBox,
+        boxOn: inv.boxOn,
+        keycards: { L1: inv.keycards.L1, L2: inv.keycards.L2, L3: inv.keycards.L3 },
+      };
+    }
+
+    function setState(state) {
+      inv.weapon = state.weapon;
+      inv.darts = state.darts;
+      inv.rations = state.rations;
+      inv.chaff = state.chaff;
+      inv.hasBox = state.hasBox;
+      inv.boxOn = state.boxOn;
+      inv.keycards = { L1: state.keycards.L1, L2: state.keycards.L2, L3: state.keycards.L3 };
+    }
+
     inv.fireTranq = fireTranq;
     inv.useRation = useRation;
     inv.useChaff = useChaff;
     inv.collectPickup = collectPickup;
+    inv.getState = getState;
+    inv.setState = setState;
     return inv;
   }
 
@@ -3648,16 +3848,344 @@
       });
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). Captures the per-camera/per-laser MUTABLE state
+    // arrays (camStates/laserActiveStates) — the camera/laser SCHEMA itself
+    // (x/y/facing/sweepDeg/... from world.zone.cameras/lasers) is immutable
+    // zone data, already restored by rebuilding the world/director for
+    // save.zoneId, so only the live per-tick numbers need to travel:
+    //   cameras: [{ panAngle, disabled, meter, wasSuspicious }, ...] — meter
+    //     is what makes a restored camera resume mid-fill/mid-drain exactly
+    //     where a live one would; wasSuspicious is the SUSPICIOUS edge-
+    //     tracking flag (see tickCameras' file header note) — miss it and a
+    //     restored camera already-above-SUSPICIOUS_AT would fire a spurious
+    //     re-crossing event on its very next non-disabled tick.
+    //   lasers: [{ active }, ...] — the last-computed duty-cycle flag; purely
+    //     cosmetic (laserStates()' blink), since tickLasers recomputes it
+    //     fresh from ctx.time every tick regardless, but captured anyway so
+    //     laserStates() reads correctly on a restored engine even before its
+    //     first post-restore tick.
+    // Same index order as `cameras`/`lasers` (the world.zone arrays) in both
+    // directions — restoring onto a director built from a DIFFERENT zone (a
+    // different camera/laser count) is not a supported call shape; callers
+    // (src/saveState.js) only ever restore onto a director rebuilt for the
+    // SAME zoneId the capture came from.
+    function getState() {
+      return {
+        cameras: camStates.map(function (st) {
+          return {
+            panAngle: st.panAngle,
+            disabled: st.disabled,
+            meter: st.meter,
+            wasSuspicious: st.wasSuspicious,
+          };
+        }),
+        lasers: laserActiveStates.map(function (st) {
+          return { active: st.active };
+        }),
+      };
+    }
+
+    function setState(state) {
+      var camsIn = state.cameras || [];
+      for (var i = 0; i < camStates.length && i < camsIn.length; i++) {
+        camStates[i].panAngle = camsIn[i].panAngle;
+        camStates[i].disabled = camsIn[i].disabled;
+        camStates[i].meter = camsIn[i].meter;
+        camStates[i].wasSuspicious = camsIn[i].wasSuspicious;
+      }
+      var lasersIn = state.lasers || [];
+      for (var j = 0; j < laserActiveStates.length && j < lasersIn.length; j++) {
+        laserActiveStates[j].active = lasersIn[j].active;
+      }
+    }
+
     return {
       tickCameras: tickCameras,
       cameraStates: cameraStates,
       tickLasers: tickLasers,
       laserStates: laserStates,
+      getState: getState,
+      setState: setState,
     };
   }
 
   Game.createDirector = createDirector;
   if (typeof module !== "undefined") module.exports = { createDirector: createDirector };
+})(typeof window !== "undefined"
+  ? (window.Game = window.Game || {})
+  : (global.Game = global.Game || {}));
+
+// ==== src/saveState.js ====
+// src/saveState.js
+// PUBLIC API:
+//   Game.createSaveState() -> { capture(engine), restore(save) }
+//
+//   THE POINT OF THIS MODULE (read this before touching anything else): a
+//   save is only correct if RESUMING it is INDISTINGUISHABLE from never
+//   having saved at all. Concretely — for any engine A, any tick count N,
+//   any further scripted input log L of length M:
+//     A.tick() x N; var save = capture(A); A.tick(L[0..M));
+//     var B = restore(save); B.tick(L[0..M));
+//     JSON.stringify(A.snapshot()) === JSON.stringify(B.snapshot())
+//   must hold BYTE-IDENTICAL, no matter what state the sim was in at the
+//   moment of the save (mid-patrol, mid-alert, a guard mid-sleep, a door
+//   mid-auto-close-timer, a chaff pop mid-countdown, ...). See
+//   tests/saveState.test.js's "REPLAY GATE" tests for the enforced proof.
+//   Every module's getState()/setState() pair this function calls into was
+//   written (and iterated on against exactly that gate) to make this true —
+//   if a future module gains a new closure var, it MUST be added to that
+//   module's own getState()/setState(), or this guarantee silently breaks.
+//
+//   capture(engine) -> plain JSON-safe object (safe to JSON.stringify /
+//   JSON.parse / localStorage — only primitives/plain objects/arrays, no
+//   functions, no circular refs, no `undefined` fields — same "cheap,
+//   pluggable into a future save module" posture engine.snapshot() already
+//   documents, except THIS object round-trips back into a fully live engine,
+//   where snapshot() is read-only debug/test output). Shape:
+//     {
+//       version: 1,               // SAVE_VERSION — see restore()'s version gate below.
+//       zoneId: string,           // engine.zone.id — which Game.ZONES entry to rebuild against.
+//       tickCount: number,        // mirrors engine.tickCount (also inside `engine` below;
+//       time: number,             // kept at the top level too for at-a-glance inspection/
+//                                 // debugging of a raw save blob without digging into `engine`).
+//       rng: {...},               // engine.rng.getState() verbatim (src/rng.js) — the ENTIRE
+//                                 // future random sequence hangs off this one value; the
+//                                 // constructor `seed` restore() passes to createEngine() is
+//                                 // throwaway (immediately overwritten by this).
+//       player: { x, y, facing, stance, hp, alive },
+//                                 // player.js has NO getState/setState (out of scope this
+//                                 // cycle — see file header note below) because it has NO
+//                                 // hidden closure state at all: every one of these is a
+//                                 // plain flat prop on the player object itself (see
+//                                 // src/player.js's own file header) — engine.player.x = ...
+//                                 // is exactly as legitimate a restore as a method call would
+//                                 // be. player.moving/player.running are DELIBERATELY
+//                                 // EXCLUDED: both are fully recomputed from THIS TICK's
+//                                 // input at the top of player.update(), with no dependency
+//                                 // on their own previous value (see src/player.js's update()
+//                                 // — moving/running are `var moving = v.mag > 0` /
+//                                 // `moving && runRequested`, pure functions of the CURRENT
+//                                 // input, not carried state) — restoring a save always lands
+//                                 // between ticks, never mid-update(), so whatever stale
+//                                 // moving/running a live engine happened to be sitting on at
+//                                 // save time is irrelevant: the very next tick() call
+//                                 // overwrites both from scratch before anything reads them.
+//       inventory: {...},        // engine.inventory.getState() verbatim (src/items.js) —
+//                                 // darts/rations/chaff/boxOn/keycards/hasBox/weapon.
+//       guards: [ { id, state: {...} }, ... ],
+//                                 // one entry per engine.guards, SAME ORDER — `state` is that
+//                                 // guard's own guard.getState() (src/guardAI.js) verbatim,
+//                                 // the full FSM internals (see that module's own getState()
+//                                 // doc comment for the exhaustive list — every closure var
+//                                 // that once broke the replay gate before this cycle found
+//                                 // it, see this module's own header note above). `id` is
+//                                 // carried alongside (not just array position) so restore()
+//                                 // can match guards by IDENTITY rather than assuming array
+//                                 // order never changes — see restore() below.
+//       squad: {...},             // engine.squad.getState() verbatim (src/guardAI.js) —
+//                                 // phase/phaseTime/lastKnown/alertCount. Every guard in
+//                                 // `guards` above shares this ONE squad instance (see
+//                                 // src/engine.js's construction — createGuard({squad:squad})
+//                                 // for every guard on the roster), so it is captured ONCE
+//                                 // here, not per-guard.
+//       director: {...},         // engine.director.getState() verbatim (src/director.js) —
+//                                 // per-camera {panAngle, disabled, meter, wasSuspicious} and
+//                                 // per-laser {active}. Camera/laser SCHEMA (position, sweep,
+//                                 // fov, range, endpoints, period, duty) is immutable zone
+//                                 // data, already restored for free by rebuilding the world/
+//                                 // director for `zoneId` — only the live per-tick numbers
+//                                 // travel here.
+//       world: {...},             // engine.world.getState() verbatim (src/world.js) — the
+//                                 // per-door open/closed flag map. THE OTHER HALF OF DOORS
+//                                 // (the per-door auto-close timestamp, doorLastNear) lives on
+//                                 // engine, not world — see `engine` below; both halves are
+//                                 // needed to resume a door's auto-close countdown correctly.
+//       engine: {...},            // engine.getState() verbatim (src/engine.js) — tickCount,
+//                                 // time, gameOver, dragging, playerHidden, chaffUntil, every
+//                                 // one-shot verb's edge-tracker (prevKnock/prevFire/prevCqc/
+//                                 // prevDrag/prevBox/prevRation/prevChaff), which locker (by
+//                                 // index) the player is hidden in, collectedPickups (mission-
+//                                 // scoped, so a pickup already taken never reappears after a
+//                                 // restore), doorLastNear (see world note above), and the
+//                                 // zoneBlocked edge-tracker (inBlockedExitRegion).
+//     }
+//   CODEC IS DELIBERATELY EXCLUDED — v1 (documented, not a gap): codecDirector's
+//   one-shot trigger memory (src/codec.js) is UI/narrative bookkeeping ("has
+//   the mission-briefing call already played this playthrough"), not
+//   simulation state that engine.tick()'s determinism gate cares about — the
+//   REPLAY GATE this module exists to satisfy is about engine.snapshot()
+//   equality, and codec has no footprint there at all (it lives entirely in
+//   src/boot.js's browser-only runGame() closure, fed engine.events after the
+//   fact — see that module's own contract). A future cycle that wants "codec
+//   one-shots replay correctly across a save/load" would give codecDirector
+//   its own getState()/setState() and thread it through here; v1 saves a
+//   sim, not a cutscene log.
+//
+//   restore(save) -> a BRAND NEW engine (Game.createEngine() instance),
+//   reconstructed to the EXACT state `save` captured, ready for
+//   engine.tick(...) to continue the run:
+//     1. VERSION GATE: if save.version !== SAVE_VERSION, throws a clear
+//        Error immediately — a save from an incompatible format (a future
+//        cycle that changes what any getState()/setState() captures MUST
+//        bump SAVE_VERSION) must never be silently half-applied into a
+//        corrupt engine; see tests/saveState.test.js's version-mismatch test.
+//     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
+//        if that zone no longer exists (defensive; every zone this cycle
+//        ships is a fixed module-level Game.ZONES entry, so this should never
+//        actually trip in practice).
+//     3. engine = Game.createEngine({ zoneData: zoneData, seed: 1 }) — the
+//        seed argument is COMPLETELY IRRELEVANT (any value works identically)
+//        because engine.rng.setState(save.rng) below immediately overwrites
+//        the generator's live cursor; createEngine's own default guard/
+//        world/vision/squad/director/inventory construction is what gives
+//        this fresh engine the correct STRUCTURE (guard roster/ids per
+//        src/engine.js's ZONE_GUARDS table, camera/laser schema per the
+//        zone data) before every getState/setState pair below overwrites
+//        its CONTENTS to match `save`.
+//     4. Restores, in this order (order matters only where one step reads a
+//        closure var another step sets — see inline comments):
+//          a. engine.rng.setState(save.rng)
+//          b. player.x/y/facing/stance/hp/alive — direct flat-prop
+//             assignment (see player note above; no player.js method exists
+//             or is needed).
+//          c. engine.inventory.setState(save.inventory)
+//          d. engine.squad.setState(save.squad) — the ONE shared squad
+//             instance every restored guard already points to (guards were
+//             just built by createEngine() with `squad: squad`, the SAME
+//             squad createEngine constructed) — restoring it here is
+//             immediately visible to every guard.squad reference with no
+//             separate re-wiring step.
+//          e. PER-GUARD RESTORE: for every { id, state } in save.guards,
+//             finds the engine.guards[] entry with that SAME id (guard
+//             identity, not array position — see the `guards` field note
+//             above) and calls guard.setState(state) on it. Throws a clear
+//             Error if any saved guard id has no match in the freshly built
+//             roster (a save whose zoneId's ZONE_GUARDS table changed since
+//             the save was made, e.g. a dev/build mismatch — not a supported
+//             restore, but must fail loudly rather than silently drop a
+//             guard's state).
+//          f. engine.director.setState(save.director)
+//          g. engine.world.setState(save.world)
+//          h. engine.setState(save.engine) — restores tickCount/time/
+//             gameOver/dragging/playerHidden/chaffUntil/every edge-tracker/
+//             hiddenLockerIndex/collectedPickups/doorLastNear/
+//             inBlockedExitRegion. Reads `zone.lockers` (via engine's own
+//             closure) to resolve hiddenLockerIndex back into a locker
+//             object reference — safe because zoneData (step 2) is the
+//             SAME fixed Game.ZONES.* object the original capture()'s
+//             engine was built from (see src/engine.js's own note: Game.
+//             ZONES entries are module-level constants, never cloned).
+//     5. Returns the fully-restored engine.
+//
+// Pure JS logic — no THREE, no DOM, no browser APIs, no Math.random/Date —
+// runs headless in node exactly like every other logic module. Consumes
+// Game.ZONES/Game.createEngine and every module's own getState()/setState()
+// pair via their published contracts; never reaches into any module's
+// private closure state directly (if a field isn't exposed via getState(),
+// this module doesn't know it exists).
+(function (Game) {
+  var SAVE_VERSION = 1;
+
+  function capture(engine) {
+    var player = engine.player;
+
+    return {
+      version: SAVE_VERSION,
+      zoneId: engine.zone.id,
+      tickCount: engine.tickCount,
+      time: engine.time,
+      rng: engine.rng.getState(),
+      player: {
+        x: player.x,
+        y: player.y,
+        facing: player.facing,
+        stance: player.stance,
+        hp: player.hp,
+        alive: player.alive,
+      },
+      inventory: engine.inventory.getState(),
+      guards: engine.guards.map(function (g) {
+        return { id: g.id, state: g.getState() };
+      }),
+      squad: engine.squad.getState(),
+      director: engine.director.getState(),
+      world: engine.world.getState(),
+      engine: engine.getState(),
+    };
+  }
+
+  function restore(save) {
+    if (!save || save.version !== SAVE_VERSION) {
+      throw new Error(
+        "saveState.restore: unsupported save version " +
+          (save && save.version) +
+          " (expected " +
+          SAVE_VERSION +
+          ")"
+      );
+    }
+
+    var zoneData = Game.ZONES[save.zoneId];
+    if (!zoneData) {
+      throw new Error("saveState.restore: unknown zoneId " + save.zoneId);
+    }
+
+    // seed is irrelevant — engine.rng.setState() below immediately overwrites
+    // the live cursor (see file header). createEngine()'s own defaults give
+    // this fresh engine the correct STRUCTURE (guard roster, camera/laser
+    // schema, door list) for `zoneId` before every step below overwrites its
+    // CONTENTS to match `save`.
+    var engine = Game.createEngine({ zoneData: zoneData, seed: 1 });
+
+    engine.rng.setState(save.rng);
+
+    engine.player.x = save.player.x;
+    engine.player.y = save.player.y;
+    engine.player.facing = save.player.facing;
+    engine.player.stance = save.player.stance;
+    engine.player.hp = save.player.hp;
+    engine.player.alive = save.player.alive;
+
+    engine.inventory.setState(save.inventory);
+
+    // Shared squad instance — every guard on engine.guards already points at
+    // this SAME object (see src/engine.js's construction), so restoring it
+    // here is immediately visible everywhere, no re-wiring needed.
+    engine.squad.setState(save.squad);
+
+    // PER-GUARD RESTORE — match by id, not array position (see file header).
+    for (var i = 0; i < save.guards.length; i++) {
+      var savedGuard = save.guards[i];
+      var target = null;
+      for (var j = 0; j < engine.guards.length; j++) {
+        if (engine.guards[j].id === savedGuard.id) {
+          target = engine.guards[j];
+          break;
+        }
+      }
+      if (!target) {
+        throw new Error(
+          "saveState.restore: no guard with id " + savedGuard.id + " in rebuilt zone " + save.zoneId
+        );
+      }
+      target.setState(savedGuard.state);
+    }
+
+    engine.director.setState(save.director);
+    engine.world.setState(save.world);
+    engine.setState(save.engine);
+
+    return engine;
+  }
+
+  Game.createSaveState = function () {
+    return { capture: capture, restore: restore };
+  };
+
+  if (typeof module !== "undefined") {
+    module.exports = { createSaveState: Game.createSaveState };
+  }
 })(typeof window !== "undefined"
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
@@ -5475,8 +6003,102 @@
       };
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change to tick()/snapshot()). Captures every piece of THIS
+    // module's OWN mutable state that isn't already a flat `engine.*` prop
+    // (dragging/playerHidden/chaffUntil/gameOver/tickCount/time ARE already
+    // flat props — included here too, for convenience, so a caller can
+    // restore the engine's own state with one engine.setState(s) call rather
+    // than also having to poke those props directly) PLUS every private
+    // edge-tracker/bookkeeping closure var documented throughout this file
+    // that is NOT part of any other module's own getState()/setState()
+    // (world/player/guards/squad/vision/director/rng/inventory each own
+    // their OWN state — see src/saveState.js for how those are captured
+    // separately):
+    //   prevKnock/prevFire/prevCqc/prevDrag/prevBox/prevRation/prevChaff —
+    //     edge-trigger memory for every one-shot verb (see file header). Miss
+    //     ANY of these and a restored engine can double-fire (or swallow) the
+    //     very next tick's edge for whichever verb's key was HELD DOWN at
+    //     the moment of the save (a `true` input carried across a save/
+    //     restore boundary with a stale `false` prev-state reads as a FRESH
+    //     false->true edge that never actually happened).
+    //   hiddenLockerIndex — hiddenLocker (the {x,y,facing} locker object the
+    //     player is currently tucked into, or null) is a REFERENCE into this
+    //     zone's OWN zone.lockers array (see nearestLocker() above) — since
+    //     Game.ZONES.* entries are fixed module-level objects (never cloned
+    //     per createWorld() call, see src/world.js), that array is the same
+    //     object/index sequence every time this exact zone is loaded, so the
+    //     reference survives a save/restore round-trip as a plain array
+    //     index (-1 meaning "not hidden") rather than needing to serialize
+    //     the locker object itself.
+    //   collectedPickups — mission-scoped (NOT zone-scoped, see its own
+    //     declaration comment above) map of "<zoneId>#<index>" -> true; a
+    //     restored engine that forgets an already-collected pickup would let
+    //     the player collect it a second time.
+    //   doorLastNear — zone-scoped map of door.id -> the last engine.time
+    //     anyone was within DOOR_PROXIMITY_DIST of it; needed so a restored
+    //     engine's auto-close timer resumes counting from the correct
+    //     remaining time rather than restarting a fresh DOOR_AUTO_CLOSE_S
+    //     window (or closing immediately) the instant someone steps away.
+    //   inBlockedExitRegion — the zoneBlocked edge-tracker (see
+    //     tryZoneTransition above); miss it and a restored engine standing in
+    //     a blocked-exit trigger re-fires zoneBlocked on its very next tick
+    //     even though the "entry edge" already happened before the save.
+    function getState() {
+      var lockerIndex = -1;
+      if (hiddenLocker) {
+        var lockers = zone.lockers || [];
+        lockerIndex = lockers.indexOf(hiddenLocker);
+      }
+      return {
+        tickCount: engine.tickCount,
+        time: engine.time,
+        gameOver: engine.gameOver,
+        dragging: engine.dragging,
+        playerHidden: engine.playerHidden,
+        chaffUntil: engine.chaffUntil,
+        prevKnock: prevKnock,
+        prevFire: prevFire,
+        prevCqc: prevCqc,
+        prevDrag: prevDrag,
+        prevBox: prevBox,
+        prevRation: prevRation,
+        prevChaff: prevChaff,
+        hiddenLockerIndex: lockerIndex,
+        collectedPickups: Object.assign({}, collectedPickups),
+        doorLastNear: Object.assign({}, doorLastNear),
+        inBlockedExitRegion: inBlockedExitRegion,
+      };
+    }
+
+    function setState(state) {
+      engine.tickCount = state.tickCount;
+      engine.time = state.time;
+      engine.gameOver = state.gameOver;
+      engine.dragging = state.dragging;
+      engine.playerHidden = state.playerHidden;
+      engine.chaffUntil = state.chaffUntil;
+      prevKnock = state.prevKnock;
+      prevFire = state.prevFire;
+      prevCqc = state.prevCqc;
+      prevDrag = state.prevDrag;
+      prevBox = state.prevBox;
+      prevRation = state.prevRation;
+      prevChaff = state.prevChaff;
+      var lockers = zone.lockers || [];
+      hiddenLocker =
+        state.hiddenLockerIndex !== undefined && state.hiddenLockerIndex >= 0
+          ? lockers[state.hiddenLockerIndex] || null
+          : null;
+      collectedPickups = Object.assign({}, state.collectedPickups);
+      doorLastNear = Object.assign({}, state.doorLastNear);
+      inBlockedExitRegion = state.inBlockedExitRegion;
+    }
+
     engine.tick = tick;
     engine.snapshot = snapshot;
+    engine.getState = getState;
+    engine.setState = setState;
 
     return engine;
   }
@@ -14560,6 +15182,425 @@ Game.selfTests.push({
 });
 
 })(typeof window !== "undefined" ? window : global);
+// ==== tests/saveState.test.js ====
+(function (global) {
+// tests/saveState.test.js — headless assertions for src/saveState.js's
+// capture()/restore() cycle. Same registry pattern as every other tests/*.js
+// file: push onto the shared Game.selfTests list; test.js runs every entry
+// headless, and boot.js runs the SAME list in-browser before the title
+// screen — so every test here must be environment-portable (no Date.now/
+// Math.random reliance, deterministic seeds/scripted input only).
+//
+// THE REPLAY GATE (tests 2/3 below) is the actual point of this whole
+// module: a save is only correct if resuming it is byte-identical to never
+// having saved at all. See src/saveState.js's own file header for the full
+// write-up of what that means and why every module's getState()/setState()
+// pair was iterated against exactly this proof.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+function scriptedInput(tick) {
+  return {
+    moveX: Math.sin(tick * 0.037),
+    moveY: Math.cos(tick * 0.051),
+    run: tick % 7 === 0,
+    stance: tick % 200 < 60 ? "crouch" : tick % 200 < 120 ? "crawl" : "stand",
+  };
+}
+
+// A busier scripted log than scriptedInput() above — also presses knock/cqc
+// on scattered edges, so the REPLAY GATE exercises the edge-triggered verb
+// bookkeeping (prevKnock/prevCqc/etc — see src/engine.js's getState() note)
+// as well as plain movement.
+function mixedInput(tick) {
+  return {
+    moveX: Math.sin(tick * 0.021),
+    moveY: Math.cos(tick * 0.013),
+    run: tick % 11 === 0,
+    stance: tick % 150 < 50 ? "crouch" : tick % 150 < 90 ? "crawl" : "stand",
+    knock: tick % 97 === 0,
+    cqc: tick % 133 === 0,
+  };
+}
+
+// ---- 1. Basic round-trip: capture -> JSON -> restore -> identical snapshot,
+// no ticking at all (proves the save itself is JSON-safe AND that restore()
+// alone, with zero further simulation, reconstructs an equivalent engine).
+
+Game.selfTests.push({
+  name: "saveState: capture -> JSON round-trip -> restore -> snapshot() equals original immediately",
+  fn: function () {
+    var engine = Game.createEngine({ seed: 42 });
+    for (var i = 0; i < 90; i++) engine.tick(scriptedInput(i));
+
+    var saveState = Game.createSaveState();
+    var save = saveState.capture(engine);
+
+    // JSON round-trip: prove the captured object is plain-data safe (no
+    // functions, no NaN/Infinity, no circular refs) by actually serializing
+    // and re-parsing it, same as src/boot.js's localStorage save will do.
+    var reparsed = JSON.parse(JSON.stringify(save));
+
+    var restored = saveState.restore(reparsed);
+
+    var beforeSnap = JSON.stringify(engine.snapshot());
+    var afterSnap = JSON.stringify(restored.snapshot());
+    assert(
+      beforeSnap === afterSnap,
+      "expected restored engine's snapshot to equal the original's immediately after restore:\n" +
+        beforeSnap +
+        "\nvs\n" +
+        afterSnap
+    );
+  },
+});
+
+// ---- 2. THE REPLAY GATE (calm): 300 ticks of ordinary patrol-adjacent
+// input, save, then 300 MORE ticks of scripted input on both the original
+// (still-ticking) engine and a freshly restored one -> identical final
+// snapshots.
+
+Game.selfTests.push({
+  name: "saveState REPLAY GATE (calm): save mid-patrol, 300 more ticks vs restore+same ticks -> identical snapshot",
+  fn: function () {
+    var engineA = Game.createEngine({ seed: 777 });
+    for (var t = 0; t < 300; t++) engineA.tick(scriptedInput(t));
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engineA)));
+
+    for (t = 300; t < 600; t++) engineA.tick(scriptedInput(t));
+
+    var engineB = saveState.restore(save);
+    for (t = 300; t < 600; t++) engineB.tick(scriptedInput(t));
+
+    var snapA = JSON.stringify(engineA.snapshot());
+    var snapB = JSON.stringify(engineB.snapshot());
+    assert(
+      snapA === snapB,
+      "calm replay gate diverged:\nA=" + snapA + "\nB=" + snapB
+    );
+  },
+});
+
+// ---- 3. THE REPLAY GATE (chaos): drive to ALERT, tranq a guard, open a
+// keyed door (Laboratory), pop chaff, save MID-EVASION, then 600 ticks of
+// busier mixed input on both sides -> identical snapshots. This is the test
+// that finds every missed closure var (see src/guardAI.js's getState()
+// comment for the full list this once caught: pausing/pauseTime/
+// pauseBaseFacing, searching/searchTime/searchBaseFacing, sweeping/
+// sweepTime/sweepBaseFacing/sweepOffset, fireTimer/nextFireAt, sleepTime/
+// staggerActive/staggerElapsed/bodySpotTimers, lockerFacing).
+
+Game.selfTests.push({
+  name: "saveState REPLAY GATE (chaos): ALERT + tranq + door + chaff, save mid-EVASION, 600 mixed ticks -> identical snapshot",
+  fn: function () {
+    var lab = Game.ZONES.laboratory;
+    var engineA = Game.createEngine({ zoneData: lab, seed: 99 });
+
+    var g1 = engineA.guards[0];
+
+    // Drive guard g1 into ALERT by parking the player 1m in front of it,
+    // every tick, until its meter confirms sight.
+    engineA.player.x = g1.x + 1;
+    engineA.player.y = g1.y;
+    engineA.player.facing = Math.atan2(g1.y - engineA.player.y, g1.x - engineA.player.x);
+
+    var reachedAlert = false;
+    for (var i = 0; i < 400 && !reachedAlert; i++) {
+      engineA.tick();
+      engineA.player.x = g1.x + 1;
+      engineA.player.y = g1.y;
+      if (engineA.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT");
+
+    // TRANQ a guard (headshot rule: squad is ALERT, so this staggers rather
+    // than instantly sleeping it — exercises staggerActive/staggerElapsed).
+    engineA.player.facing = Math.atan2(g1.y - engineA.player.y, g1.x - engineA.player.x);
+    engineA.tick({ fire: true });
+
+    // OPEN A DOOR: grant the L1 keycard directly (flat mutable prop, see
+    // src/items.js contract) and walk up to doorL1 (center ~(20, 17.5)).
+    engineA.inventory.keycards.L1 = true;
+    engineA.player.x = 20;
+    engineA.player.y = 17.4;
+    engineA.tick();
+    assert(engineA.world.isDoorOpen("doorL1"), "setup failed: doorL1 never opened");
+
+    // POP CHAFF.
+    engineA.tick({ chaff: true });
+    assert(engineA.chaffUntil > engineA.time, "setup failed: chaff never armed");
+
+    // Break contact (run far away) so the squad decays into EVASION.
+    var reachedEvasion = false;
+    for (i = 0; i < 200 && !reachedEvasion; i++) {
+      engineA.tick({ moveX: -1, moveY: 0 });
+      if (engineA.squad.phase === "EVASION") reachedEvasion = true;
+    }
+    assert(reachedEvasion, "setup failed: squad never decayed into EVASION");
+
+    // SAVE mid-evasion, mid-chaff-jam, mid-stagger-or-post-tranq, door ajar.
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engineA)));
+    assert(save.squad.phase === "EVASION", "expected to capture mid-EVASION, got " + save.squad.phase);
+
+    for (var t = 0; t < 600; t++) engineA.tick(mixedInput(t));
+
+    var engineB = saveState.restore(save);
+    for (t = 0; t < 600; t++) engineB.tick(mixedInput(t));
+
+    var snapA = JSON.stringify(engineA.snapshot());
+    var snapB = JSON.stringify(engineB.snapshot());
+    assert(
+      snapA === snapB,
+      "chaos replay gate diverged:\nA=" + snapA + "\nB=" + snapB
+    );
+  },
+});
+
+// ---- 4. Save in the Warehouse (zone 2) restores to the Warehouse with the
+// correct guard roster (ids/positions/states) and camera coverage.
+
+Game.selfTests.push({
+  name: "saveState: save in warehouse restores to warehouse with correct guards/cameras",
+  fn: function () {
+    var engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 3 });
+    for (var i = 0; i < 90; i++) engine.tick(scriptedInput(i));
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engine)));
+    assert(save.zoneId === "warehouse", "expected zoneId 'warehouse', got " + save.zoneId);
+
+    var restored = saveState.restore(save);
+    assert(restored.zone.id === "warehouse", "expected restored engine in warehouse, got " + restored.zone.id);
+
+    assert(
+      restored.guards.length === engine.guards.length,
+      "expected " + engine.guards.length + " guards, got " + restored.guards.length
+    );
+    for (i = 0; i < engine.guards.length; i++) {
+      var orig = engine.guards[i];
+      var rg = restored.guards[i];
+      assert(rg.id === orig.id, "guard " + i + " id mismatch: " + rg.id + " vs " + orig.id);
+      assert(rg.x === orig.x && rg.y === orig.y, "guard " + rg.id + " position mismatch");
+      assert(rg.state === orig.state, "guard " + rg.id + " state mismatch: " + rg.state + " vs " + orig.state);
+    }
+
+    var origCams = engine.director.cameraStates();
+    var restCams = restored.director.cameraStates();
+    assert(origCams.length > 0, "expected the warehouse to have camera coverage for this test to mean anything");
+    assert(
+      restCams.length === origCams.length,
+      "expected " + origCams.length + " cameras, got " + restCams.length
+    );
+    for (i = 0; i < origCams.length; i++) {
+      assert(
+        JSON.stringify(restCams[i]) === JSON.stringify(origCams[i]),
+        "camera " + i + " state mismatch: " + JSON.stringify(restCams[i]) + " vs " + JSON.stringify(origCams[i])
+      );
+    }
+  },
+});
+
+// ---- 5. A sleeping guard restored 20s into its 60s sleep wakes ~40s after
+// restore (the REMAINING time, not a fresh 60s window).
+
+Game.selfTests.push({
+  name: "saveState: a sleeping guard saved 20s in wakes ~40s after restore (remaining SLEEP_S)",
+  fn: function () {
+    var engine = Game.createEngine({ zoneData: Game.ZONES.loadingDock, seed: 5 });
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+    engine.guards[0].tranq(true); // headshot -> instantly SLEEPING
+    assert(engine.guards[0].state === "SLEEPING", "setup failed: guard never slept");
+
+    var TICKS_20S = Math.round(20 / DT);
+    for (var i = 0; i < TICKS_20S; i++) {
+      engine.tick();
+      engine.player.x = -1000;
+      engine.player.y = -1000;
+    }
+    assert(engine.guards[0].state === "SLEEPING", "setup failed: guard woke too early");
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engine)));
+    var restored = saveState.restore(save);
+    assert(restored.guards[0].state === "SLEEPING", "expected restored guard still SLEEPING");
+
+    var wokeAtTick = null;
+    var MAX = Math.round(60 / DT);
+    for (i = 0; i < MAX && wokeAtTick === null; i++) {
+      restored.tick();
+      restored.player.x = -1000;
+      restored.player.y = -1000;
+      if (restored.guards[0].state === "INVESTIGATE") wokeAtTick = i;
+    }
+
+    assert(wokeAtTick !== null, "restored guard never woke into INVESTIGATE");
+    var wokeAfterS = wokeAtTick * DT;
+    var expectedS = Game.GUARD.SLEEP_S - 20; // 40s remaining
+    assert(
+      Math.abs(wokeAtTick - Math.round(expectedS / DT)) <= 2,
+      "expected wake ~" + expectedS + "s after restore, got " + wokeAfterS.toFixed(3) + "s"
+    );
+  },
+});
+
+// ---- 6. Chaff popped, saved partway through its jam window, expires at the
+// correct REMAINING time after restore (verified via a camera's `disabled`
+// flag, which gates directly off chaffUntil > time — see src/director.js).
+
+Game.selfTests.push({
+  name: "saveState: chaff popped then saved mid-jam expires at the correct remaining time after restore",
+  fn: function () {
+    var engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 5 });
+    engine.tick({ chaff: true });
+    assert(engine.chaffUntil > engine.time, "setup failed: chaff never armed");
+    assert(engine.director.cameraStates()[0].disabled === true, "setup failed: camera should be jammed");
+
+    var TICKS_5S = Math.round(5 / DT);
+    for (var i = 0; i < TICKS_5S; i++) engine.tick();
+    assert(engine.director.cameraStates()[0].disabled === true, "setup failed: chaff expired before save");
+
+    var remainingS = engine.chaffUntil - engine.time;
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engine)));
+    var restored = saveState.restore(save);
+    assert(
+      Math.abs(restored.chaffUntil - restored.time - remainingS) < 1e-9,
+      "expected restored engine's remaining chaff time to match captured value"
+    );
+    assert(restored.director.cameraStates()[0].disabled === true, "expected restored camera still jammed");
+
+    var flippedAtTick = null;
+    var MAX = Math.round(15 / DT);
+    for (i = 0; i < MAX && flippedAtTick === null; i++) {
+      restored.tick();
+      if (restored.director.cameraStates()[0].disabled === false) flippedAtTick = i;
+    }
+
+    assert(flippedAtTick !== null, "restored camera never un-jammed");
+    var flippedAfterS = flippedAtTick * DT;
+    assert(
+      Math.abs(flippedAtTick - Math.round(remainingS / DT)) <= 2,
+      "expected chaff to expire ~" + remainingS.toFixed(3) + "s after restore, got " + flippedAfterS.toFixed(3) + "s"
+    );
+  },
+});
+
+// ---- 7. Version tag: restore() rejects a save with the wrong version.
+
+Game.selfTests.push({
+  name: "saveState: restore() throws a clear error on a version mismatch",
+  fn: function () {
+    var engine = Game.createEngine({ seed: 1 });
+    var saveState = Game.createSaveState();
+    var save = saveState.capture(engine);
+    save.version = save.version + 1000; // deliberately wrong
+
+    var threw = false;
+    var message = "";
+    try {
+      saveState.restore(save);
+    } catch (e) {
+      threw = true;
+      message = String(e && e.message || e);
+    }
+    assert(threw, "expected restore() to throw on a version mismatch");
+    assert(
+      /version/i.test(message),
+      "expected a clear version-mismatch error message, got: " + message
+    );
+  },
+});
+
+// ---- 8. Door auto-close timer resumes from its REMAINING time, not a fresh
+// DOOR_AUTO_CLOSE_S window, and not instantly closed either.
+
+Game.selfTests.push({
+  name: "saveState: an open door's auto-close timer resumes at the correct remaining time after restore",
+  fn: function () {
+    var lab = Game.ZONES.laboratory;
+    var engine = Game.createEngine({ zoneData: lab, seed: 5 });
+    engine.inventory.keycards.L1 = true;
+
+    // Walk up to doorL1 (AABB x:18,y:17,w:4,h:1 -> center (20, 17.5)) to badge
+    // it open, then step away so the DOOR_AUTO_CLOSE_S countdown starts.
+    engine.player.x = 20;
+    engine.player.y = 17.4;
+    engine.tick();
+    assert(engine.world.isDoorOpen("doorL1"), "setup failed: doorL1 never opened");
+
+    engine.player.x = 5;
+    engine.player.y = 25;
+    var TICKS_1_5S = Math.round(1.5 / DT);
+    for (var i = 0; i < TICKS_1_5S; i++) engine.tick();
+    assert(engine.world.isDoorOpen("doorL1"), "setup failed: door closed before the save (auto-close is 3s)");
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engine)));
+    var restored = saveState.restore(save);
+    assert(restored.world.isDoorOpen("doorL1"), "expected restored door still open");
+
+    var closedAtTick = null;
+    var MAX = Math.round(5 / DT);
+    for (i = 0; i < MAX && closedAtTick === null; i++) {
+      restored.tick();
+      restored.player.x = 5;
+      restored.player.y = 25;
+      if (!restored.world.isDoorOpen("doorL1")) closedAtTick = i;
+    }
+
+    assert(closedAtTick !== null, "restored door never auto-closed");
+    var closedAfterS = closedAtTick * DT;
+    var expectedS = 1.5; // 3s auto-close minus the 1.5s already elapsed before save
+    assert(
+      Math.abs(closedAtTick - Math.round(expectedS / DT)) <= 2,
+      "expected door to auto-close ~" + expectedS + "s after restore, got " + closedAfterS.toFixed(3) + "s"
+    );
+  },
+});
+
+// ---- 9. Mission-scoped pickup state survives a restore: an already-
+// collected keycard never respawns/re-collects after restore.
+
+Game.selfTests.push({
+  name: "saveState: an already-collected pickup stays collected after restore (never re-grants)",
+  fn: function () {
+    var engine = Game.createEngine({ zoneData: Game.ZONES.warehouse, seed: 5 });
+    var pickup = Game.ZONES.warehouse.pickups[0]; // { x: 4, y: 7, item: "keycardL1" }
+
+    engine.player.x = pickup.x;
+    engine.player.y = pickup.y;
+    engine.tick();
+    assert(engine.inventory.keycards.L1 === true, "setup failed: keycard never collected");
+
+    var saveState = Game.createSaveState();
+    var save = JSON.parse(JSON.stringify(saveState.capture(engine)));
+    var restored = saveState.restore(save);
+    assert(restored.inventory.keycards.L1 === true, "expected restored inventory to keep the collected keycard");
+
+    // Walking over the same spot again on the restored engine must NOT
+    // re-collect it (collectedPickups must have survived the restore) or
+    // push a second `pickup` event.
+    restored.player.x = pickup.x;
+    restored.player.y = pickup.y;
+    restored.tick();
+    var pickupEvents = restored.events.filter(function (e) {
+      return e.type === "pickup";
+    });
+    assert(pickupEvents.length === 0, "expected no re-collection pickup event, got " + JSON.stringify(pickupEvents));
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/soundEvents.test.js ====
 (function (global) {
 // tests/soundEvents.test.js — headless assertions for src/soundEvents.js and
@@ -16016,11 +17057,12 @@ Game.selfTests.push({
 // in src/render.js.
 //
 // GAME OVER + RESTART (new — see src/engine.js's GAME OVER / FROZEN ENGINE
-// contract): runGame(rootEl) is the ONE code path that stands up a full
-// playthrough — engine, renderer, radar, hud, music, input listeners, and the
-// rAF frame loop. Both the very first playthrough (from the title screen) and
-// every RETRY after a game over go through this exact same function; there is
-// no separate "restart" implementation to drift out of sync with "start."
+// contract): runGame(rootEl, opts?) is the ONE code path that stands up a
+// full playthrough — engine, renderer, radar, hud, music, input listeners,
+// and the rAF frame loop. The very first playthrough (from the title
+// screen), every RETRY after a game over, AND a SAVE-STATE LOAD (see F9
+// below) all go through this exact same function; there is no separate
+// "restart"/"load" implementation to drift out of sync with "start."
 // Each call:
 //   - tears down the PREVIOUS instance first (if any): stops its frame loop
 //     (a closure `stopped` flag the old frame() checks before scheduling its
@@ -16033,8 +17075,11 @@ Game.selfTests.push({
 //     renderer/radar/hud canvases (and the title screen div, and any
 //     game-over overlay) in one shot, so a fresh renderer/radar/hud can
 //     re-append their own canvases into a clean container.
-//   - builds a brand-new engine/renderer/radar/hud/music stack exactly like
-//     the original startGame() did, and starts its own frame loop.
+//   - builds a brand-new renderer/radar/hud/music stack exactly like the
+//     original startGame() did, and starts its own frame loop. The ENGINE
+//     itself is `opts && opts.engine`, if given — see F9 LOAD below — or a
+//     brand-new Game.createEngine() otherwise (the title-screen/retry path,
+//     unchanged from before this cycle).
 // Each playthrough's frame() checks engine.events for a "gameOver" entry
 // once per animation frame, right after draining the tick accumulator (see
 // engine.js: a frozen engine leaves its final tick's events sitting in
@@ -16043,7 +17088,109 @@ Game.selfTests.push({
 // On first sight: shows the MISSION FAILED overlay (showGameOver below);
 // pressing Enter on it removes the overlay and calls runGame(rootEl) again —
 // the retry IS just another call to the one true startup path.
+//
+// F5 SAVE / F9 LOAD (new — see src/saveState.js's own contract for the full
+// capture()/restore() write-up): plain keydown edges, handled directly in
+// onKeyDown below (NOT threaded through buildInput()/engine.tick() the way
+// knock/fire/cqc/etc. are — saving/loading is a meta-level "which engine is
+// running" operation, the same category as the game-over retry above, not a
+// per-tick simulation verb).
+//   F5 — engine.getState()-style full capture (Game.createSaveState().
+//     capture(engine)) of the CURRENTLY RUNNING engine, JSON.stringify'd into
+//     localStorage under SAVE_KEY ("shadowloop-save"). Shows a "SAVED" toast
+//     (see showToast below). A localStorage failure (file:// origins can deny
+//     it entirely — see LOCALSTORAGE ISOLATION below) is swallowed exactly
+//     like a WebAudio failure in src/music.js: warn once to console, then
+//     silently no-op forever after — saving must never be the thing that
+//     crashes the game.
+//   F9 — reads SAVE_KEY back out of localStorage; a missing/corrupt entry
+//     (never saved this session, or a localStorage read failure) shows a
+//     "NO SAVE" toast and does nothing further. Otherwise: JSON.parse's the
+//     blob, calls Game.createSaveState().restore(save) to build a BRAND NEW
+//     engine at that exact state, and calls runGame(rootEl, { engine:
+//     restoredEngine }) — the SAME teardown-then-rebuild path the game-over
+//     retry uses (stop the old frame loop/listeners, wipe rootEl, stand up a
+//     fresh renderer/radar/hud/music/codec stack), just handed an
+//     already-restored engine instead of a fresh Game.createEngine() call.
+//     Shows a "LOADED" toast on success. A restore() that throws (e.g. a
+//     version-mismatch save from an older build — see saveState.js's VERSION
+//     GATE) is treated the same as "no save": a toast, no crash, the CURRENT
+//     playthrough keeps running untouched (restore() throwing happens BEFORE
+//     runGame() is ever called again, so nothing has been torn down yet).
+//
+// LOCALSTORAGE ISOLATION (project mandate, see CLAUDE.md's "audio exempt...
+// can never crash the game" precedent, applied here to storage): every
+// localStorage.getItem/setItem call in this file goes through
+// safeStorageGet/safeStorageSet below, each wrapping its single
+// try/catch — any throw logs ONE console.warn (never more than once, even
+// across many later calls) and flips a permanent module-level `storageBroken`
+// flag; every later call is then an immediate no-op returning null/false.
+// Same "warn-once no-op forever" shape as src/music.js's own warnOnce.
 (function (Game) {
+  var SAVE_KEY = "shadowloop-save";
+
+  // ---- localStorage isolation (see file header) --------------------------
+  var storageBroken = false;
+  var storageWarned = false;
+
+  function warnStorageOnce(err) {
+    if (storageWarned) return;
+    storageWarned = true;
+    try {
+      console.warn(
+        "[saveState] localStorage unavailable -- save/load disabled for this session:",
+        err && err.message ? err.message : err
+      );
+    } catch (e2) {
+      // even console.warn is inside the isolation boundary -- never let a
+      // logging failure escape (same posture as src/music.js's warnOnce).
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    if (storageBroken) return false;
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      storageBroken = true;
+      warnStorageOnce(e);
+      return false;
+    }
+  }
+
+  function safeStorageGet(key) {
+    if (storageBroken) return null;
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      storageBroken = true;
+      warnStorageOnce(e);
+      return null;
+    }
+  }
+
+  // Tiny "SAVED"/"LOADED"/"NO SAVE" toast — bottom-right corner, auto-removes
+  // itself after 2s. Purely decorative feedback for the F5/F9 verbs above;
+  // blocks nothing (no pointer-events handling needed, same posture as the
+  // MISSION FAILED overlay below) and never throws (wrapped defensively —
+  // a toast failing to render must never take the game down with it).
+  function showToast(rootEl, text) {
+    try {
+      var toast = document.createElement("div");
+      toast.style.cssText =
+        "position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.82);" +
+        "color:#9fb;font:13px monospace;letter-spacing:0.15em;padding:10px 16px;" +
+        "border:1px solid #5a7;z-index:9998;pointer-events:none";
+      toast.textContent = text;
+      rootEl.appendChild(toast);
+      setTimeout(function () {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 2000);
+    } catch (e) {
+      // never let a toast rendering failure escape.
+    }
+  }
   function runSelfTests() {
     // Game.selfTests is populated by src/tests.js (same assertions node runs).
     var results = [];
@@ -16074,6 +17221,12 @@ Game.selfTests.push({
     // VERB / RATION VERB / CHAFF VERB contract for what each edge does.
     KeyB: true, KeyR: true, KeyX: true,
     Enter: true,
+    // F5/F9: NEW (save/restore cycle) — see file header's F5 SAVE / F9 LOAD
+    // note. preventDefault is ESPECIALLY important for F5 here: the browser
+    // default is a full page reload, which would blow away the entire
+    // playthrough (and this whole GAME_KEYS-gated preventDefault mechanism
+    // exists for exactly this class of key).
+    F5: true, F9: true,
   };
 
   // Handle to the currently-running playthrough's teardown, so a second
@@ -16082,7 +17235,7 @@ Game.selfTests.push({
   // header's GAME OVER + RESTART note. null before the first playthrough.
   var currentGame = null;
 
-  function runGame(rootEl) {
+  function runGame(rootEl, opts) {
     if (currentGame) {
       currentGame.stop();
       currentGame = null;
@@ -16093,7 +17246,13 @@ Game.selfTests.push({
     // function creates is appended fresh below.
     rootEl.innerHTML = "";
 
-    var engine = Game.createEngine();
+    // opts.engine (NEW — F9 LOAD, see file header): an already-restored
+    // engine (Game.createSaveState().restore(save)) takes the place of a
+    // fresh Game.createEngine() call. Both the title screen and the
+    // game-over retry path call runGame(rootEl) with no opts, so this is a
+    // pure additive branch — everything below treats `engine` identically
+    // either way.
+    var engine = (opts && opts.engine) || Game.createEngine();
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
     var radar = Game.createRadar({ container: rootEl });
     var hud = Game.createHud({ container: rootEl });
@@ -16189,6 +17348,14 @@ Game.selfTests.push({
         pendingRation = true;
       } else if (e.code === "KeyX") {
         pendingChaff = true;
+      } else if (e.code === "F5") {
+        // F5 SAVE (see file header) — a meta-level action, handled directly
+        // here rather than threaded through buildInput()/engine.tick() like
+        // every verb above (there is no simulation-tick meaning to "save").
+        saveGame();
+      } else if (e.code === "F9") {
+        // F9 LOAD (see file header) — same meta-level shape as F5.
+        loadGame();
       }
     }
 
@@ -16199,6 +17366,55 @@ Game.selfTests.push({
 
     function onResize() {
       renderer.resize();
+    }
+
+    // ---- F5 SAVE / F9 LOAD (see file header) ------------------------------
+    var saveStateApi = Game.createSaveState();
+
+    function saveGame() {
+      var save;
+      try {
+        save = saveStateApi.capture(engine);
+      } catch (e) {
+        // Capturing must never crash the game either -- treat exactly like a
+        // storage failure (see LOCALSTORAGE ISOLATION note): warn once, no
+        // toast (nothing was saved), keep playing.
+        warnStorageOnce(e);
+        return;
+      }
+      var ok = safeStorageSet(SAVE_KEY, JSON.stringify(save));
+      if (ok) showToast(rootEl, "SAVED");
+    }
+
+    function loadGame() {
+      var raw = safeStorageGet(SAVE_KEY);
+      if (!raw) {
+        showToast(rootEl, "NO SAVE");
+        return;
+      }
+      var save;
+      var restored;
+      try {
+        save = JSON.parse(raw);
+        restored = saveStateApi.restore(save);
+      } catch (e) {
+        // A corrupt blob or a version-mismatch save (see saveState.js's
+        // VERSION GATE) must never crash the running game -- the CURRENT
+        // playthrough is untouched (restore() throwing happens before
+        // runGame() is ever called again, so nothing has been torn down).
+        showToast(rootEl, "NO SAVE");
+        return;
+      }
+      runGame(rootEl, { engine: restored });
+      // NOTE: this call above tears down and rebuilds the entire
+      // renderer/radar/hud/music/codec/input stack (see runGame's own file
+      // header) -- everything after this point in THIS invocation of
+      // runGame() (the frame loop below, stop(), etc.) belongs to the now-
+      // superseded playthrough; the "LOADED" toast is shown by the FRESH
+      // runGame() call's own rootEl, appended after its rootEl.innerHTML =
+      // "" wipe, so it survives on screen for the new playthrough to render
+      // under.
+      showToast(rootEl, "LOADED");
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -16364,7 +17580,7 @@ Game.selfTests.push({
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

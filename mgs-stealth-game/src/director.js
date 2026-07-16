@@ -443,11 +443,65 @@
       });
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). Captures the per-camera/per-laser MUTABLE state
+    // arrays (camStates/laserActiveStates) — the camera/laser SCHEMA itself
+    // (x/y/facing/sweepDeg/... from world.zone.cameras/lasers) is immutable
+    // zone data, already restored by rebuilding the world/director for
+    // save.zoneId, so only the live per-tick numbers need to travel:
+    //   cameras: [{ panAngle, disabled, meter, wasSuspicious }, ...] — meter
+    //     is what makes a restored camera resume mid-fill/mid-drain exactly
+    //     where a live one would; wasSuspicious is the SUSPICIOUS edge-
+    //     tracking flag (see tickCameras' file header note) — miss it and a
+    //     restored camera already-above-SUSPICIOUS_AT would fire a spurious
+    //     re-crossing event on its very next non-disabled tick.
+    //   lasers: [{ active }, ...] — the last-computed duty-cycle flag; purely
+    //     cosmetic (laserStates()' blink), since tickLasers recomputes it
+    //     fresh from ctx.time every tick regardless, but captured anyway so
+    //     laserStates() reads correctly on a restored engine even before its
+    //     first post-restore tick.
+    // Same index order as `cameras`/`lasers` (the world.zone arrays) in both
+    // directions — restoring onto a director built from a DIFFERENT zone (a
+    // different camera/laser count) is not a supported call shape; callers
+    // (src/saveState.js) only ever restore onto a director rebuilt for the
+    // SAME zoneId the capture came from.
+    function getState() {
+      return {
+        cameras: camStates.map(function (st) {
+          return {
+            panAngle: st.panAngle,
+            disabled: st.disabled,
+            meter: st.meter,
+            wasSuspicious: st.wasSuspicious,
+          };
+        }),
+        lasers: laserActiveStates.map(function (st) {
+          return { active: st.active };
+        }),
+      };
+    }
+
+    function setState(state) {
+      var camsIn = state.cameras || [];
+      for (var i = 0; i < camStates.length && i < camsIn.length; i++) {
+        camStates[i].panAngle = camsIn[i].panAngle;
+        camStates[i].disabled = camsIn[i].disabled;
+        camStates[i].meter = camsIn[i].meter;
+        camStates[i].wasSuspicious = camsIn[i].wasSuspicious;
+      }
+      var lasersIn = state.lasers || [];
+      for (var j = 0; j < laserActiveStates.length && j < lasersIn.length; j++) {
+        laserActiveStates[j].active = lasersIn[j].active;
+      }
+    }
+
     return {
       tickCameras: tickCameras,
       cameraStates: cameraStates,
       tickLasers: tickLasers,
       laserStates: laserStates,
+      getState: getState,
+      setState: setState,
     };
   }
 

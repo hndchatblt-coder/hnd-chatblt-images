@@ -1912,6 +1912,73 @@ scenarios.push({
   },
 });
 
+// ---- save/restore playtest scenario ----------------------------------------
+// "Save-scumming" (saving mid-infiltration, reloading, continuing) is a core
+// stealth-game player behavior — this scenario proves it works at REAL
+// playtest scale (60s+ of game time, a live zone, real guards), reusing the
+// same shape as tests/saveState.test.js's REPLAY GATE (calm) test: tick a
+// while, save, tick the SAME scripted input on both a continuing engine and a
+// freshly restored one, and demand byte-identical final snapshots. If any
+// module's getState()/setState() ever misses a closure var, this is one of
+// the two places (alongside the test.js REPLAY GATE tests) that would catch
+// the drift.
+scenarios.push({
+  name: "save-scumming works: mid-infiltration save/restore replays identically",
+  seed: 20260716777,
+  run: function (G) {
+    const saveState = G.createSaveState();
+
+    // Deterministic scripted input, a pure function of the GLOBAL tick index
+    // (not "ticks since save") so continuing on either branch — the original
+    // engine straight through, or a restored one starting mid-sequence — sees
+    // the exact same input at the exact same tick.
+    function scriptedInput(tick) {
+      return {
+        moveX: Math.sin(tick * 0.031),
+        moveY: Math.cos(tick * 0.047),
+        run: tick % 9 === 0,
+        stance: tick % 240 < 80 ? "crouch" : tick % 240 < 160 ? "crawl" : "stand",
+        knock: tick % 113 === 0,
+        cqc: tick % 151 === 0,
+      };
+    }
+
+    const engineA = G.createEngine({ seed: this.seed });
+
+    const SAVE_AT_TICK = 1800; // 30s in
+    const TOTAL_TICKS = 3600; // 60s total, per the design brief's "60s+"
+
+    for (let tick = 0; tick < SAVE_AT_TICK; tick++) {
+      engineA.tick(scriptedInput(tick));
+    }
+
+    // Round-trip through JSON, same as a real F5 save into localStorage (see
+    // src/boot.js) — proves the captured object is plain-data safe, not just
+    // that the live JS objects happen to compare equal.
+    const save = JSON.parse(JSON.stringify(saveState.capture(engineA)));
+
+    for (let tick = SAVE_AT_TICK; tick < TOTAL_TICKS; tick++) {
+      engineA.tick(scriptedInput(tick));
+    }
+
+    const engineB = saveState.restore(save);
+    for (let tick = SAVE_AT_TICK; tick < TOTAL_TICKS; tick++) {
+      engineB.tick(scriptedInput(tick));
+    }
+
+    const snapA = JSON.stringify(engineA.snapshot());
+    const snapB = JSON.stringify(engineB.snapshot());
+    if (snapA !== snapB) {
+      throw new Error(
+        "save-scumming replay diverged at tick " + TOTAL_TICKS + ":\nA=" + snapA + "\nB=" + snapB
+      );
+    }
+    if (engineA.tickCount !== TOTAL_TICKS) {
+      throw new Error("expected engineA.tickCount " + TOTAL_TICKS + ", got " + engineA.tickCount);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

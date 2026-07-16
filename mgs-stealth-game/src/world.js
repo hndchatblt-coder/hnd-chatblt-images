@@ -318,6 +318,24 @@
       return !!doorOpen[id];
     }
 
+    // getState()/setState() (NEW — save/restore cycle, additive only, no
+    // behavior change). This world instance's ONLY mutable state is the
+    // per-door open/closed flag map (doorOpen) — everything else
+    // (walls/zoneData) is immutable, already restored by rebuilding a fresh
+    // world for save.zoneId. getState() shallow-copies doorOpen so a caller
+    // mutating the returned snapshot can never reach back into this world's
+    // own live map; setState() REPLACES the closure's doorOpen var outright
+    // (safe: blockers()/setDoorOpen()/isDoorOpen() above all read/write
+    // `doorOpen` by closure reference, not a captured-at-construction copy,
+    // so a reassignment here is visible to every one of them immediately).
+    function getState() {
+      return { doorOpen: Object.assign({}, doorOpen) };
+    }
+
+    function setState(state) {
+      doorOpen = Object.assign({}, state.doorOpen);
+    }
+
     return {
       isBlocked: isBlocked,
       isBlockedCircle: isBlockedCircle,
@@ -326,6 +344,8 @@
       inRegion: inRegion,
       setDoorOpen: setDoorOpen,
       isDoorOpen: isDoorOpen,
+      getState: getState,
+      setState: setState,
       zone: zoneData,
     };
   }
