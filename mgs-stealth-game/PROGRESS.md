@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.31 (cycle 31 — reinforcements + radio check-ins)
+**Version:** v0.32 (cycle 32 — searcher-wedge crash fix)
 
 ## Module status
 
@@ -25,9 +25,9 @@
 
 ## Known issues
 
-- **CRASH PATH (fix cycle 32):** check-in searchers dispatched to unreachable
-  body positions (no pathfinding) wedge until MAX_STATE_S throws. Real
-  warehouse w1/w2 can hit it. Graceful give-up needed.
+- Asymptotic wedge (decaying progress hovering just above the give-up
+  threshold) can theoretically still hit MAX_STATE_S — unreachable with real
+  zone geometry today; watch item.
 
 - engine.events clears every tick — consumers must drain post-tick same-tick.
 - No render damage feedback (hit flash) yet — hp only visible in LIFE bar.
@@ -38,6 +38,9 @@
 
 ## Changelog (last 5)
 
+- cycle 32: crash fix — wedge trackers with graceful give-up on INVESTIGATE/
+  EVASION/ALERT convergence; save/restore taught the tracker state; real-
+  placement regression (210/210, 22/22)
 - cycle 31: reinforcements (6s/10s, max +3/zone visit, guardDoor spawns) +
   40s radio check-ins (missed → searcher dispatched; lockers protect); SPEC
   hedges removed (206/206, 22/22). Crash path found → cycle 32.

@@ -1,5 +1,26 @@
 # TESTLOG.md
 
+## Cycle 32 (CRASH FIX: searcher wedge → graceful give-up)
+
+210/210; 22/22; 5/5 shots. Tick-counted wedge trackers (2s window, 0.3m
+minimum progress) on INVESTIGATE travel, EVASION convergence (starts sweep
+early), and ALERT's no-LOS convergence (holds position); live-chase branch
+untouched. MAX_STATE_S invariant unchanged as backstop. Save/restore learned
+the trackers' state — the chaos replay gate caught the omission immediately,
+exactly as designed. Real warehouse w1/w2 case regression-tested: tranq w2,
+45s check-in window, no throw, w1 back to PATROL.
+
+**RESIDUAL RISK (ledgered):** an asymptotic wedge (displacement decaying but
+hovering just above 0.3m/2s) can theoretically still ride out to the 30s
+ceiling — the agent verified this empirically with a pathological geometry.
+Realistic level geometry gives up with 10+s headroom. If a real zone ever
+produces the asymptotic case, tighten to a decaying-progress test. → backlog
+watch item.
+
+**Delight:** the save/restore chaos gate catching the untracked closure vars
+within minutes is the whole ratchet philosophy paying rent — every new
+invariant instantly polices every new feature.
+
 ## Cycle 31 (reinforcements + radio check-ins; SPEC hedges removed)
 
 206/206; 22/22; 5/5 shots. Reinforcements: 6s/10s cadence, max +3 per zone

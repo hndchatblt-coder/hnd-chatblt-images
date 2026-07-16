@@ -10,6 +10,18 @@
 //       SUSPICIOUS_STARE: 3.0,    // s staring at the stimulus before de-escalating
 //       INVESTIGATE_SEARCH: 8.0,  // s expanding-arc search once at the stimulus point
 //       ARRIVE_DIST: 0.6,         // close enough to a waypoint/stimulus to call it "arrived"
+//       WEDGE_WINDOW_S: 2.0,      // s — rolling progress window for WEDGE GIVE-UP
+//                                 // (see below): if travel-to-stimulus movement makes
+//                                 // less than WEDGE_MIN_PROGRESS of net displacement
+//                                 // over this many seconds while still farther than
+//                                 // ARRIVE_DIST from its target, it's declared wedged.
+//                                 // Internally tracked in TICKS (see GUARD contract's
+//                                 // own note on the engine's fixed 60Hz timestep), not
+//                                 // accumulated dt-seconds, so detection is a pure,
+//                                 // deterministic function of tick count.
+//       WEDGE_MIN_PROGRESS: 0.3,  // m — the minimum net displacement over
+//                                 // WEDGE_WINDOW_S that counts as "still making
+//                                 // progress" toward a travel target.
 //       EVASION_S: 30,            // squad phase timer: EVASION -> CAUTION
 //       CAUTION_S: 45,            // squad phase timer: CAUTION -> INFILTRATION
 //       ALERT_SPEED: 3.2,         // m/s, ALERT pursuit of the player/lastKnown
@@ -56,6 +68,44 @@
 //                                // colleague's body before an awake guard
 //                                // calls it in (broadcastAlert at the body)
 //     }
+//
+//   WEDGE GIVE-UP (cycle 32 — see GUARD.WEDGE_WINDOW_S/WEDGE_MIN_PROGRESS
+//   above): guards move by direct-line-plus-slide (world.moveCircle), with NO
+//   pathfinding. A stimulus (or lastKnown point) tucked behind geometry — a
+//   noise/body on the far side of warehouse shelving, say — can leave a guard
+//   pushing straight into an obstruction forever, never reaching
+//   GUARD.ARRIVE_DIST. Left unhandled, that guard's stateTime just keeps
+//   climbing until it trips GUARD.MAX_STATE_S — the invariant did its job
+//   (caught a real defect), but the FSM must never actually deserve it: a
+//   guard has to give up gracefully well before that ceiling, every time.
+//   Applies to every travel-to-stimulus movement in this file — INVESTIGATE's
+//   walk to `stimulus`, EVASION's converge-then-sweep toward squad.lastKnown,
+//   and ALERT's no-LOS converge-on-lastKnown branch (its hasLOS branch chases
+//   the LIVE, visible player, not a fixed point, so it is not in scope here).
+//   Each of those keeps its own GUARD.WEDGE_WINDOW_S-ticks rolling-progress
+//   tracker (reset whenever that travel starts fresh — state entry, or, for
+//   ALERT, whenever hasLOS is regained): if the guard's net displacement
+//   since the tracker was last reset/checked is under GUARD.WEDGE_MIN_PROGRESS
+//   (0.3m) AND it is still farther than GUARD.ARRIVE_DIST from its target,
+//   that travel is declared wedged. The give-up behavior differs by state,
+//   matching what each state already does on a NORMAL arrival:
+//     - INVESTIGATE: skips straight to the search phase, AT THE CURRENT
+//       (stuck) position — the guard peers around whatever it ran into,
+//       exactly like a normal arrival's search, just short of the stimulus —
+//       then resumes CAUTION/PATROL exactly as a completed search always has.
+//     - EVASION: begins its coordinated sweep right where it got stuck,
+//       instead of continuing to push toward squad.lastKnown.
+//     - ALERT (no-LOS branch only): simply holds position (this branch has no
+//       search/sweep phase of its own to fall into) until hasLOS returns or
+//       squad.tick() moves the squad on to EVASION.
+//   Tick-counted, not wall-clock: the window is a fixed count of update()
+//   calls (GUARD.WEDGE_WINDOW_S seconds' worth at the engine's fixed 60Hz
+//   timestep), never an accumulated dt-seconds float — so detection is a
+//   pure function of how many ticks have run, immune to any dt jitter, and
+//   reproduces identically given the same input log (rng.js's determinism
+//   rule). GUARD.MAX_STATE_S is UNCHANGED by any of this — it remains the
+//   backstop invariant, just one the FSM should now never actually reach via
+//   this path.
 //
 //   Game.createSquad() -> squad
 //     The single source of truth for a zone's alert phase, shared by every
@@ -329,7 +379,11 @@
 //       timer expiring mid-investigation is honored immediately/at
 //       completion rather than stale). Otherwise (squad.phase
 //       INFILTRATION — the only other phase INVESTIGATE can run under, see
-//       the state<->phase mapping above) it's identical to part A.
+//       the state<->phase mapping above) it's identical to part A. (c) NEW
+//       (cycle 32) — the walk to `stimulus` is subject to WEDGE GIVE-UP (see
+//       above): a stimulus with no clear direct-line-plus-slide path leaves
+//       the guard searching from wherever it got stuck instead of stateTime
+//       climbing toward GUARD.MAX_STATE_S.INVESTIGATE.
 //     ALERT — real pursuit (replaces the part-A placeholder). On entry (via
 //       broadcastAlert, called from any of SUSPICIOUS/INVESTIGATE/EVASION/
 //       CAUTION the instant this guard's own meter confirms sight): squad
@@ -351,7 +405,13 @@
 //           squad state) and instead converges on squad.lastKnown (the
 //           shared last-known point, no ARREST_DIST braking — it's just a
 //           location, not the player), at GUARD.ALERT_SPEED, closing all the
-//           way to it.
+//           way to it. NEW (cycle 32) — this branch (only; the hasLOS branch
+//           above chases a live, visible player and is out of scope) is
+//           subject to WEDGE GIVE-UP (see above): if lastKnown turns out to
+//           have no clear direct-line-plus-slide path, the guard simply holds
+//           its current position (ALERT has no search/sweep phase of its own
+//           to fall into) rather than pushing into the obstruction for as
+//           long as squad.phase stays ALERT.
 //       guard.meter is pinned at 1 throughout (perception's fill/drain math
 //       doesn't run — see step 2 above); ALERT has NO stateTime ceiling
 //       (GUARD.MAX_STATE_S.ALERT === Infinity) — it persists for exactly as
@@ -409,7 +469,10 @@
 //       straight to ALERT — guards actively hunting don't need to "stare and
 //       confirm" the way a routine patrol does. squad.tick() advances
 //       squad.phase EVASION -> CAUTION after GUARD.EVASION_S (30s) of no
-//       re-sighting.
+//       re-sighting. NEW (cycle 32) — the converge-on-lastKnown leg above is
+//       subject to WEDGE GIVE-UP (see above): a lastKnown with no clear
+//       direct-line-plus-slide path starts the coordinated sweep right where
+//       the guard got stuck instead of pushing at it for the rest of EVASION.
 //     CAUTION — entered only via the radio-call sync (step 1) when
 //       squad.phase becomes CAUTION (squad.tick() advances EVASION ->
 //       CAUTION after GUARD.EVASION_S). Resumes the waypoint patrol loop —
@@ -639,6 +702,8 @@
     SUSPICIOUS_STARE: 3.0,
     INVESTIGATE_SEARCH: 8.0,
     ARRIVE_DIST: 0.6,
+    WEDGE_WINDOW_S: 2.0,
+    WEDGE_MIN_PROGRESS: 0.3,
     EVASION_S: 30,
     CAUTION_S: 45,
     ALERT_SPEED: 3.2,
@@ -665,6 +730,61 @@
   var PAUSE_SWEEP_HZ = 1.5; // oscillations/sec-ish for the waypoint head sweep
   var SEARCH_SWEEP_HZ = 0.5; // oscillations/sec-ish for the investigate/evasion sweep
   var EVASION_SWEEP_AMPLITUDE = Math.PI / 2; // +/-90 degrees
+
+  // Tick-counted window size for WEDGE GIVE-UP (see file header) — the engine
+  // runs a fixed 60Hz timestep (per CLAUDE.md), so GUARD.WEDGE_WINDOW_S
+  // seconds' worth of ticks is a fixed integer computed once here, not an
+  // accumulated dt-seconds float (that's the whole point — see file header's
+  // "tick-counted, not wall-clock" note).
+  var WEDGE_WINDOW_TICKS = Math.round(GUARD.WEDGE_WINDOW_S * 60);
+
+  // ---- WEDGE DETECTION (cycle 32 — see file header WEDGE GIVE-UP contract) --
+  // A small reusable tracker, one instance per travel-to-stimulus movement
+  // (INVESTIGATE's walk, EVASION's converge, ALERT's no-LOS converge). reset()
+  // re-anchors the window at a given position (call whenever that travel
+  // starts fresh); check() is meant to be called once per active-travel tick
+  // with the guard's CURRENT position and its current straight-line distance
+  // to the target, and returns true the tick a window CLOSES with
+  // insufficient net progress while the guard is still short of arrival
+  // (false every other tick, including every tick before a window closes).
+  function createWedgeTracker() {
+    var ticks = 0;
+    var originX = 0;
+    var originY = 0;
+
+    function reset(x, y) {
+      ticks = 0;
+      originX = x;
+      originY = y;
+    }
+
+    function check(x, y, distToTarget) {
+      ticks++;
+      if (ticks < WEDGE_WINDOW_TICKS) return false;
+      var progressed = distance(x, y, originX, originY) >= GUARD.WEDGE_MIN_PROGRESS;
+      ticks = 0;
+      originX = x;
+      originY = y;
+      return !progressed && distToTarget > GUARD.ARRIVE_DIST;
+    }
+
+    // getState()/setState() (save/restore cycle) — this tracker's entire
+    // mutable surface is the 3 closure vars above; a restored guard that
+    // dropped these could diverge from a live one mid-window (see
+    // guard.getState/applySaveState below for why every sub-machine's private
+    // state has to round-trip exactly).
+    function getState() {
+      return { ticks: ticks, originX: originX, originY: originY };
+    }
+
+    function setState(s) {
+      ticks = s.ticks;
+      originX = s.originX;
+      originY = s.originY;
+    }
+
+    return { reset: reset, check: check, getState: getState, setState: setState };
+  }
 
   // ---- squad factory -----------------------------------------------------
 
@@ -805,6 +925,13 @@
     var sweepBaseFacing = 0;
     var sweepOffset = hashToUnit(guard.id) * TWO_PI;
 
+    // WEDGE DETECTION trackers (cycle 32 — see file header WEDGE GIVE-UP
+    // contract and createWedgeTracker above). One per travel-to-stimulus
+    // movement this guard can perform; not part of the public contract.
+    var investigateWedge = createWedgeTracker();
+    var evasionWedge = createWedgeTracker();
+    var alertWedge = createWedgeTracker();
+
     // Combat fire-timer (ALERT only — see file header COMBAT note). fireTimer
     // is a private per-guard clock, seconds since this ALERT engagement
     // began; nextFireAt is the next fireTimer value an attempt is eligible.
@@ -853,6 +980,10 @@
       if (newState === "INVESTIGATE") {
         searching = false;
         searchTime = 0;
+        // WEDGE GIVE-UP (see file header) — a fresh INVESTIGATE always earns
+        // a fresh wedge-detection window, anchored at wherever this guard is
+        // starting its walk from.
+        investigateWedge.reset(guard.x, guard.y);
       }
       if (newState === "EVASION") {
         sweeping = false;
@@ -865,6 +996,16 @@
         // EVASION starts from a clean, real meter that only rises on an
         // actual fresh sighting.
         guard.meter = 0;
+        // WEDGE GIVE-UP (see file header) — same reasoning as INVESTIGATE
+        // above: a fresh EVASION converge earns a fresh window.
+        evasionWedge.reset(guard.x, guard.y);
+      }
+      if (newState === "ALERT") {
+        // WEDGE GIVE-UP (see file header) — anchors the no-LOS convergence
+        // tracker at ALERT's own entry; tickAlert also re-anchors it every
+        // tick hasLOS holds, so it only ever accumulates across a genuinely
+        // continuous no-LOS stretch (see tickAlert below).
+        alertWedge.reset(guard.x, guard.y);
       }
     }
 
@@ -948,7 +1089,18 @@
       var stim = guard.stimulus || { x: guard.x, y: guard.y };
       var d = distance(guard.x, guard.y, stim.x, stim.y);
 
-      if (d > GUARD.ARRIVE_DIST) {
+      // WEDGE GIVE-UP (see file header) — a direct-line-plus-slide guard
+      // chasing a stimulus tucked behind geometry can push into an
+      // obstruction forever without ever reaching ARRIVE_DIST. If travel is
+      // making no real progress over a rolling GUARD.WEDGE_WINDOW_S window,
+      // give up on arriving and start searching right here instead.
+      if (!searching && d > GUARD.ARRIVE_DIST && investigateWedge.check(guard.x, guard.y, d)) {
+        searching = true;
+        searchTime = 0;
+        searchBaseFacing = guard.facing;
+      }
+
+      if (!searching && d > GUARD.ARRIVE_DIST) {
         var stepLen = Math.min(speed * dt, d);
         var ux = (stim.x - guard.x) / d;
         var uy = (stim.y - guard.y) / d;
@@ -986,15 +1138,34 @@
       if (guard.hasLOS) {
         squad.updateSighting(ctx.player.x, ctx.player.y);
         target = { x: ctx.player.x, y: ctx.player.y };
+        // WEDGE GIVE-UP (see file header) — this branch chases the LIVE,
+        // visible player, not a fixed point, so it's out of scope for wedge
+        // detection; keep the no-LOS tracker re-anchored here so it only
+        // ever accumulates across a genuinely continuous no-LOS stretch.
+        alertWedge.reset(guard.x, guard.y);
       } else {
         squad.loseContact();
         target = squad.lastKnown || { x: guard.x, y: guard.y };
       }
 
       var d = distance(guard.x, guard.y, target.x, target.y);
-      var stepLen = guard.hasLOS
-        ? Math.min(GUARD.ALERT_SPEED * dt, Math.max(0, d - GUARD.ARREST_DIST))
-        : Math.min(GUARD.ALERT_SPEED * dt, d);
+
+      // WEDGE GIVE-UP (see file header) — only the no-LOS convergence-on-
+      // lastKnown branch is a fixed-point travel that can wedge; if it's
+      // making no real progress over a rolling GUARD.WEDGE_WINDOW_S window,
+      // give up and hold position (ALERT has no search/sweep phase to fall
+      // into) rather than pushing into the obstruction for as long as
+      // squad.phase stays ALERT.
+      var wedged = !guard.hasLOS && d > GUARD.ARRIVE_DIST && alertWedge.check(guard.x, guard.y, d);
+
+      var stepLen;
+      if (wedged) {
+        stepLen = 0;
+      } else if (guard.hasLOS) {
+        stepLen = Math.min(GUARD.ALERT_SPEED * dt, Math.max(0, d - GUARD.ARREST_DIST));
+      } else {
+        stepLen = Math.min(GUARD.ALERT_SPEED * dt, d);
+      }
 
       if (stepLen > 0) {
         var ux = (target.x - guard.x) / d;
@@ -1038,8 +1209,18 @@
       var target = squad.lastKnown || { x: guard.x, y: guard.y };
       var d = distance(guard.x, guard.y, target.x, target.y);
 
-      if (d > GUARD.ARRIVE_DIST) {
-        sweeping = false; // reset so the sweep starts fresh once arrived
+      // WEDGE GIVE-UP (see file header) — a direct-line-plus-slide guard
+      // converging on lastKnown can push into an obstruction forever without
+      // ever reaching ARRIVE_DIST. If travel is making no real progress over
+      // a rolling GUARD.WEDGE_WINDOW_S window, give up and begin the
+      // coordinated sweep right here instead.
+      if (!sweeping && d > GUARD.ARRIVE_DIST && evasionWedge.check(guard.x, guard.y, d)) {
+        sweeping = true;
+        sweepTime = 0;
+        sweepBaseFacing = guard.facing;
+      }
+
+      if (!sweeping && d > GUARD.ARRIVE_DIST) {
         var stepLen = Math.min(GUARD.ALERT_SPEED * dt, d);
         var ux = (target.x - guard.x) / d;
         var uy = (target.y - guard.y) / d;
@@ -1407,6 +1588,9 @@
         staggerElapsed: staggerElapsed,
         bodySpotTimers: Object.assign({}, bodySpotTimers),
         lockerFacing: lockerFacing,
+        investigateWedge: investigateWedge.getState(),
+        evasionWedge: evasionWedge.getState(),
+        alertWedge: alertWedge.getState(),
       };
     }
 
@@ -1444,6 +1628,9 @@
       staggerElapsed = s.staggerElapsed;
       bodySpotTimers = Object.assign({}, s.bodySpotTimers);
       lockerFacing = s.lockerFacing;
+      investigateWedge.setState(s.investigateWedge);
+      evasionWedge.setState(s.evasionWedge);
+      alertWedge.setState(s.alertWedge);
     }
 
     guard.update = update;
