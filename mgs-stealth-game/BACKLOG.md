@@ -27,6 +27,8 @@ content rotation) take over. L items must be split before selection.
 ## Non-bootstrap items (from playtests)
 
 - moveCircle substep guard vs wall tunneling | bugfix | S | Consequence | a single-tick displacement of any magnitude never crosses a wall; regression test with a 2m/tick displacement into a 1m wall. (Blocked-by-need: do before any dash/throw physics.)
+- Boot self-test parity | bugfix | S | Readability | in-browser gate runs only src/tests.js (3 tests) while node runs the full tests/ tree (38); build.js should bundle tests/**/*.js (wrapped so `global` resolves to window) so the browser gate runs the SAME suite, per architecture mandate. Screenshot cycle-5 caught the "3/3" lie.
+- Title screen version from PROGRESS | polish | S | Readability | boot.js hardcodes "v0.0 — nothing to play yet"; build.js should inject the real version string at build time.
 - Mid-yard patrol waypoint | polish | S | Tension | perimeter-only loop leaves the center weave unwatched; add a 5th waypoint through the yard interior (leg-clearance test guards placement); check with radar once visible.
 - Peripheral vision band | feature | S | Tension | 70–90° arc fills at half rate; tests for band edges. (Candidate — check readability cost first.)
 - Per-guard fill multiplier | polish | S | Tension | Comms Tower heavies detect faster; plumb viewer.fillMult through computeSight.
