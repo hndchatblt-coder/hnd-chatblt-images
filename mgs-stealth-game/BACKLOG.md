@@ -13,7 +13,8 @@ content rotation) take over. L items must be split before selection.
 4. ~~Vision~~ DONE cycle 3 (staggering deferred to engine cycle with guardAI).
 5a. ~~GuardAI part A (PATROL/SUSPICIOUS/INVESTIGATE)~~ DONE cycle 4.
 5b. ~~Waypoint route bugfix~~ DONE cycle 5.
-5c. GuardAI part B: ALERT/EVASION/CAUTION + convergence | feature | M | Consequence | per SPEC: "!", radio call, zone guards converge, reinforcements (max +3), EVASION 30s sweep at last-known-position, CAUTION 45s wider cones then decay; sim scenarios for full escalation→de-escalation ladder.
+5c. ~~GuardAI part B~~ DONE cycle 6 (reinforcements + radio check-ins → director module, below).
+5d. Engine module: fixed-timestep orchestrator | feature | M | Readability | src/engine.js owns the canonical tick: player.update → guards.update (staggered vision) → squad.tick(dt, anyLOS) → events; the sim-scenario wiring becomes THE engine; perf test 10 guards <4ms/tick; sim scenarios rewired to drive engine (append new, keep old).
 6. SoundEvents | feature | M | Toybox | emit radii per SPEC; wall attenuation 50%/wall; guards receive stimuli; knock verb; sim asserts guard INVESTIGATEs a knock within 2s.
 7. Radar | feature | M | Readability | top-right soliton radar: walls, player, guards + live cones; static during ALERT/EVASION; canvas-drawn, gorgeous.
 8. HUD | feature | S | Readability | life top-left, item box bottom-right, weapon box bottom-left, alert-phase indicator, zone name cards.

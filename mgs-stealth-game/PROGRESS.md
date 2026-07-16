@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.5 (cycle 5 — waypoint bugfix)
+**Version:** v0.6 (cycle 6 — guardAI part B)
 
 ## Module status
 
@@ -11,7 +11,7 @@
 | world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
-| guardAI        | v1 (part A) | PATROL/SUSPICIOUS/INVESTIGATE + hearNoise; ALERT placeholder |
+| guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
 | soundEvents    | not started | emit radii, wall attenuation             |
 | items          | not started | box, tranq, CQC, lockers, chaff          |
 | director       | not started | reinforcements, radio check-ins          |
@@ -24,12 +24,17 @@
 
 ## Known issues
 
-- ALERT is a placeholder: stand-still, no exit. Part B (cycle 6) replaces it.
+- squad.tick(dt, anyLOS) must be called after guard updates each tick — wiring
+  lives only in sim scenarios until the engine module owns the loop.
+- ALERT guards hold at 2m with no damage — player HP lands with items/HUD.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 6: guardAI part B — ALERT pursuit/arrest, EVASION staggered sweep,
+  CAUTION widened cones, createSquad phase controller, meter-bounce bug fixed
+  (47/47, 6/6)
 - cycle 5: bugfix — waypoint route rerouted around guard hut; leg-clearance
   sanity test (r=0.6 sampled + raycast, wrap-around); first regression test
   (guard walks real loop 180s). 38/38, 4/4

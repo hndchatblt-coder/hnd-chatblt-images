@@ -234,6 +234,182 @@ scenarios.push({
   },
 });
 
+// ---- guardAI part-B playtest scenarios (squad + ALERT/EVASION/CAUTION) ----
+// Same real world+vision+guard(+squad) setup as the part-A scenarios above,
+// run at the engine's fixed timestep, asserting OUTCOMES against the actual
+// squad-coordination FSM in src/guardAI.js.
+
+scenarios.push({
+  name:
+    "full alert ladder: seen -> ALERT converge -> EVASION sweep -> CAUTION -> all guards PATROL within 90s of lost contact",
+  seed: 20260716004,
+  run: function (G) {
+    const world = G.createWorld(G.ZONES.loadingDock);
+    const vision = G.createVision({ world: world });
+    const squad = G.createSquad();
+
+    // Two guards on one shared squad. Guard A is the one that gets a close,
+    // clear look at the player; guard B never does (parked far away, facing
+    // off into open floor) — it only ever finds out via the "radio call"
+    // (squad.phase forcing its state, see guardAI.js's contract header).
+    const guardA = G.createGuard({
+      world: world,
+      vision: vision,
+      rng: G.createRng(this.seed),
+      spawn: { x: 20, y: 5 },
+      waypoints: [{ x: 1020, y: 5 }], // straight, clear line east — same geometry as the part-A scenarios above
+      id: "ladder-A",
+      squad: squad,
+    });
+    const guardB = G.createGuard({
+      world: world,
+      vision: vision,
+      rng: G.createRng(this.seed + 1),
+      spawn: { x: 3, y: 27 },
+      waypoints: [{ x: 37, y: 27 }], // clear east-west line far south, never near the sighting
+      id: "ladder-B",
+      squad: squad,
+    });
+    const guards = [guardA, guardB];
+
+    // Player: hidden until t=0.5s, then shows itself 2m in front of guard A
+    // (close range -> fills the meter fast) and holds there until ALERT is
+    // confirmed, then teleports clean out of the zone for the rest of the run.
+    const showAt = { x: 22, y: 5 };
+    const hiddenAt = { x: -1000, y: -1000 };
+    let shown = false;
+    let teleportedOutTick = null;
+    let alertTick = null;
+    let evasionTick = null;
+    let cautionTick = null;
+    let infiltrationTick = null;
+
+    const TOTAL_TICKS = Math.round(100 / DT); // 100s of game time
+
+    for (let tick = 0; tick < TOTAL_TICKS; tick++) {
+      const t = tick * DT;
+      if (!shown && t >= 0.5) shown = true;
+      const playerVisible = shown && teleportedOutTick === null;
+      const player = playerVisible ? scriptedPlayer(showAt.x, showAt.y) : scriptedPlayer(hiddenAt.x, hiddenAt.y);
+
+      // ---- REFERENCE ENGINE WIRING ----
+      // This is the loop the future engine module must run: update every
+      // guard on the squad first, THEN call squad.tick(dt, anyGuardHasLOS)
+      // exactly once, using the OR of every guard's hasLOS this tick. Order
+      // matters — squad.tick() must run after all guards so a guard that
+      // just confirmed sight this same tick (and hasn't lost it) correctly
+      // keeps the squad in ALERT, while a tick where truly nobody has LOS
+      // flips it to EVASION. See guardAI.js's squad.tick() contract.
+      for (const g of guards) g.update(DT, { player: player });
+      const anyLOS = guards.some(function (g) {
+        return g.hasLOS;
+      });
+      squad.tick(DT, anyLOS);
+      // ---- END REFERENCE ENGINE WIRING ----
+
+      if (alertTick === null && squad.phase === "ALERT") alertTick = tick;
+      if (alertTick !== null && teleportedOutTick === null) {
+        // The instant ALERT is confirmed, teleport the player out for good.
+        teleportedOutTick = tick;
+      }
+      if (evasionTick === null && squad.phase === "EVASION") evasionTick = tick;
+      if (cautionTick === null && squad.phase === "CAUTION") cautionTick = tick;
+      if (infiltrationTick === null && squad.phase === "INFILTRATION") infiltrationTick = tick;
+    }
+
+    if (alertTick === null) throw new Error("squad never reached ALERT — scenario setup invalid");
+    if (evasionTick === null) throw new Error("squad never reached EVASION after losing the player");
+    if (cautionTick === null) throw new Error("squad never reached CAUTION");
+    if (infiltrationTick === null) throw new Error("squad never returned to INFILTRATION");
+
+    const lostContactTick = teleportedOutTick; // the tick the player vanished
+    const evasionDelayS = (evasionTick - lostContactTick) * DT;
+    if (evasionDelayS > 2.0) {
+      throw new Error("expected EVASION within 2s of losing LOS, took " + evasionDelayS.toFixed(2) + "s");
+    }
+
+    const evasionToInfiltrationS = (infiltrationTick - evasionTick) * DT;
+    if (evasionToInfiltrationS > 80) {
+      throw new Error(
+        "expected INFILTRATION within ~80s of EVASION starting, took " + evasionToInfiltrationS.toFixed(2) + "s"
+      );
+    }
+
+    for (const g of guards) {
+      if (g.state !== "PATROL") {
+        throw new Error("expected guard " + g.id + " back in PATROL at the end, got " + g.state);
+      }
+    }
+  },
+});
+
+scenarios.push({
+  name: "knock during CAUTION: guard INVESTIGATEs at CAUTION_SPEED, then resumes CAUTION patrol (not INFILTRATION)",
+  seed: 20260716005,
+  run: function (G) {
+    const world = G.createWorld(G.ZONES.loadingDock);
+    const vision = G.createVision({ world: world });
+    const squad = G.createSquad();
+    // Start the squad already CAUTION with plenty of time left on its clock
+    // (CAUTION_S is 45s; this scenario's knock-response takes well under
+    // 15s, so the timer never expires mid-scenario — that's the point).
+    squad.phase = "CAUTION";
+    squad.phaseTime = 5;
+
+    const guard = G.createGuard({
+      world: world,
+      vision: vision,
+      rng: G.createRng(this.seed),
+      spawn: { x: 2, y: 15 },
+      waypoints: [{ x: 2, y: 15 }], // stationary "loop" — isolates the noise response
+      id: "sim-caution-knock",
+      squad: squad,
+    });
+    const player = scriptedPlayer(-1000, -1000); // never seen; the knock is the only stimulus
+    const knockAt = { x: 2, y: 5 }; // 10m north, verified clear line (see the part-A knock scenario above)
+
+    // One setup tick so the guard's radio-call sync (squad.phase CAUTION)
+    // takes effect before the knock — a guard freshly created always starts
+    // in PATROL and only adopts CAUTION once update() has observed the
+    // squad's phase (see guardAI.js's contract header on the sync order).
+    guard.update(DT, { player: player });
+    squad.tick(DT, guard.hasLOS);
+    if (guard.state !== "CAUTION") {
+      throw new Error("setup failed: guard never synced into CAUTION, got " + guard.state);
+    }
+
+    guard.hearNoise(knockAt.x, knockAt.y, "strong");
+    if (guard.state !== "INVESTIGATE") {
+      throw new Error("expected strong noise during CAUTION to trigger INVESTIGATE, got " + guard.state);
+    }
+
+    let minDistToKnock = Infinity;
+    let backToCautionAtTick = null;
+    const TOTAL_TICKS = Math.round(20 / DT); // 20s: CAUTION_SPEED travel (10m/2m/s=5s) + 8s search + buffer
+
+    for (let tick = 0; tick < TOTAL_TICKS; tick++) {
+      guard.update(DT, { player: player });
+      squad.tick(DT, guard.hasLOS);
+      const d = Math.hypot(guard.x - knockAt.x, guard.y - knockAt.y);
+      if (d < minDistToKnock) minDistToKnock = d;
+      if (backToCautionAtTick === null && guard.state === "CAUTION") backToCautionAtTick = tick;
+      if (guard.state === "PATROL") {
+        throw new Error("guard fell back to INFILTRATION PATROL before the squad's CAUTION timer expired");
+      }
+    }
+
+    if (minDistToKnock > G.GUARD.ARRIVE_DIST) {
+      throw new Error("guard never arrived at the knock's stimulus point, min dist " + minDistToKnock.toFixed(2));
+    }
+    if (backToCautionAtTick === null) {
+      throw new Error("guard never resumed CAUTION patrol after the investigate search completed");
+    }
+    if (squad.phase !== "CAUTION") {
+      throw new Error("expected squad.phase to still read CAUTION (timer not expired), got " + squad.phase);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

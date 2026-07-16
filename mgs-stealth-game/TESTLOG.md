@@ -1,5 +1,37 @@
 # TESTLOG.md
 
+## Cycle 6 (guardAI part B: ALERT/EVASION/CAUTION + squad)
+
+`node build.js && node test.js` 47/47; `node sim.js` 6/6. 9 new tests, 2 new
+scenarios incl. the full ladder (seen → converge → sweep → caution → patrol
+within 90s of lost contact).
+
+Build subagent caught and fixed a real transition bug: ALERT pinned the meter
+at 1.0, which instantly re-tripped EVASION's escalation threshold on the very
+tick contact was lost — the squad bounced ALERT↔EVASION forever. Fixed by
+zeroing the meter on ALERT→EVASION (documented inline).
+
+**3 problems:**
+1. The squad.tick(dt, anyLOS) wiring lives only in sim scenarios — every
+   consumer must remember to call it after guard updates. The engine module
+   must own this loop; until then it's a footgun. → engine cycle (next).
+2. ALERT guards "arrest" at 2m and just hold — no consequence beyond proximity.
+   Player HP/game-over needs items/HUD cycles; until then alerts are toothless
+   drama. → acknowledged sequencing, not a bug.
+3. Reinforcements (max +3 at zone door) and the 40s radio check-in mechanic
+   are still unbuilt (director module). The ladder de-escalates a bit cleanly —
+   nobody comes looking for a missing buddy. → director cycle.
+
+**3 delights:**
+1. The meter-bounce bug is exactly the class of thing sim.js exists for — an
+   imagined playtest would have shipped it. The harness is earning its keep.
+2. Staggered EVASION sweeps via deterministic id-hash offsets: two guards at
+   the same last-known-position fan out instead of staring the same way.
+   Free emergent competence.
+3. CAUTION guards finishing a noise INVESTIGATE before resuming caution patrol
+   (live-checked against squad.phase, not latched) — small, but it's the
+   difference between an FSM and an actual organization.
+
 ## Cycle 5 (bugfix: waypoint route through guard hut)
 
 `node build.js && node test.js` 38/38; `node sim.js` 4/4. Route rerouted to a
