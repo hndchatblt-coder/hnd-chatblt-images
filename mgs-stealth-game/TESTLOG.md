@@ -1,5 +1,26 @@
 # TESTLOG.md
 
+## Cycle 35 (EVASION locker checks)
+
+231/231; 24/24; 5/5 shots. Sweeping guards check the nearest unchecked
+locker within 6m of their sweep position (one per guard per episode, squad-
+level dedup, wedge-safe travel, 1.2s pause). Player found → ejected, facing-
+snap + same-tick LOS bridge so the re-ALERT sticks (real bug found: without
+the snap, phase flash-decayed before contact registered). Body found →
+alert without leaving EVASION (prevents an infinite re-check loop — second
+real bug caught in build). Distance rewarded: far lockers stay safe.
+Save/restore round-trips mid-check state (chaos gate enforced it).
+
+**Problems:** (1) no visual tell when a guard is heading for YOUR locker —
+terrifying but unreadable; consider a subtle audio cue (footsteps near
+locker) with the positional-audio well. (2) checkedLockers resets each
+fresh EVASION — camping the SAME locker across two alerts works once per
+alert; acceptable, marginal. (3) sim scenario tuned to warehouse geometry;
+tower's 4-locker layout unexercised — extend at next content touch.
+
+**Delight:** the same-seed contrast scenario (camp = caught, distance =
+survive) is the Tension pillar stated as an executable truth.
+
 ## Cycle 34 (zone-state persistence)
 
 222/222; 23/23; 5/5 shots. Departed zones freeze instead of forgetting:

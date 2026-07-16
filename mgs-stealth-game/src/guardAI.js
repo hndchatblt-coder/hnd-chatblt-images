@@ -67,6 +67,21 @@
 //       BODY_SPOT_CONFIRM_S: 0.5,// s of accumulated visibility on a sleeping
 //                                // colleague's body before an awake guard
 //                                // calls it in (broadcastAlert at the body)
+//       LOCKER_CHECK_RANGE: 6,   // m — see EVASION LOCKER CHECK below: a zone
+//                                // locker must be within this range of the
+//                                // guard's SWEEP-START position (where its
+//                                // converge-on-lastKnown leg ends, normally
+//                                // or via WEDGE GIVE-UP) to be eligible for a
+//                                // check at all. DESIGN.md pillar 4
+//                                // (Consequence: recoverable chaos) —
+//                                // hiding far from your last-known position
+//                                // is the reward for actually breaking LOS
+//                                // and putting distance in first, not a
+//                                // guaranteed-safe panic button next to
+//                                // wherever you were last seen.
+//       LOCKER_CHECK_PAUSE: 1.2, // s a guard holds, facing the locker it
+//                                // walked to, before asking the engine
+//                                // what's inside (see ctx.checkLocker below)
 //     }
 //
 //   WEDGE GIVE-UP (cycle 32 — see GUARD.WEDGE_WINDOW_S/WEDGE_MIN_PROGRESS
@@ -125,6 +140,20 @@
 //                    not a fresh incident), do NOT increment it — only a
 //                    transition INTO alert FROM a cooled-down phase
 //                    (INFILTRATION or CAUTION) counts as a new alert.
+//       checkedLockers — NEW (locker-check cycle) — { [lockerIndex]: true }, a
+//                    shared record of which of this zone's zone.lockers[]
+//                    entries have already been checked (found empty, found a
+//                    body, or found the player) THIS EVASION EPISODE — see
+//                    EVASION LOCKER CHECK, under EVASION below, for the full
+//                    write-up. A guard reserves an index here (via
+//                    markLockerChecked, below) the INSTANT it commits to
+//                    walking toward that locker, not when the check actually
+//                    resolves — so a squadmate evaluating its own eligible
+//                    lockers later the SAME tick already sees it excluded
+//                    (see markLockerChecked). Reset to {} every time
+//                    squad.tick() transitions ALERT -> EVASION (a fresh
+//                    EVASION episode gets a fresh, empty dedup set) — see
+//                    tick() below.
 //     Methods:
 //       broadcastAlert(x, y) — any guard confirming sight calls this.
 //         phase -> ALERT (from any phase), lastKnown = {x,y}, phaseTime reset
@@ -145,6 +174,12 @@
 //         for guard code (and future callers, e.g. per-guard combat/chatter
 //         hooks) to report "I personally lost them," without racing
 //         squad-wide state.
+//       markLockerChecked(lockerIndex) — NEW (locker-check cycle) — called by
+//         a guard the instant it commits to walking toward a given
+//         zone.lockers[] index during an EVASION sweep (see EVASION LOCKER
+//         CHECK below); sets squad.checkedLockers[lockerIndex] = true. No
+//         other consequence — purely the shared dedup bookkeeping described
+//         under checkedLockers above.
 //       tick(dt, anyGuardHasLOS) — THE ENGINE (or, meanwhile, whatever test/
 //         sim harness drives the guard loop) calls this ONCE PER TICK, AFTER
 //         every guard on the squad has had update() called for that tick,
@@ -152,7 +187,11 @@
 //         the player (see guard.hasLOS below — anyGuardHasLOS is typically
 //         `guards.some(g => g.hasLOS)`). Handles the timer-driven half of the
 //         ladder:
-//           ALERT, no LOS this tick     -> EVASION (phaseTime reset to 0)
+//           ALERT, no LOS this tick     -> EVASION (phaseTime reset to 0,
+//                                          checkedLockers reset to {} — see
+//                                          checkedLockers above/EVASION LOCKER
+//                                          CHECK below: a fresh EVASION
+//                                          episode gets a fresh dedup set)
 //           EVASION, phaseTime >= 30s   -> CAUTION (phaseTime reset to 0)
 //           CAUTION, phaseTime >= 45s   -> INFILTRATION (phaseTime reset to 0,
 //                                          lastKnown cleared to null)
@@ -275,10 +314,20 @@
 //   into the matching state the very next tick regardless of what it was
 //   doing (that forcing IS the "radio call" — see ALERT below).
 //
-//   guard.update(dt, ctx) — ctx = { player, onGuardFire?, sleepingGuards? },
-//   player satisfying the target/player contract ({x, y, visionProfile(),
-//   moving, stance} — the last two are read only by ALERT's fire-accuracy
-//   roll, see below).
+//   guard.update(dt, ctx) — ctx = { player, onGuardFire?, sleepingGuards?,
+//   checkLocker? }, player satisfying the target/player contract ({x, y,
+//   visionProfile(), moving, stance} — the last two are read only by ALERT's
+//   fire-accuracy roll, see below).
+//   checkLocker(lockerIndex, guardId) is an OPTIONAL callback — see EVASION
+//   LOCKER CHECK, under EVASION below, for the full write-up: this guard
+//   calls it (never any other state) once it has walked to and paused at an
+//   eligible nearby locker during an EVASION sweep, and reads back one of
+//   "player" | "body" | "empty". Engine owns every consequence of a
+//   non-"empty" result (playerHidden/positioning/broadcastAlert/events — see
+//   src/engine.js's own contract); this module only reads the return value
+//   to decide whether to jump to ALERT or resume its sweep. Omitting it
+//   (every pre-locker-check test/sim call) is silently fine: no hook means
+//   every eligible locker resolves as "empty" (see EVASION LOCKER CHECK).
 //   onGuardFire(guard, hit) is an OPTIONAL callback: this module calls it the
 //   instant this guard fires a shot (see ALERT below), passing itself and the
 //   boolean hit/miss outcome — it does NOT apply any damage itself ("engine
@@ -473,6 +522,98 @@
 //       subject to WEDGE GIVE-UP (see above): a lastKnown with no clear
 //       direct-line-plus-slide path starts the coordinated sweep right where
 //       the guard got stuck instead of pushing at it for the rest of EVASION.
+//
+//     EVASION LOCKER CHECK (new — locker-check cycle; DESIGN.md pillar 4,
+//     Consequence: recoverable chaos — being made mid-chase escalates into a
+//     tense, winnable scramble, not an automatic loss the moment you duck
+//     into the first locker you see, NOR a guaranteed-safe panic button
+//     regardless of where you hide). The counter to hiding in a locker
+//     mid-chase: the instant a guard's coordinated sweep BEGINS (the same
+//     tick `sweeping` first flips true — whether via a normal arrival at
+//     squad.lastKnown or via the converge leg's own WEDGE GIVE-UP above;
+//     EVASION's meter-based reacquisition check at the top of this state
+//     runs first and can short-circuit straight to ALERT before any of this
+//     ever applies), the guard looks for the NEAREST world.zone.lockers[]
+//     entry within GUARD.LOCKER_CHECK_RANGE (6m) of the position its sweep
+//     is starting from that is NOT already in squad.checkedLockers (see
+//     checkedLockers/markLockerChecked in the squad contract above). None
+//     eligible: the guard does its ordinary oscillating sweep, unchanged.
+//     One eligible: squad.markLockerChecked(that index) is called
+//     IMMEDIATELY (synchronously, before this guard has taken a single step
+//     toward it), and this guard's own oscillating sweep is SUSPENDED in
+//     favor of walking to the locker (INVESTIGATE-style travel, including
+//     its own WEDGE GIVE-UP tracker — a locker tucked behind geometry gives
+//     up and does the check from wherever the guard got stuck, same "peer
+//     around whatever it ran into" shape as INVESTIGATE's own give-up
+//     above), then holding GUARD.LOCKER_CHECK_PAUSE (1.2s) facing it. AT
+//     MOST ONE locker check per guard per EVASION episode — reserving the
+//     index above (a per-guard latch, separate from the shared
+//     checkedLockers set) means this guard will never attempt a second one
+//     even if its post-check sweep later drifts near another unchecked
+//     locker — and the shared checkedLockers set means a squadmate sweeping
+//     in from elsewhere never re-checks the SAME locker this same episode.
+//     Once the pause completes, this guard calls ctx.checkLocker(lockerIndex,
+//     guard.id) (see guard.update's own ctx contract above) and reads back
+//     one of three outcomes — ENGINE OWNS EVERY CONSEQUENCE of a non-"empty"
+//     result, this module only reacts, and NOT symmetrically — only a
+//     "player" result gets the immediate-ALERT treatment, for a reason
+//     rooted in squad.tick()'s own no-LOS decay (see below):
+//       "player" — the locker held the hidden player (the engine has already
+//         un-hidden them, positioned them 1m outside the locker, and called
+//         squad.broadcastAlert at that spot — see src/engine.js's own
+//         contract). This guard SNAPS its own facing toward the fresh
+//         squad.lastKnown (the player's real position) and immediately calls
+//         setState("ALERT", null) — the same "broadcast + setState, don't
+//         wait for next tick's radio-call sync" shape as every other
+//         EVASION/CAUTION escalation path in this file. The facing-snap
+//         matters specifically here: this guard was facing the LOCKER for
+//         the whole pause, and perception (src/engine.js's own step 2) reads
+//         a guard's facing as of the START of a tick — an unadjusted facing
+//         would cost this guard a full extra tick before its own hasLOS
+//         could read true again, which is exactly long enough for
+//         squad.tick()'s own no-LOS decay (ALERT with no guard LOS this
+//         tick -> EVASION, see squad contract above) to flash the phase
+//         back to EVASION before genuine contact ever registered. With the
+//         snap, this guard's hasLOS reads true the very next tick (the
+//         player is right there), so squad.tick()'s own anyGuardHasLOS
+//         check holds ALERT for real from then on — ordinary pursuit/combat
+//         takes it from here, no special-casing needed beyond this one tick.
+//       "body" — the locker held a stuffed colleague (still hidden — see
+//         src/engine.js's own contract for why the body stays put). This
+//         guard does NOT setState("ALERT") — there is no live target here to
+//         actually pursue, only engine's own broadcastAlert (a real,
+//         if momentary, squad-level event that src/engine.js's own contract
+//         deliberately does NOT bridge into a lasting ALERT, the same
+//         "camera/colleague alert with no guard LOS flashes through and
+//         settles back into EVASION" shape used elsewhere in this file's
+//         squad-phase machinery). This guard instead resumes its coordinated
+//         sweep, exactly like the "empty" case below — and critically,
+//         because this guard's OWN state never actually leaves EVASION for
+//         a body (or empty) result, `sweeping` never gets reset back to
+//         false, so this guard can never re-select and re-check the SAME
+//         (already-resolved) locker again later this same episode, even if
+//         the squad-level flash-through-ALERT momentarily clears
+//         squad.checkedLockers in the meantime (see checkedLockers above —
+//         a fresh EVASION ENTRY resets it, but this guard's own state never
+//         re-enters EVASION here, since it never left).
+//       "empty" — nothing there. This guard resumes its coordinated sweep
+//         (oscillating around whatever facing it ended up holding, exactly
+//         like a normal EVASION sweep start) rather than returning to the
+//         converge leg — the check itself, successful or not, is what "the
+//         sweep" now includes at a nearby locker, not a detour away from it.
+//     Omitting ctx.checkLocker (see guard.update's own ctx contract above)
+//     makes every eligible locker resolve as "empty" — a guard still walks
+//     over and pauses (the animation/timing is unconditional), it just never
+//     finds anything, which is exactly what every pre-locker-check test/sim
+//     call already assumes happens near an (uninhabited, as far as they're
+//     concerned) locker.
+//     GUARDS DO NOT CHECK LOCKERS IN CAUTION/PATROL — only EVASION does. The
+//     existing 40s radio check-in system (src/director.js's own ESCALATION
+//     contract) already covers a missing/stuffed colleague being noticed
+//     during ordinary patrol; EVASION's locker check is specifically about
+//     hunting down the player who just broke contact mid-chase, not a second
+//     body-sweep mechanism layered on top of the one director.js already
+//     owns.
 //     CAUTION — entered only via the radio-call sync (step 1) when
 //       squad.phase becomes CAUTION (squad.tick() advances EVASION ->
 //       CAUTION after GUARD.EVASION_S). Resumes the waypoint patrol loop —
@@ -719,6 +860,8 @@
     STAGGER_SLEEP_S: 3,
     BODY_SPOT_RANGE: 10,
     BODY_SPOT_CONFIRM_S: 0.5,
+    LOCKER_CHECK_RANGE: 6,
+    LOCKER_CHECK_PAUSE: 1.2,
     MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity, SLEEPING: 0 },
   };
   // SLEEPING's ceiling is SLEEP_S + a 5s margin (see file header) — computed
@@ -794,6 +937,10 @@
       phaseTime: 0,
       lastKnown: null,
       alertCount: 0,
+      // NEW (locker-check cycle) — see file header checkedLockers note above:
+      // { [lockerIndex]: true } for every zone.lockers[] entry already
+      // checked THIS EVASION EPISODE, shared across every guard on the squad.
+      checkedLockers: {},
     };
 
     function broadcastAlert(x, y) {
@@ -816,6 +963,12 @@
     // full-squad picture needed to know whether ANY guard still has LOS.
     function loseContact() {}
 
+    // NEW (locker-check cycle) — see file header checkedLockers/EVASION
+    // LOCKER CHECK notes above. Pure bookkeeping, no other consequence.
+    function markLockerChecked(lockerIndex) {
+      squad.checkedLockers[lockerIndex] = true;
+    }
+
     function tick(dt, anyGuardHasLOS) {
       squad.phaseTime += dt;
       switch (squad.phase) {
@@ -823,6 +976,10 @@
           if (!anyGuardHasLOS) {
             squad.phase = "EVASION";
             squad.phaseTime = 0;
+            // NEW (locker-check cycle) — a fresh EVASION episode gets a
+            // fresh, empty dedup set (see checkedLockers/EVASION LOCKER
+            // CHECK in the file header above).
+            squad.checkedLockers = {};
           }
           break;
         case "EVASION":
@@ -844,17 +1001,19 @@
     }
 
     // getState()/setState() (NEW — save/restore cycle, additive only, no
-    // behavior change): squad's full mutable surface is exactly its four
-    // flat props (see file header) — no private closure state at all, unlike
-    // guard below. getState() deep-copies lastKnown (a nested {x,y} object,
-    // or null) so a caller mutating the returned snapshot can never reach
-    // back into this squad's own live state.
+    // behavior change): squad's full mutable surface is its five flat props
+    // (see file header) — no private closure state at all, unlike guard
+    // below. getState() deep-copies lastKnown (a nested {x,y} object, or
+    // null) and checkedLockers (a plain {index: true} map, new — locker-check
+    // cycle) so a caller mutating the returned snapshot can never reach back
+    // into this squad's own live state.
     function getState() {
       return {
         phase: squad.phase,
         phaseTime: squad.phaseTime,
         lastKnown: squad.lastKnown ? { x: squad.lastKnown.x, y: squad.lastKnown.y } : null,
         alertCount: squad.alertCount,
+        checkedLockers: Object.assign({}, squad.checkedLockers),
       };
     }
 
@@ -863,11 +1022,16 @@
       squad.phaseTime = state.phaseTime;
       squad.lastKnown = state.lastKnown ? { x: state.lastKnown.x, y: state.lastKnown.y } : null;
       squad.alertCount = state.alertCount;
+      // Falls back to {} for a save captured before the locker-check cycle
+      // (same defensive posture as engine.js's own stats/zoneStash fallback
+      // in its setState — an old-format save simply won't have this field).
+      squad.checkedLockers = Object.assign({}, state.checkedLockers || {});
     }
 
     squad.broadcastAlert = broadcastAlert;
     squad.updateSighting = updateSighting;
     squad.loseContact = loseContact;
+    squad.markLockerChecked = markLockerChecked;
     squad.tick = tick;
     squad.getState = getState;
     squad.setState = setState;
@@ -931,6 +1095,24 @@
     var investigateWedge = createWedgeTracker();
     var evasionWedge = createWedgeTracker();
     var alertWedge = createWedgeTracker();
+    // NEW (locker-check cycle) — a dedicated tracker for the EVASION LOCKER
+    // CHECK's own walk-to-locker leg (see file header); same WEDGE GIVE-UP
+    // shape as every other travel-to-stimulus movement above.
+    var lockerCheckWedge = createWedgeTracker();
+
+    // EVASION LOCKER CHECK state (new — locker-check cycle, see file header).
+    // lockerCheckDone latches true the instant this guard reserves a locker
+    // to check (not when the check resolves) — the "at most one per guard
+    // per EVASION episode" rule — and is reset to false only when a fresh
+    // EVASION is entered (see setState below). lockerChecking/
+    // lockerCheckPhase/lockerCheckIndex/lockerCheckPauseTime back the walk/
+    // pause sub-machine itself (tickLockerCheck below); none of this is part
+    // of the public contract, same status as sweeping/searchTime/etc. above.
+    var lockerCheckDone = false;
+    var lockerChecking = false;
+    var lockerCheckPhase = null; // "walk" | "pause"
+    var lockerCheckIndex = null;
+    var lockerCheckPauseTime = 0;
 
     // Combat fire-timer (ALERT only — see file header COMBAT note). fireTimer
     // is a private per-guard clock, seconds since this ALERT engagement
@@ -999,6 +1181,17 @@
         // WEDGE GIVE-UP (see file header) — same reasoning as INVESTIGATE
         // above: a fresh EVASION converge earns a fresh window.
         evasionWedge.reset(guard.x, guard.y);
+        // EVASION LOCKER CHECK (new — locker-check cycle, see file header) —
+        // a fresh EVASION episode gets a fresh per-guard check slot, and any
+        // leftover walk/pause sub-state from a previous episode is cleared
+        // defensively (it should already be idle by the time a guard leaves
+        // EVASION in practice, since the only exits are a fresh alert or
+        // squad.tick's own 30s timer, neither of which happens mid-check).
+        lockerCheckDone = false;
+        lockerChecking = false;
+        lockerCheckPhase = null;
+        lockerCheckIndex = null;
+        lockerCheckPauseTime = 0;
       }
       if (newState === "ALERT") {
         // WEDGE GIVE-UP (see file header) — anchors the no-LOS convergence
@@ -1199,10 +1392,169 @@
 
     // ---- EVASION (coordinated sweep — see file header) --------------------------
 
+    // Finds the nearest world.zone.lockers[] index within
+    // GUARD.LOCKER_CHECK_RANGE of this guard's CURRENT position that isn't
+    // already in squad.checkedLockers, or null if none qualify (see EVASION
+    // LOCKER CHECK in the file header). Read-only — reserving the result is
+    // the caller's job (startEvasionSweep below), not this helper's.
+    function findNearestUncheckedLocker() {
+      var lockers = (world.zone && world.zone.lockers) || [];
+      var bestIdx = null;
+      var bestDist = Infinity;
+      for (var i = 0; i < lockers.length; i++) {
+        if (squad.checkedLockers && squad.checkedLockers[i]) continue;
+        var d = distance(guard.x, guard.y, lockers[i].x, lockers[i].y);
+        if (d <= GUARD.LOCKER_CHECK_RANGE && d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    // Begins the coordinated sweep (unchanged shape from before the
+    // locker-check cycle) AND, the first time it's called this EVASION
+    // episode (lockerCheckDone still false), tries to hand off to the
+    // EVASION LOCKER CHECK sub-machine instead (see file header) — reserving
+    // the chosen locker in squad.checkedLockers synchronously, right here,
+    // before this guard has taken a single step toward it. Callers must
+    // check `lockerChecking` afterward and dispatch to tickLockerCheck this
+    // same tick if it came back true, rather than falling through to the
+    // ordinary oscillating-sweep code.
+    function startEvasionSweep() {
+      sweeping = true;
+      sweepTime = 0;
+      sweepBaseFacing = guard.facing;
+
+      if (!lockerCheckDone) {
+        var idx = findNearestUncheckedLocker();
+        if (idx !== null) {
+          lockerCheckDone = true;
+          lockerChecking = true;
+          lockerCheckPhase = "walk";
+          lockerCheckIndex = idx;
+          lockerCheckPauseTime = 0;
+          lockerCheckWedge.reset(guard.x, guard.y);
+          squad.markLockerChecked(idx);
+          sweeping = false; // suspended in favor of the locker-check walk
+        }
+      }
+    }
+
+    // Drives the EVASION LOCKER CHECK's own walk-to-locker / pause-and-ask
+    // sub-machine (see file header) while lockerChecking is true. Owns dt
+    // entirely for this guard this tick, same as tickInvestigate/tickAlert's
+    // own travel legs — tickEvasion never runs its normal converge/sweep
+    // logic in the same tick this is called.
+    function tickLockerCheck(dt, ctx) {
+      var lockers = (world.zone && world.zone.lockers) || [];
+      var locker = lockers[lockerCheckIndex];
+      if (!locker) {
+        // Defensive: an invalid index can never actually resolve. Abort
+        // cleanly rather than stranding this guard in a check that can
+        // never finish — fall back to an ordinary sweep right here.
+        lockerChecking = false;
+        lockerCheckIndex = null;
+        sweeping = true;
+        sweepTime = 0;
+        sweepBaseFacing = guard.facing;
+        return;
+      }
+
+      if (lockerCheckPhase === "walk") {
+        var d = distance(guard.x, guard.y, locker.x, locker.y);
+
+        // WEDGE GIVE-UP (see file header) — INVESTIGATE-style: geometry
+        // between the sweep-start position and the locker can wedge this
+        // travel exactly like any other in this file. On a wedge, skip
+        // straight to the pause+check step from wherever the guard got
+        // stuck, matching INVESTIGATE's own "peer around whatever it ran
+        // into" give-up shape.
+        if (d > GUARD.ARRIVE_DIST && lockerCheckWedge.check(guard.x, guard.y, d)) {
+          lockerCheckPhase = "pause";
+          lockerCheckPauseTime = 0;
+          return;
+        }
+
+        if (d > GUARD.ARRIVE_DIST) {
+          var stepLen = Math.min(GUARD.ALERT_SPEED * dt, d);
+          var ux = (locker.x - guard.x) / d;
+          var uy = (locker.y - guard.y) / d;
+          var res = world.moveCircle(guard.x, guard.y, ux * stepLen, uy * stepLen, guard.radius);
+          guard.x = res.x;
+          guard.y = res.y;
+          guard.facing = Math.atan2(locker.y - guard.y, locker.x - guard.x);
+        } else {
+          guard.facing = Math.atan2(locker.y - guard.y, locker.x - guard.x);
+          lockerCheckPhase = "pause";
+          lockerCheckPauseTime = 0;
+        }
+        return;
+      }
+
+      // lockerCheckPhase === "pause" — hold, facing the locker, for
+      // GUARD.LOCKER_CHECK_PAUSE seconds before actually asking the engine.
+      guard.facing = Math.atan2(locker.y - guard.y, locker.x - guard.x);
+      lockerCheckPauseTime += dt;
+      if (lockerCheckPauseTime < GUARD.LOCKER_CHECK_PAUSE) return;
+
+      var result = ctx.checkLocker ? ctx.checkLocker(lockerCheckIndex, guard.id) : "empty";
+      lockerChecking = false;
+      lockerCheckIndex = null;
+      lockerCheckPauseTime = 0;
+
+      if (result === "player") {
+        // Engine already called squad.broadcastAlert (see file header — it
+        // owns every consequence of a "player" result), so squad.lastKnown
+        // is now the player's own fresh, real position. SNAP this guard's
+        // facing toward it BEFORE setState("ALERT") — without this, the
+        // guard would still be facing the LOCKER (wherever it paused) for
+        // the remainder of THIS tick, and perception runs from a guard's
+        // facing as of the START of a tick, so an unadjusted facing would
+        // cost a full extra tick before this guard's own hasLOS could ever
+        // read true again — long enough for squad.tick()'s own no-LOS decay
+        // to flash ALERT back to EVASION before genuine contact ever had a
+        // chance to register. Mirrors every other EVASION escalation path
+        // in this file: setState() the instant a broadcast fires, rather
+        // than waiting for next tick's radio-call sync to catch this guard
+        // up — a genuine, continuing, physically-present target earns
+        // immediate real pursuit, not a delayed one.
+        if (squad.lastKnown) {
+          guard.facing = Math.atan2(squad.lastKnown.y - guard.y, squad.lastKnown.x - guard.x);
+        }
+        setState("ALERT", null);
+      } else {
+        // "body" or "empty" — see file header EVASION LOCKER CHECK: a body
+        // find is engine's own broadcastAlert (a real, if momentary, squad-
+        // level event — see src/engine.js's own contract for why it is
+        // deliberately NOT bridged into a lasting ALERT the way "player" is,
+        // same "camera alert with no guard LOS" flash-through-and-settle
+        // shape as CAMERAS DO NOT CONTRIBUTE TO anyLOS already documents),
+        // but there is no live target for THIS guard to actually pursue —
+        // resume the coordinated sweep right here exactly as an empty find
+        // does. Critically, this guard's OWN state never leaves EVASION for
+        // either outcome, so `sweeping` never gets reset back to false and
+        // this guard can never re-select (and re-check) the SAME locker
+        // again later this same episode, even if a squad-level flash back
+        // through ALERT clears squad.checkedLockers in the meantime.
+        sweeping = true;
+        sweepTime = 0;
+        sweepBaseFacing = guard.facing;
+      }
+    }
+
     function tickEvasion(dt, ctx) {
       if (guard.meter >= Game.VISION.SUSPICIOUS_AT) {
         squad.broadcastAlert(ctx.player.x, ctx.player.y);
         setState("ALERT", null);
+        return;
+      }
+
+      // EVASION LOCKER CHECK (see file header) takes over entirely while
+      // in progress — it owns this tick's dt instead of the normal
+      // converge/sweep dispatch below.
+      if (lockerChecking) {
+        tickLockerCheck(dt, ctx);
         return;
       }
 
@@ -1215,9 +1567,11 @@
       // a rolling GUARD.WEDGE_WINDOW_S window, give up and begin the
       // coordinated sweep right here instead.
       if (!sweeping && d > GUARD.ARRIVE_DIST && evasionWedge.check(guard.x, guard.y, d)) {
-        sweeping = true;
-        sweepTime = 0;
-        sweepBaseFacing = guard.facing;
+        startEvasionSweep();
+        if (lockerChecking) {
+          tickLockerCheck(dt, ctx);
+          return;
+        }
       }
 
       if (!sweeping && d > GUARD.ARRIVE_DIST) {
@@ -1230,9 +1584,11 @@
         guard.facing = Math.atan2(target.y - guard.y, target.x - guard.x);
       } else {
         if (!sweeping) {
-          sweeping = true;
-          sweepTime = 0;
-          sweepBaseFacing = guard.facing;
+          startEvasionSweep();
+          if (lockerChecking) {
+            tickLockerCheck(dt, ctx);
+            return;
+          }
         }
         sweepTime += dt;
         var sweep =
@@ -1536,15 +1892,19 @@
     // locker machinery documented throughout this file (pausing/pauseTime/
     // pauseBaseFacing, searching/searchTime/searchBaseFacing, sweeping/
     // sweepTime/sweepBaseFacing/sweepOffset, fireTimer/nextFireAt, sleepTime/
-    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing) — miss ANY
-    // one of these and a restored guard can diverge from a live one the next
-    // time that particular sub-machine's timer/flag matters (a mid-pause
-    // head-sweep, a mid-search arc, a mid-EVASION coordinated sweep, an
-    // in-flight fire cadence, a partially-elapsed sleep/stagger clock, or a
-    // remembered locker-exit facing) — see src/saveState.js's REPLAY GATE
-    // tests for exactly this failure mode. bodySpotTimers is a plain
-    // {id: seconds} map — shallow-copied so a caller mutating the returned
-    // snapshot's map can never reach back into this guard's own live one.
+    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing, and — NEW,
+    // locker-check cycle — lockerCheckDone/lockerChecking/lockerCheckPhase/
+    // lockerCheckIndex/lockerCheckPauseTime/lockerCheckWedge, see EVASION
+    // LOCKER CHECK above) — miss ANY one of these and a restored guard can
+    // diverge from a live one the next time that particular sub-machine's
+    // timer/flag matters (a mid-pause head-sweep, a mid-search arc, a
+    // mid-EVASION coordinated sweep, an in-flight fire cadence, a
+    // partially-elapsed sleep/stagger clock, a remembered locker-exit
+    // facing, or a guard mid-walk/pause at a locker it's already reserved)
+    // — see src/saveState.js's REPLAY GATE tests for exactly this failure
+    // mode. bodySpotTimers is a plain {id: seconds} map — shallow-copied so
+    // a caller mutating the returned snapshot's map can never reach back
+    // into this guard's own live one.
     // NAMED getSaveState/applySaveState (NOT getState/setState) INTERNALLY —
     // this factory already declares a local function literally named
     // setState(newState, stimulus) (the FSM transition helper used
@@ -1591,6 +1951,18 @@
         investigateWedge: investigateWedge.getState(),
         evasionWedge: evasionWedge.getState(),
         alertWedge: alertWedge.getState(),
+        // EVASION LOCKER CHECK state (new — locker-check cycle, see file
+        // header) — miss ANY of these and a restored guard mid-check (or
+        // one that had already latched lockerCheckDone this episode) could
+        // re-check a locker, double-reserve one, or lose its place mid-walk/
+        // pause, the same "replay gate" failure mode every other sub-machine
+        // here already guards against.
+        lockerCheckDone: lockerCheckDone,
+        lockerChecking: lockerChecking,
+        lockerCheckPhase: lockerCheckPhase,
+        lockerCheckIndex: lockerCheckIndex,
+        lockerCheckPauseTime: lockerCheckPauseTime,
+        lockerCheckWedge: lockerCheckWedge.getState(),
       };
     }
 
@@ -1631,6 +2003,16 @@
       investigateWedge.setState(s.investigateWedge);
       evasionWedge.setState(s.evasionWedge);
       alertWedge.setState(s.alertWedge);
+      // EVASION LOCKER CHECK state (new — locker-check cycle) — falls back
+      // to the same "fresh, idle" defaults a brand-new EVASION entry would
+      // have for a save captured before this cycle (same defensive posture
+      // as engine.js's own stats/zoneStash fallback in its setState).
+      lockerCheckDone = s.lockerCheckDone || false;
+      lockerChecking = s.lockerChecking || false;
+      lockerCheckPhase = s.lockerCheckPhase !== undefined ? s.lockerCheckPhase : null;
+      lockerCheckIndex = s.lockerCheckIndex !== undefined ? s.lockerCheckIndex : null;
+      lockerCheckPauseTime = s.lockerCheckPauseTime || 0;
+      if (s.lockerCheckWedge) lockerCheckWedge.setState(s.lockerCheckWedge);
     }
 
     guard.update = update;

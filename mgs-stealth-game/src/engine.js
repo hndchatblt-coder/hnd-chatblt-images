@@ -198,6 +198,15 @@
 //                     the searcher's own ordinary INVESTIGATE/COLLEAGUE
 //                     DISCOVERY machinery (src/guardAI.js) decides that, same
 //                     as any other body-spot.
+//                   { type: "lockerDiscovery", found, lockerIndex, guardId } —
+//                     see EVASION LOCKER CHECK below: a guard's own
+//                     ctx.checkLocker(lockerIndex, guardId) call (from
+//                     src/guardAI.js's EVASION sweep — see its own contract)
+//                     resolved this tick. found is "player" | "body" |
+//                     "empty" (mirrors engine.checkLocker's own return
+//                     value); lockerIndex/guardId identify which
+//                     zone.lockers[] entry and which guard. Fires exactly
+//                     once per resolved check, regardless of outcome.
 //                 More event types will be appended by later modules — treat
 //                 `type` as an open set and always branch on it, never
 //                 assume this is the full list.
@@ -318,6 +327,94 @@
 //   carried across a transition — a dragged guard belongs to the departing
 //   zone's roster and a hidden-in-a-locker player has no locker to return to
 //   in the new zone.
+//
+//   EVASION LOCKER CHECK (new — locker-check cycle; the counter to hiding in
+//   a locker mid-chase, see src/guardAI.js's own EVASION LOCKER CHECK
+//   contract for the guard-side walk/pause behavior this backs. DESIGN.md
+//   pillar 4, Consequence: recoverable chaos — a sweeping guard checking a
+//   NEARBY locker is exactly that kind of tense, winnable scramble, not an
+//   instant failure the moment you duck out of sight, while a locker far
+//   from the guard's own sweep stays genuinely safe — the skill expression
+//   is breaking LOS and putting distance in BEFORE hiding, not the hide
+//   itself). checkLocker(lockerIndex, guardId) is handed to every
+//   guard.update() call this tick (alongside player/onGuardFire/
+//   sleepingGuards — see the GUARD PERCEPTION GATE / BOX PERCEPTION note
+//   below for how `player` itself gets wrapped); a guard (see
+//   src/guardAI.js's own contract — only ever during an EVASION sweep) calls
+//   it once it has walked to and paused at an eligible nearby locker. This
+//   module — not guardAI.js — owns every consequence of a non-"empty"
+//   result:
+//     - engine.playerHidden is true AND this zone's OWN hiddenLocker
+//       (the {x,y,facing} locker the player is actually tucked into, private
+//       to this module — see LOCKER VERB above) is the SAME locker object as
+//       zone.lockers[lockerIndex]: PLAYER FOUND. The player is thrown out
+//       exactly like a normal G-key EXIT LOCKER (world.moveCircle, 1m along
+//       the locker's own facing, collision-safe), engine.playerHidden is
+//       cleared (so every guard's own perception sees the REAL, now-visible
+//       player starting next tick — no separate "reveal" mechanism, it's the
+//       same GUARD PERCEPTION GATE wrapper simply no longer substituting a
+//       decoy), squad.broadcastAlert(player.x, player.y) is called AT THAT
+//       SPOT, and { type: "lockerDiscovery", found: "player", lockerIndex,
+//       guardId } is pushed. Returns "player".
+//     - Otherwise, some guards[i] has .hidden === true AND sits exactly at
+//       this locker's own {x,y} (see src/guardAI.js's stuffInLocker contract
+//       — a stuffed guard's position IS the locker's position, by
+//       construction, so an exact coordinate match is a safe, cheap test):
+//       BODY FOUND. squad.broadcastAlert(locker.x, locker.y) is called; the
+//       body itself STAYS in the locker (hidden flag untouched) — it was
+//       found and an alert raised, but nobody actually un-stuffs it (the
+//       simplest honest semantics: this cycle has no "drag a body back out
+//       of a locker" verb, so there is nothing else TO do with it). Pushes
+//       { type: "lockerDiscovery", found: "body", lockerIndex, guardId }.
+//       Returns "body".
+//     - Neither: EMPTY. Pushes { type: "lockerDiscovery", found: "empty",
+//       lockerIndex, guardId } and returns "empty" — guardAI.js resumes the
+//       guard's ordinary coordinated sweep from here (see its own contract).
+//   REGAINED-CONTACT BRIDGE FOR squad.tick()'s OWN LOS GATE — "player" ONLY,
+//   deliberately NOT "body" (see below for why the two differ): a "player"
+//   discovery calls squad.broadcastAlert DURING the guard-update loop
+//   (before squad.tick() runs later this same tick), but the perception step
+//   that already ran this tick (for every guard, including the one that just
+//   found the locker) used the DECOY player from BEFORE playerHidden was
+//   cleared — so no guard's own hasLOS is true this tick as a side effect of
+//   the discovery, same as a director-reported camera alert (see CAMERAS DO
+//   NOT CONTRIBUTE TO anyLOS below). Left alone, squad.tick(DT, anyLOS=false)
+//   would immediately decay the phase it just set back to EVASION before
+//   tick() even returns — exactly the camera behavior, but WRONG for a
+//   genuinely visible, adjacent, continuing target: src/guardAI.js's own
+//   contract already snaps the finding guard's facing toward squad.lastKnown
+//   and setState("ALERT")s it immediately, so that guard's OWN hasLOS reads
+//   true starting the VERY NEXT tick (real, continuing contact) — but THIS
+//   tick, the tick discovery happens on, still needs a bridge, or the phase
+//   would flash to ALERT and revert to EVASION before that next tick ever
+//   arrives. So: this tick's anyLOS computation (see below, same spot the
+//   CAMERAS note lives) is `guards.some(hasLOS) || lockerContactThisTick` —
+//   a private per-tick flag, reset false at the top of every tick(), set
+//   true by checkLocker() ONLY on a "player" result.
+//   "body" is DIFFERENT ON PURPOSE: there is no live target behind a stuffed
+//   colleague, so nothing will EVER make any guard's hasLOS genuinely true
+//   afterward — bridging it here would only buy one extra tick before the
+//   inevitable decay, at real cost: src/guardAI.js's own contract, for
+//   exactly this reason, does NOT setState("ALERT") a guard on a "body"
+//   result (it resumes its sweep, exactly like "empty"), so this guard's own
+//   state never actually leaves EVASION for a body find. A "body" discovery
+//   is therefore squad.broadcastAlert's plain, unbridged shape — the SAME
+//   "flash to ALERT, decay back to EVASION before tick() even returns" shape
+//   CAMERAS DO NOT CONTRIBUTE TO anyLOS already documents for a camera alert
+//   with no guard LOS. Bridging "body" too would not change what any guard
+//   actually does (still no setState, still resumes its sweep) — it would
+//   only let squad.phase sit at ALERT for one real tick, during which the
+//   NEXT tick's radio-call sync (src/guardAI.js's own step 1) would force
+//   EVERY guard on the squad into ALERT and then, the tick after, back into
+//   a FRESH EVASION re-entry the moment the bridge's one extra tick runs out
+//   — and a fresh EVASION re-entry resets squad.checkedLockers (see
+//   src/guardAI.js's own checkedLockers contract), which would let THIS
+//   SAME, already-resolved locker become eligible again and re-trigger an
+//   identical check, forever, never letting squad.phaseTime accumulate
+//   toward GUARD.EVASION_S at all. Leaving "body" unbridged sidesteps that
+//   failure mode entirely by never forcing any guard through state churn in
+//   the first place. This is engine's own call ("engine owns consequences"),
+//   not a guardAI.js/vision.js change.
 //
 //   FIRE VERB — tranq pistol (new this cycle): input.fire (boolean) is
 //   EDGE-TRIGGERED exactly like input.knock (see KNOCK VERB below) — engine
@@ -1458,6 +1555,15 @@
     // transition (see switchZone).
     var hiddenLocker = null;
 
+    // NEW (locker-check cycle) — see file header EVASION LOCKER CHECK's own
+    // "REGAINED-CONTACT BRIDGE" note: true for the remainder of THIS tick
+    // only, the instant checkLocker() below resolves a "player" or "body"
+    // discovery; reset false at the top of every tick(). Not part of any
+    // save/restore round-trip — purely a same-tick signal feeding this
+    // tick's own anyLOS computation (see CAMERAS DO NOT CONTRIBUTE below),
+    // never read again once that tick's squad.tick() call has run.
+    var lockerContactThisTick = false;
+
     // PICKUPS (see file header, tick() step 1.5, Laboratory cycle) — which
     // zone.pickups[] indices have already been collected, keyed by
     // "<zone.id>#<index>" so revisiting the SAME zone later in the same
@@ -1586,6 +1692,71 @@
         }
       }
       return best;
+    }
+
+    // checkLocker(lockerIndex, guardId) — see file header EVASION LOCKER
+    // CHECK. Handed to every guard.update() call as ctx.checkLocker (see
+    // src/guardAI.js's own contract); this module owns every consequence of
+    // a non-"empty" result. Returns "player" | "body" | "empty".
+    function checkLocker(lockerIndex, guardId) {
+      var lockers = zone.lockers || [];
+      var locker = lockers[lockerIndex];
+      if (!locker) return "empty"; // defensive: an invalid index is just empty
+
+      if (engine.playerHidden && hiddenLocker === locker) {
+        // PLAYER FOUND — same step-out primitive as the player's own G-key
+        // EXIT LOCKER path (see LOCKER VERB above): 1m along the locker's
+        // own facing, collision-safe via world.moveCircle.
+        var stepped = world.moveCircle(
+          locker.x,
+          locker.y,
+          Math.cos(locker.facing) * LOCKER_STEP_DIST,
+          Math.sin(locker.facing) * LOCKER_STEP_DIST,
+          player.radius
+        );
+        player.x = stepped.x;
+        player.y = stepped.y;
+        player.facing = locker.facing;
+        engine.playerHidden = false;
+        hiddenLocker = null;
+        squad.broadcastAlert(player.x, player.y);
+        lockerContactThisTick = true;
+        engine.events.push({
+          type: "lockerDiscovery",
+          found: "player",
+          lockerIndex: lockerIndex,
+          guardId: guardId,
+        });
+        return "player";
+      }
+
+      // BODY FOUND — a stuffed colleague's position IS the locker's own
+      // {x,y}, by construction (see src/guardAI.js's stuffInLocker
+      // contract), so an exact coordinate match is a safe, cheap test.
+      // Deliberately does NOT set lockerContactThisTick (see file header's
+      // REGAINED-CONTACT BRIDGE note for why "body" stays unbridged, unlike
+      // "player") — this is squad.broadcastAlert's plain, unbridged shape.
+      for (var i = 0; i < guards.length; i++) {
+        var g = guards[i];
+        if (g.hidden && g.x === locker.x && g.y === locker.y) {
+          squad.broadcastAlert(locker.x, locker.y);
+          engine.events.push({
+            type: "lockerDiscovery",
+            found: "body",
+            lockerIndex: lockerIndex,
+            guardId: guardId,
+          });
+          return "body";
+        }
+      }
+
+      engine.events.push({
+        type: "lockerDiscovery",
+        found: "empty",
+        lockerIndex: lockerIndex,
+        guardId: guardId,
+      });
+      return "empty";
     }
 
     // Nearest SLEEPING, not-already-hidden guard within maxDist of the
@@ -2027,6 +2198,11 @@
       if (engine.gameOver || engine.missionComplete) return;
 
       engine.events = [];
+      // NEW (locker-check cycle) — see file header EVASION LOCKER CHECK's
+      // "REGAINED-CONTACT BRIDGE" note: reset every tick, set true by
+      // checkLocker() below on a "player"/"body" result, read once by this
+      // same tick's anyLOS computation further down.
+      lockerContactThisTick = false;
 
       // LASERS (see file header, tick() step 3.6, Laboratory cycle) — the
       // player's REAL position at the very start of this tick, before ANY
@@ -2374,7 +2550,12 @@
       }
 
       for (var i = 0; i < guards.length; i++) {
-        guards[i].update(DT, { player: perceivedPlayer, onGuardFire: onGuardFire, sleepingGuards: sleepingGuards });
+        guards[i].update(DT, {
+          player: perceivedPlayer,
+          onGuardFire: onGuardFire,
+          sleepingGuards: sleepingGuards,
+          checkLocker: checkLocker,
+        });
       }
 
       // DIRECTOR / CAMERAS (see src/director.js contract) — runs AFTER every
@@ -2480,9 +2661,24 @@
       // sighting had been broken. Guards then converge on squad.lastKnown
       // (the camera-reported position) during EVASION — "the camera spotted
       // you, guards come looking," not "the camera IS a guard."
-      var anyLOS = guards.some(function (g) {
-        return g.hasLOS;
-      });
+      //
+      // A "PLAYER" LOCKER DISCOVERY DOES CONTRIBUTE (see file header EVASION
+      // LOCKER CHECK's "REGAINED-CONTACT BRIDGE" note — the opposite
+      // carve-out from cameras, for the opposite reason, and deliberately
+      // NOT extended to a "body" find — see that same note for why): a
+      // "player" find this tick means genuine, adjacent contact that just
+      // hasn't been reflected in any guard's own hasLOS yet (this tick's
+      // perception already ran against the stale decoy/no-op before the
+      // discovery cleared it) — so it counts here, keeping the phase
+      // settled at ALERT for this one tick instead of flashing through it
+      // and decaying back to EVASION before this tick even returns (from
+      // the NEXT tick on, the finding guard's own facing-snap — see
+      // src/guardAI.js's contract — gives it genuine hasLOS, so the bridge
+      // is only ever needed for this single tick).
+      var anyLOS =
+        guards.some(function (g) {
+          return g.hasLOS;
+        }) || lockerContactThisTick;
 
       squad.tick(DT, anyLOS);
 

@@ -2530,6 +2530,139 @@ scenarios.push({
   },
 });
 
+// ---------------------------------------------------------------------------
+// "Locker camping punished, distance rewarded": the EVASION LOCKER CHECK
+// counter to hiding in a locker mid-chase (see src/guardAI.js's / src/
+// engine.js's own EVASION LOCKER CHECK contracts) end to end through an
+// actual playtest shape -- DESIGN.md pillar 4 (Consequence: recoverable
+// chaos): a guard checking a NEARBY locker is a tense, winnable scramble the
+// player earns by putting real distance in first, not an automatic loss for
+// merely getting made once. Same seed/setup both phases (get spotted by w1,
+// break contact) -- the ONE difference is where the player ducks for cover:
+//   Phase A -- camp the NEAREST locker (a few meters from the sighting
+//     spot, well inside GUARD.LOCKER_CHECK_RANGE): w1's EVASION sweep
+//     checks it, finds the player, and re-ALERTs.
+//   Phase B -- flee two aisles over (far-west -> center -> far-east, ~28m)
+//     before hiding: w1's sweep checks the (empty) NEAR locker on the way,
+//     never comes anywhere near the far one, and the squad decays cleanly
+//     all the way to CAUTION with the player never found.
+scenarios.push({
+  name: "locker camping punished, distance rewarded",
+  seed: 20260716060,
+  run: function (G) {
+    const seed = this.seed;
+    const warehouse = G.ZONES.warehouse;
+    const NEAR_LOCKER = warehouse.lockers[0]; // {x:2,y:6,facing:0} -- ~4m from the sighting spot
+    const FAR_LOCKER = warehouse.lockers[2]; // {x:30,y:22,facing:0} -- two aisles over, ~32m away
+
+    // Stands 2m directly in front of w1's fixed east-facing patrol heading
+    // (spawn/waypoint chosen on the clear y=3 corridor above shelving row 1,
+    // same "walks a heading that never arrives" technique used throughout
+    // this file) until the meter confirms sight and the squad reaches
+    // ALERT.
+    function getSpotted(engine, w1) {
+      const ahead = 2;
+      let reachedAlert = false;
+      for (let i = 0; i < 240 && !reachedAlert; i++) {
+        engine.player.x = w1.x + Math.cos(w1.facing) * ahead;
+        engine.player.y = w1.y + Math.sin(w1.facing) * ahead;
+        engine.player.facing = w1.facing + Math.PI;
+        engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+        if (engine.squad.phase === "ALERT") reachedAlert = true;
+      }
+      if (!reachedAlert) throw new Error("setup failed: squad never reached ALERT");
+    }
+
+    function freshEngine() {
+      return G.createEngine({
+        seed: seed,
+        zoneData: warehouse,
+        guardConfigs: [{ id: "w1", spawn: { x: 2, y: 3 }, waypoints: [{ x: 1002, y: 3 }] }],
+      });
+    }
+
+    // ---- Phase A: camp the near locker -- found, re-ALERT -----------------
+    {
+      const engine = freshEngine();
+      const w1 = engine.guards[0];
+      getSpotted(engine, w1);
+
+      // Break contact by stepping straight into the NEAREST locker -- barely
+      // any distance put between the sighting spot and the hiding spot.
+      engine.player.x = NEAR_LOCKER.x;
+      engine.player.y = NEAR_LOCKER.y;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.phase !== "EVASION") {
+        throw new Error("setup failed: expected squad ALERT -> EVASION the instant LOS broke, got " + engine.squad.phase);
+      }
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true }); // HIDE
+      if (!engine.playerHidden) throw new Error("setup failed: player never hid in the near locker");
+
+      let discoveredPlayer = false;
+      let reAlerted = false;
+      const WINDOW_S = G.GUARD.EVASION_S + 10;
+      for (let t = 0; t < Math.round(WINDOW_S / DT); t++) {
+        engine.tick();
+        for (const ev of engine.events) {
+          if (ev.type === "lockerDiscovery" && ev.found === "player") discoveredPlayer = true;
+        }
+        if (discoveredPlayer && engine.squad.phase === "ALERT") reAlerted = true;
+      }
+
+      if (!discoveredPlayer) {
+        throw new Error("locker camping punished: expected the near locker to get checked and the player found within " + WINDOW_S + "s");
+      }
+      if (!reAlerted) {
+        throw new Error("locker camping punished: expected the squad to be re-ALERTed once the player was found in the near locker");
+      }
+      if (engine.playerHidden) {
+        throw new Error("expected the player to have been ejected from the locker once found");
+      }
+    }
+
+    // ---- Phase B: flee two aisles over first -- survives to CAUTION -------
+    {
+      const engine = freshEngine();
+      const w1 = engine.guards[0];
+      getSpotted(engine, w1);
+
+      // Same break-contact moment, but this time put real distance in --
+      // flee across two aisles (far-west -> center -> far-east) before
+      // ducking into a locker far outside GUARD.LOCKER_CHECK_RANGE of the
+      // sighting spot.
+      engine.player.x = FAR_LOCKER.x;
+      engine.player.y = FAR_LOCKER.y;
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.phase !== "EVASION") {
+        throw new Error("setup failed: expected squad ALERT -> EVASION the instant LOS broke, got " + engine.squad.phase);
+      }
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", drag: true }); // HIDE
+      if (!engine.playerHidden) throw new Error("setup failed: player never hid in the far locker");
+
+      let discoveredPlayer = false;
+      let reachedCaution = false;
+      const WINDOW_S = G.GUARD.EVASION_S + 10;
+      for (let t = 0; t < Math.round(WINDOW_S / DT); t++) {
+        engine.tick();
+        for (const ev of engine.events) {
+          if (ev.type === "lockerDiscovery" && ev.found === "player") discoveredPlayer = true;
+        }
+        if (engine.squad.phase === "CAUTION") reachedCaution = true;
+      }
+
+      if (discoveredPlayer) {
+        throw new Error("distance rewarded: expected the player to NEVER be found in the far locker -- it's outside every sweep's range");
+      }
+      if (!reachedCaution) {
+        throw new Error("distance rewarded: expected the squad to decay all the way to CAUTION with the player safely hidden far away");
+      }
+      if (!engine.playerHidden) {
+        throw new Error("expected the player to remain safely hidden throughout");
+      }
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

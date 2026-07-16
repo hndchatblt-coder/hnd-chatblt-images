@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.34 (cycle 34 — zone-state persistence)
+**Version:** v0.35 (cycle 35 — EVASION locker checks)
 
 ## Module status
 
@@ -38,6 +38,9 @@
 
 ## Changelog (last 5)
 
+- cycle 35: EVASION locker checks — near-lastKnown lockers get checked
+  (dedup, one per guard, wedge-safe); camping punished, distance rewarded
+  (231/231, 24/24)
 - cycle 34: zone-state persistence — stash/thaw via getState machinery,
   zone-lifetime reinforcement budget, SAVE_VERSION 3 (222/222, 23/23)
 - cycle 33: polish — hit flash, noise-radius ripples (run/walk/knock, sized
