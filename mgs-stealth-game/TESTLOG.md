@@ -1,5 +1,11 @@
 # TESTLOG.md
 
+## Cycle 29 (bugfix: ration pickups collectible)
+
+195/195; 20/20; 5/5 shots. "ration" wired into collectPickup (no cap v1,
+documented), regression test covers collect + no-double-collect + heal.
+Minimal cycle; ledger gap from c25 closed.
+
 ## Cycle 28 (win state + rank screen — BOOTSTRAP COMPLETE)
 
 194/194; 20/20; 5/5 shots (05-rank inspected: gold BIG BOSS, stats table,

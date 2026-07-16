@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.28 (cycle 28 — win state + rank; BOOTSTRAP COMPLETE)
+**Version:** v0.29 (cycle 29 — ration pickup fix)
 
 ## Module status
 
@@ -34,6 +34,7 @@
 
 ## Changelog (last 5)
 
+- cycle 29: bugfix — ration pickups collectible (+regression) (195/195, 20/20)
 - cycle 28: win state — extraction terminal, mission stats (cross-zone,
   save-surviving), rank table w/ BIG BOSS, rank screen; capstone BIG BOSS
   ghost-run scenario passes (194/194, 20/20). Bootstrap order complete.

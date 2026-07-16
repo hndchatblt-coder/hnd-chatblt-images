@@ -234,6 +234,11 @@
         inv.chaff++;
         return true;
       }
+      if (item === "ration") {
+        inv.rations++;
+        // no cap v1 — MGS lets you hoard; future balance pass may add a limit
+        return true;
+      }
       return false;
     }
 
