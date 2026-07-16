@@ -45,6 +45,24 @@
 // pressing Enter on it removes the overlay and calls runGame(rootEl) again —
 // the retry IS just another call to the one true startup path.
 //
+// MISSION COMPLETE + RANK SCREEN (new — the final bootstrap feature, see
+// src/engine.js's own MISSION STATS / EXTRACTION / RANK contract): frame()
+// below scans engine.events for a "missionComplete" entry exactly the same
+// way it already scans for "gameOver" — a local `missionCompleteShown` flag
+// (same shape as `gameOverShown`) reacts to the FIRST frame that sees it and
+// ignores every frame after (engine.missionComplete latches identically to
+// engine.gameOver — see src/engine.js's FROZEN ENGINE note — so the event
+// keeps sitting in engine.events forever after the completing tick). On
+// first sight: force-dismisses an open codec call (same as the gameOver
+// path) and shows the RANK SCREEN overlay (showMissionComplete below) with
+// that event's own `stats`/`rank` payload (already a frozen-in-time clone,
+// see src/engine.js's own note on why — no need to re-read engine.stats
+// later). Pressing Enter on it is NOT another runGame() call like a
+// game-over retry — a completed mission goes all the way back to the TITLE
+// SCREEN (full teardown via this same instance's own `stop()`, then
+// showTitle(rootEl, runSelfTests()) again), so the next Enter starts a
+// genuinely fresh playthrough rather than resuming anything.
+//
 // F5 SAVE / F9 LOAD (new — see src/saveState.js's own contract for the full
 // capture()/restore() write-up): plain keydown edges, handled directly in
 // onKeyDown below (NOT threaded through buildInput()/engine.tick() the way
@@ -73,6 +91,18 @@
 //     GATE) is treated the same as "no save": a toast, no crash, the CURRENT
 //     playthrough keeps running untouched (restore() throwing happens BEFORE
 //     runGame() is ever called again, so nothing has been torn down yet).
+//     MISSION STATS (new — see src/engine.js's own contract): a successful
+//     restore() increments the FRESHLY-RESTORED engine's own
+//     engine.stats.savesUsed by 1, right here, BEFORE runGame() hands that
+//     engine off to a live frame loop — "F9 loads count against you, MGS-
+//     style continues; F5 saves do not" (see engine.js). A plain flat-prop
+//     mutation, same legitimacy as e.g. the RATION VERB's own direct
+//     player.hp mutation — there is no in-engine "load" concept, so this
+//     meta-level counter has to live here, not in engine.tick(). Because
+//     engine.stats round-trips through save/restore like every other
+//     mission-scoped counter (see saveState.js), this one increment already
+//     accounts for every PRIOR load a save blob carries forward; it never
+//     double-counts a load that happened before this save was captured.
 //
 // LOCALSTORAGE ISOLATION (project mandate, see CLAUDE.md's "audio exempt...
 // can never crash the game" precedent, applied here to storage): every
@@ -361,6 +391,10 @@
         showToast(rootEl, "NO SAVE");
         return;
       }
+      // MISSION STATS (see file header F9 LOAD note / src/engine.js's own
+      // contract) -- this load itself counts as a "continue," on the
+      // freshly-restored engine, before it ever ticks again.
+      restored.stats.savesUsed++;
       runGame(rootEl, { engine: restored });
       // NOTE: this call above tears down and rebuilds the entire
       // renderer/radar/hud/music/codec/input stack (see runGame's own file
@@ -407,6 +441,7 @@
     var lastNow = null;
     var stopped = false; // set true by stop(), below — makes frame() a no-op
     var gameOverShown = false; // latches once the overlay has been shown
+    var missionCompleteShown = false; // latches once the rank screen has been shown
 
     function frame(now) {
       if (stopped) return;
@@ -477,6 +512,30 @@
         }
       }
 
+      // MISSION COMPLETE + RANK SCREEN (see file header) — same latch-once
+      // scan shape as gameOver above, checked independently (a frozen
+      // engine only ever latches ONE of gameOver/missionComplete, per
+      // src/engine.js's own FROZEN CHECK, so these two blocks never both
+      // fire for the same playthrough).
+      if (!missionCompleteShown) {
+        for (var mi = 0; mi < engine.events.length; mi++) {
+          if (engine.events[mi].type === "missionComplete") {
+            missionCompleteShown = true;
+            if (codec.isOpen()) codec.dismiss();
+            showMissionComplete(rootEl, engine.events[mi].stats, engine.events[mi].rank, function onDone() {
+              // Back to the TITLE SCREEN, not another runGame() call (see
+              // file header) — tear this playthrough down completely first
+              // (this closure's own `stop()`, the same handle currentGame
+              // holds), then wipe rootEl and show a fresh title.
+              stop();
+              rootEl.innerHTML = "";
+              showTitle(rootEl, runSelfTests());
+            });
+            break;
+          }
+        }
+      }
+
       renderer.render(engine);
       radar.render(engine);
       hud.render(engine);
@@ -521,6 +580,90 @@
       window.removeEventListener("keydown", onEnter);
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       onRetry();
+    }
+    window.addEventListener("keydown", onEnter);
+  }
+
+  // mm:ss clock formatting for the rank screen's TIME row — a small local
+  // copy of src/hud.js's own formatClock (that module isn't in scope this
+  // cycle and doesn't export the helper anyway; same one-liner logic, kept
+  // here rather than reached for across a module boundary).
+  function formatMmSs(seconds) {
+    var s = Math.max(0, Math.floor(seconds || 0));
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return (mm < 10 ? "0" + mm : "" + mm) + ":" + (ss < 10 ? "0" + ss : "" + ss);
+  }
+
+  // RANK SCREEN (see file header's MISSION COMPLETE + RANK SCREEN note).
+  // Styled like the codec/HUD's own green CRT monospace aesthetic (see
+  // src/codec.js/src/hud.js's #39ff6a-family palette) rather than reusing
+  // MISSION FAILED's red above — this is a WIN, not a loss. Dark backdrop,
+  // blocks nothing but keyboard focus (same posture as showGameOver).
+  // `stats`/`rank` are the missionComplete event's own payload verbatim (see
+  // src/engine.js's contract — stats is already a frozen-in-time clone).
+  // Enter -> removes itself, then hands control to onDone (back to the
+  // title screen — see file header for why this is NOT another runGame()
+  // call the way a game-over retry is).
+  function showMissionComplete(rootEl, stats, rank, onDone) {
+    stats = stats || {};
+    var overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(2,10,6,0.93);color:#9fffb8;" +
+      "display:flex;align-items:center;justify-content:center;" +
+      "flex-direction:column;font:16px monospace;letter-spacing:0.2em;" +
+      "z-index:9999";
+
+    var rows = [
+      ["TIME", formatMmSs(stats.missionTimeS)],
+      ["ALERTS", String(stats.alertsTotal || 0)],
+      ["KILLS", String(stats.kills || 0)],
+      ["DARTS FIRED", String(stats.dartsFired || 0)],
+      ["CQC", String(stats.cqcTakedowns || 0)],
+      ["RATIONS", String(stats.rationsUsed || 0)],
+      ["CONTINUES", String(stats.savesUsed || 0)],
+    ];
+    var tableHtml = rows
+      .map(function (r) {
+        return (
+          "<div style='display:flex;justify-content:space-between;width:280px;padding:3px 0;font-size:14px'>" +
+          "<span style='color:#5a7'>" + r[0] + "</span><span style='color:#dfe'>" + r[1] + "</span></div>"
+        );
+      })
+      .join("");
+
+    var rankColor = rank === "BIG BOSS" ? "#ffd75e" : "#39ff6a";
+
+    overlay.innerHTML =
+      "<div style='font-size:34px;color:#39ff6a'>MISSION COMPLETE</div>" +
+      "<div style='margin:20px 0;border-top:1px solid #234;border-bottom:1px solid #234;padding:14px 0'>" +
+      tableHtml +
+      "</div>" +
+      "<div id='rankReveal' style='font-size:56px;letter-spacing:0.15em;color:" +
+      rankColor +
+      ";min-height:64px'></div>" +
+      "<div style='margin-top:28px;font-size:18px;letter-spacing:0.15em;color:#fff'>PRESS ENTER FOR TITLE</div>";
+    rootEl.appendChild(overlay);
+
+    // Typed-in rank reveal — one character at a time, same "reveal" flavor
+    // as src/codec.js's own dialogue type-in, but a fresh self-contained
+    // timer (this module must never reach into codec.js's own internals).
+    var rankName = rank || "";
+    var rankEl = overlay.querySelector("#rankReveal");
+    var revealed = 0;
+    var typer = setInterval(function () {
+      revealed++;
+      if (rankEl) rankEl.textContent = rankName.slice(0, revealed);
+      if (revealed >= rankName.length) clearInterval(typer);
+    }, 90);
+
+    function onEnter(e) {
+      if (e.code !== "Enter") return;
+      e.preventDefault();
+      clearInterval(typer);
+      window.removeEventListener("keydown", onEnter);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      onDone();
     }
     window.addEventListener("keydown", onEnter);
   }

@@ -40,7 +40,7 @@ content rotation) take over. L items must be split before selection.
 12. ~~Codec~~ DONE cycle 26 (frequency-dial input + easter-egg calls → wells).
 - Defer non-critical codec calls while ALERT/EVASION | polish | S | Tension | firstBody/lowDarts queue until phase cools; firstAlert plays immediately (it's about the alert).
 13. ~~SaveState~~ DONE cycle 27 (single-slot; multi-slot + codec-pause save edge + schema migration → backlog later).
-14. Win state + rank screen | feature | M | Consequence | extract from Comms Tower roof; rank on time/alerts/kills/darts; BIG BOSS for no-alert no-kill.
+14. ~~Win state + rank screen~~ DONE cycle 28. **BOOTSTRAP ORDER COMPLETE — normal rotation (feature → bugfix → polish → content) governs from here.**
 
 ## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
 

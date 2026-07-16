@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.27 (cycle 27 — saveState)
+**Version:** v0.28 (cycle 28 — win state + rank; BOOTSTRAP COMPLETE)
 
 ## Module status
 
@@ -34,6 +34,9 @@
 
 ## Changelog (last 5)
 
+- cycle 28: win state — extraction terminal, mission stats (cross-zone,
+  save-surviving), rank table w/ BIG BOSS, rank screen; capstone BIG BOSS
+  ghost-run scenario passes (194/194, 20/20). Bootstrap order complete.
 - cycle 27: saveState — full sim serialization (all FSM closure state
   enumerated), resume determinism proven calm+chaos, F5/F9 + localStorage
   (184/184, 19/19)

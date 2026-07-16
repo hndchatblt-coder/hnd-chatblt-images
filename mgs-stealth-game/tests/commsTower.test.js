@@ -156,16 +156,25 @@ Game.selfTests.push({
 });
 
 // ---------------------------------------------------------------------------
-// 4. Extraction exit: known stub, resolves to zoneBlocked, engine keeps
-// ticking normally afterward (see tests/zones.test.js's own dedicated
-// zoneBlocked-mechanics test for the region-entry-edge assertions; this test
-// is about the stub's OWN identity plus post-block engine health).
+// 4. Extraction exit: PERMANENT TERMINAL (not a stub), resolves to
+// missionComplete, engine freezes afterward (see tests/zones.test.js's own
+// dedicated missionComplete-mechanics test for the region-entry-edge/rank/
+// stats assertions; this test is about the terminal's OWN identity plus
+// post-completion engine health). REPOINTED this cycle (win-state): this
+// used to assert a zoneBlocked stub, back when "extraction" was still an
+// unresolved placeholder pointing at a not-yet-built zone -- src/engine.js's
+// tryZoneTransition now special-cases exit.to === "extraction" as a terminal
+// BEFORE it ever reaches the zoneBlocked branch (see src/engine.js's own
+// MISSION STATS / EXTRACTION / RANK contract and tests/zones.test.js's
+// KNOWN_STUBS note), so the old "zoneBlocked fires" premise is no longer true
+// by design -- same "replace with a stricter test" pattern as that file's own
+// repointing, not a deletion.
 // ---------------------------------------------------------------------------
 Game.selfTests.push({
-  name: "commsTower: the extraction exit is the current known stub and the engine stays healthy after zoneBlocked",
+  name: "commsTower: the extraction exit is a permanent terminal and the engine freezes healthily after missionComplete",
   fn: function () {
     const tower = Game.ZONES.commsTower;
-    assert(!Game.ZONES.extraction, "setup: expected Game.ZONES.extraction to NOT exist yet this cycle");
+    assert(!Game.ZONES.extraction, "setup: expected Game.ZONES.extraction to never exist -- it's a terminal, not a zone");
 
     const engine = Game.createEngine({ seed: 62, zoneData: tower });
     const northExit = tower.exits[0];
@@ -173,22 +182,21 @@ Game.selfTests.push({
     engine.player.y = northExit.y + northExit.h / 2;
     engine.player.stance = "crawl"; // see tests/zones.test.js's own note on this same trigger sitting in camera0's facing line
 
-    let sawBlocked = false;
     engine.tick({ moveX: 0, moveY: 0 });
-    engine.player.x = northExit.x + northExit.w / 2;
-    engine.player.y = northExit.y + northExit.h / 2;
-    engine.events.forEach(function (e) { if (e.type === "zoneBlocked" && e.to === "extraction") sawBlocked = true; });
-    assert(sawBlocked, "expected a zoneBlocked event naming 'extraction' on entering the trigger");
-    assert(engine.zone.id === "commsTower", "expected to remain in commsTower after the block");
+    let sawComplete = false;
+    engine.events.forEach(function (e) { if (e.type === "missionComplete") sawComplete = true; });
+    assert(sawComplete, "expected a missionComplete event on entering the extraction trigger");
+    assert(engine.missionComplete === true, "expected engine.missionComplete latched true");
+    assert(engine.zone.id === "commsTower", "expected to remain in commsTower (no zone switch -- it's a terminal)");
 
-    // Keeps ticking fine afterward: no crash, tickCount advances, gameOver
-    // never latches from merely standing in a blocked exit trigger.
+    // Keeps ticking fine afterward: no crash, tickCount stays frozen (same
+    // FROZEN ENGINE contract as gameOver), never un-freezes on its own.
     const tickCountBefore = engine.tickCount;
     for (let i = 0; i < 30; i++) {
       engine.tick({ moveX: 0, moveY: 0 });
     }
-    assert(engine.tickCount === tickCountBefore + 30, "expected tickCount to keep advancing normally");
-    assert(engine.gameOver === false, "expected gameOver to remain false");
+    assert(engine.tickCount === tickCountBefore, "expected tickCount to stay frozen, got " + engine.tickCount + " vs " + tickCountBefore);
+    assert(engine.gameOver === false, "expected gameOver to remain false -- this is a WIN, not a loss");
   },
 });
 

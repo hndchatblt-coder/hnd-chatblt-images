@@ -88,8 +88,29 @@
 //                                 // prevDrag/prevBox/prevRation/prevChaff), which locker (by
 //                                 // index) the player is hidden in, collectedPickups (mission-
 //                                 // scoped, so a pickup already taken never reappears after a
-//                                 // restore), doorLastNear (see world note above), and the
-//                                 // zoneBlocked edge-tracker (inBlockedExitRegion).
+//                                 // restore), doorLastNear (see world note above), the
+//                                 // zoneBlocked edge-tracker (inBlockedExitRegion), and — NEW
+//                                 // this cycle (win-state, see src/engine.js's own MISSION
+//                                 // STATS / EXTRACTION / RANK contract) — `stats` (the mission-
+//                                 // wide alertsTotal/dartsFired/cqcTakedowns/kills/rationsUsed/
+//                                 // chaffUsed/savesUsed/knocksMade/missionTimeS counters) and
+//                                 // `missionComplete` (the extraction-terminal freeze latch,
+//                                 // identical FROZEN ENGINE semantics to `gameOver` above). Both
+//                                 // are mission-scoped like collectedPickups — miss `stats` and
+//                                 // a mid-mission save/restore would silently reset every
+//                                 // counter back toward zero the moment the run finally
+//                                 // completes; miss `missionComplete` and a save captured after
+//                                 // a (theoretical) extraction would restore into a live,
+//                                 // ticking engine instead of the frozen one it was saved as.
+//                                 // SAVE_VERSION was bumped 1 -> 2 for exactly this shape
+//                                 // change (see restore()'s VERSION GATE below) — an old-format
+//                                 // save simply lacks these two fields, which src/engine.js's
+//                                 // own setState() tolerates defensively (falls back to the
+//                                 // freshly-built engine's own zeroed stats/false
+//                                 // missionComplete rather than clobbering them with
+//                                 // `undefined`), but the version gate means that fallback
+//                                 // should never actually be reachable via a real restore()
+//                                 // call in practice.
 //     }
 //   CODEC IS DELIBERATELY EXCLUDED — v1 (documented, not a gap): codecDirector's
 //   one-shot trigger memory (src/codec.js) is UI/narrative bookkeeping ("has
@@ -111,6 +132,10 @@
 //        cycle that changes what any getState()/setState() captures MUST
 //        bump SAVE_VERSION) must never be silently half-applied into a
 //        corrupt engine; see tests/saveState.test.js's version-mismatch test.
+//        SAVE_VERSION is 2 as of this cycle (win-state) — bumped from 1
+//        because engine.getState() grew two new fields (`stats`,
+//        `missionComplete`, see the `engine` field note above); a save
+//        captured by an older build simply won't have them.
 //     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
 //        if that zone no longer exists (defensive; every zone this cycle
 //        ships is a fixed module-level Game.ZONES entry, so this should never
@@ -166,7 +191,12 @@
 // private closure state directly (if a field isn't exposed via getState(),
 // this module doesn't know it exists).
 (function (Game) {
-  var SAVE_VERSION = 1;
+  // SAVE_VERSION 1 -> 2 (win-state cycle): engine.getState() grew `stats`
+  // and `missionComplete` (see this file's own header note on the `engine`
+  // field, and src/engine.js's MISSION STATS / EXTRACTION / RANK contract) —
+  // a genuine shape change to what capture()/restore() round-trip, so per
+  // this module's own VERSION GATE rule the version bumps.
+  var SAVE_VERSION = 2;
 
   function capture(engine) {
     var player = engine.player;

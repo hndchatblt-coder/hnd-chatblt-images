@@ -4007,8 +4007,29 @@
 //                                 // prevDrag/prevBox/prevRation/prevChaff), which locker (by
 //                                 // index) the player is hidden in, collectedPickups (mission-
 //                                 // scoped, so a pickup already taken never reappears after a
-//                                 // restore), doorLastNear (see world note above), and the
-//                                 // zoneBlocked edge-tracker (inBlockedExitRegion).
+//                                 // restore), doorLastNear (see world note above), the
+//                                 // zoneBlocked edge-tracker (inBlockedExitRegion), and — NEW
+//                                 // this cycle (win-state, see src/engine.js's own MISSION
+//                                 // STATS / EXTRACTION / RANK contract) — `stats` (the mission-
+//                                 // wide alertsTotal/dartsFired/cqcTakedowns/kills/rationsUsed/
+//                                 // chaffUsed/savesUsed/knocksMade/missionTimeS counters) and
+//                                 // `missionComplete` (the extraction-terminal freeze latch,
+//                                 // identical FROZEN ENGINE semantics to `gameOver` above). Both
+//                                 // are mission-scoped like collectedPickups — miss `stats` and
+//                                 // a mid-mission save/restore would silently reset every
+//                                 // counter back toward zero the moment the run finally
+//                                 // completes; miss `missionComplete` and a save captured after
+//                                 // a (theoretical) extraction would restore into a live,
+//                                 // ticking engine instead of the frozen one it was saved as.
+//                                 // SAVE_VERSION was bumped 1 -> 2 for exactly this shape
+//                                 // change (see restore()'s VERSION GATE below) — an old-format
+//                                 // save simply lacks these two fields, which src/engine.js's
+//                                 // own setState() tolerates defensively (falls back to the
+//                                 // freshly-built engine's own zeroed stats/false
+//                                 // missionComplete rather than clobbering them with
+//                                 // `undefined`), but the version gate means that fallback
+//                                 // should never actually be reachable via a real restore()
+//                                 // call in practice.
 //     }
 //   CODEC IS DELIBERATELY EXCLUDED — v1 (documented, not a gap): codecDirector's
 //   one-shot trigger memory (src/codec.js) is UI/narrative bookkeeping ("has
@@ -4030,6 +4051,10 @@
 //        cycle that changes what any getState()/setState() captures MUST
 //        bump SAVE_VERSION) must never be silently half-applied into a
 //        corrupt engine; see tests/saveState.test.js's version-mismatch test.
+//        SAVE_VERSION is 2 as of this cycle (win-state) — bumped from 1
+//        because engine.getState() grew two new fields (`stats`,
+//        `missionComplete`, see the `engine` field note above); a save
+//        captured by an older build simply won't have them.
 //     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
 //        if that zone no longer exists (defensive; every zone this cycle
 //        ships is a fixed module-level Game.ZONES entry, so this should never
@@ -4085,7 +4110,12 @@
 // private closure state directly (if a field isn't exposed via getState(),
 // this module doesn't know it exists).
 (function (Game) {
-  var SAVE_VERSION = 1;
+  // SAVE_VERSION 1 -> 2 (win-state cycle): engine.getState() grew `stats`
+  // and `missionComplete` (see this file's own header note on the `engine`
+  // field, and src/engine.js's MISSION STATS / EXTRACTION / RANK contract) —
+  // a genuine shape change to what capture()/restore() round-trip, so per
+  // this module's own VERSION GATE rule the version bumps.
+  var SAVE_VERSION = 2;
 
   function capture(engine) {
     var player = engine.player;
@@ -4636,6 +4666,148 @@
 //   Runs in the same NOISE STEP position as fire/knock (step 2), same
 //   same-tick-visible-to-guards rationale as the fire verb above.
 //
+//   MISSION STATS / EXTRACTION / RANK (new — win-state cycle, the final
+//   bootstrap feature): engine.stats is a flat, mutable, mission-scoped
+//   object (persists across zone transitions AND save/restore — NOT reset by
+//   switchZone, same posture as engine.inventory/engine.chaffUntil above):
+//     {
+//       alertsTotal:   number, // total broadcastAlert incidents across the
+//                              // WHOLE mission, every zone. squad.alertCount
+//                              // (see guardAI.js contract) is PER-SQUAD and
+//                              // a fresh squad is built by switchZone on
+//                              // every zone transition (see file header
+//                              // above) — a straight per-zone read would
+//                              // silently reset to 0 crossing a door. This
+//                              // module accumulates its OWN mission-wide
+//                              // total instead, incrementing it in the exact
+//                              // same place tick() already detects a NEW
+//                              // alert (squad.alertCount > alertCountBefore,
+//                              // see step 6 below) — one alertsTotal++ per
+//                              // "alert" event pushed, in every zone.
+//       dartsFired:    number, // incremented once per tranqFired event (see
+//                              // FIRE VERB above) — every dart actually
+//                              // spent, hit or miss.
+//       cqcTakedowns:  number, // incremented once per successful cqc event
+//                              // (see CQC VERB above) — NOT incremented on a
+//                              // cqcMiss.
+//       kills:         0,      // ALWAYS 0 this cycle — no lethal weapon
+//                              // exists anywhere in this codebase (tranq is
+//                              // non-lethal, CQC chokes rather than kills).
+//                              // Kept as a real field (never incremented,
+//                              // never removed) purely so the RANK TABLE
+//                              // below — and any future lethal-weapon cycle
+//                              // — has somewhere to read/write a kill count
+//                              // without a schema change.
+//       rationsUsed:   number, // incremented once per successful ration
+//                              // event (see RATION VERB above).
+//       chaffUsed:     number, // incremented once per successful chaff event
+//                              // (see CHAFF VERB above).
+//       savesUsed:     number, // F9 LOADS count against you, MGS-style
+//                              // "continues"; F5 SAVES do not (saving isn't
+//                              // a failure, reloading to undo one is). This
+//                              // module never increments this itself — there
+//                              // is no in-engine "load" concept, saving/
+//                              // loading is entirely src/boot.js's meta-level
+//                              // concern (see its own F5 SAVE / F9 LOAD
+//                              // contract) — boot.js's loadGame() increments
+//                              // the FRESHLY-RESTORED engine's
+//                              // engine.stats.savesUsed directly (a plain
+//                              // flat-prop mutation, same legitimacy as e.g.
+//                              // the RATION VERB's own direct player.hp
+//                              // mutation above) the instant
+//                              // saveState.restore() hands it a live engine,
+//                              // BEFORE that engine ever ticks again. Because
+//                              // engine.stats round-trips through
+//                              // getState()/setState() (see below) like
+//                              // every other mission-scoped counter, a save
+//                              // captured mid-mission already carries
+//                              // forward every PRIOR load's count — this one
+//                              // increment only ever accounts for the load
+//                              // happening RIGHT NOW.
+//       knocksMade:    number, // incremented once per knock event (see KNOCK
+//                              // VERB, tick() step 2b) — wall-adjacency gate
+//                              // already means only REAL knocks reach here.
+//       missionTimeS:  number, // mirrors engine.time verbatim, refreshed at
+//                              // the end of every tick() call (step 8 below)
+//                              // — engine.time (tickCount * DT) is NEVER
+//                              // reset by switchZone (see ZONE TRANSITIONS:
+//                              // rng is the only other thing switchZone
+//                              // deliberately leaves untouched — tickCount/
+//                              // time simply aren't in the list of vars it
+//                              // reassigns at all), so this already
+//                              // accumulates seamlessly across every zone
+//                              // crossing with zero extra bookkeeping; it is
+//                              // a redundant flat copy of engine.time, kept
+//                              // on `stats` so a save/restore round-trip and
+//                              // the missionComplete event's stats snapshot
+//                              // both carry it as one bundle instead of
+//                              // needing a second field threaded everywhere
+//                              // engine.stats already goes.
+//     }
+//   engine.missionComplete — boolean, false until the player successfully
+//     extracts (see EXTRACTION below); FROZEN ENGINE semantics IDENTICAL to
+//     engine.gameOver (see GAME OVER below) — checked in the SAME step-0
+//     frozen-check at the top of tick() (`if (engine.gameOver ||
+//     engine.missionComplete) return;`), so once true, every subsequent
+//     tick() call is a no-op and engine.events keeps holding the tick that
+//     set it forever after, same "callers must track their own reaction
+//     locally" contract gameOver already documents.
+//
+//   EXTRACTION (new): src/world.js's commsTower zone has exactly one exit,
+//   the roof helipad approach, whose `to` is the literal string
+//   "extraction" — a deliberate, PERMANENT TERMINAL, not a placeholder for a
+//   Game.ZONES entry some future cycle builds (contrast with an ordinary
+//   unresolved stub like the Warehouse's former "laboratory" pointer before
+//   Laboratory was built — see tests/zones.test.js's own KNOWN_STUBS note).
+//   tryZoneTransition() (see ZONE TRANSITIONS, tick() step 7) checks
+//   `matched.to === "extraction"` BEFORE it ever consults Game.ZONES for that
+//   exit — so this never falls into the generic zoneBlocked branch, and
+//   Game.ZONES.extraction is expected to never exist, ever. Gated by the
+//   EXACT SAME `squad.phase === "INFILTRATION"` condition every ordinary
+//   zone-changing exit already requires (tryZoneTransition's very first
+//   line) — "you can't extract mid-alert," the identical DESIGN RULE this
+//   file already documents for crossing any other zone boundary. On a match:
+//   calls completeMission(), which
+//     1. Sets engine.stats.missionTimeS = engine.time + DT (see missionTimeS
+//        above — engine.time itself isn't bumped by this tick's own DT until
+//        step 8, further down this same tick(), so the mission's ACTUAL
+//        final duration — including the tick the player physically reached
+//        the trigger — is engine.time-as-read-right-now plus one more DT;
+//        step 8 will independently arrive at the identical number moments
+//        later this same tick, so this is a same-tick anticipation, not a
+//        divergent calculation).
+//     2. Computes rank = Game.computeRank(engine.stats) (see RANK TABLE
+//        below).
+//     3. Sets engine.missionComplete = true.
+//     4. Pushes { type: "missionComplete", stats: <shallow clone of
+//        engine.stats>, rank: rank } — a CLONE, not the live engine.stats
+//        object, so a caller holding onto this event's stats field is
+//        holding a frozen-in-time snapshot rather than a reference that
+//        could (harmlessly, since the engine is about to freeze regardless,
+//        but needlessly confusingly) keep changing shape.
+//
+//   RANK TABLE — Game.computeRank(stats) -> string, a PURE function (no
+//   engine/closure state, callable directly by tests without a live engine)
+//   exported alongside Game.createEngine, evaluated top-down:
+//     - BIG BOSS  — stats.alertsTotal === 0 && stats.kills === 0. The
+//       perfect, unseen, bloodless run.
+//     - KILLS CAP (future-proofing — stats.kills is ALWAYS 0 this cycle, see
+//       `kills` above, so this branch is dead code today, but the table is
+//       written now so a future lethal-weapon cycle needs zero rank-formula
+//       changes): stats.kills > 0 forfeits BIG BOSS and FOX outright and caps
+//       the achievable rank at HOUND regardless of how few alerts there were
+//       — MGS convention that a body count, even a clean one otherwise,
+//       costs you the very top ranks. Same alertsTotal thresholds as the
+//       ladder below, just starting from HOUND instead of FOX.
+//     - FOX       — alertsTotal <= 1 AND missionTimeS < 900 (15 minutes).
+//       Both conditions required; failing EITHER (too many alerts, or clean
+//       but slow) falls through to the next rung rather than failing the
+//       whole rank outright.
+//     - HOUND     — alertsTotal <= 2.
+//     - DOBERMAN  — alertsTotal <= 4.
+//     - JACKAL    — alertsTotal <= 6.
+//     - ELEPHANT  — else (alertsTotal >= 7, or anything not caught above).
+//
 //   COMBAT — guard fire / player damage / game over (new this cycle):
 //     Step 3 (guard update loop) below passes each guard.update() a THIRD ctx
 //     field beyond `player`: onGuardFire(guard, hit), guardAI.js's hook for
@@ -4682,7 +4854,11 @@
 //     events forever after (not re-cleared to [] by the frozen no-op calls)
 //     — callers polling engine.events every frame (see src/boot.js) must
 //     track "have I already reacted to gameOver" themselves rather than
-//     expecting the event to eventually disappear.
+//     expecting the event to eventually disappear. engine.missionComplete
+//     (new — see MISSION STATS / EXTRACTION / RANK above) is a SECOND,
+//     independent latch with IDENTICAL freeze semantics, checked in the same
+//     step-0 condition — a successful extraction is exactly as terminal to
+//     the sim as dying is, just the opposite ending.
 //     RATION HOOK (not this cycle — see items/director TODOs elsewhere): hp
 //     restoration, when it arrives, is expected to be a plain
 //     player.hp = Math.min(1, player.hp + amount) (or an equivalent
@@ -4697,12 +4873,13 @@
 //     (never by calling player.update/guard.update/squad.tick directly), and
 //     every test/sim harness that wants engine-level behavior should call it
 //     the same way. Canonical per-tick order (do not reorder):
-//       0. FROZEN CHECK (new — see GAME OVER / FROZEN ENGINE above): if
-//          engine.gameOver is already true, return IMMEDIATELY — before
-//          clearing engine.events, before touching player/guards/squad/
-//          tickCount/time. Every other step below only runs on a tick where
-//          this check passes (i.e. every tick up to and including the one
-//          that FIRST sets engine.gameOver).
+//       0. FROZEN CHECK (see GAME OVER / FROZEN ENGINE above): if
+//          engine.gameOver OR engine.missionComplete is already true, return
+//          IMMEDIATELY — before clearing engine.events, before touching
+//          player/guards/squad/tickCount/time. Every other step below only
+//          runs on a tick where this check passes (i.e. every tick up to and
+//          including the one that FIRST sets engine.gameOver or
+//          engine.missionComplete).
 //       1. player.update(input, DT). `input` may be null/undefined, meaning
 //          "no movement": it is normalized to
 //          { moveX: 0, moveY: 0, run: false, stance: player.stance } so a
@@ -4888,11 +5065,15 @@
 //          directly at emission time, not diffed from a snapshot — they're
 //          edge-triggered facts about those steps, not state to compare
 //          before/after.
-//       7. ZONE TRANSITIONS (new — after squad.tick, using its just-updated
-//          phase; see squad.phase design rule below): if the player is
-//          standing inside ANY of zone.exits[] (world.inRegion(player.x,
-//          player.y, exits[i])) AND squad.phase === "INFILTRATION" this tick:
-//            - if Game.ZONES[exits[i].to] exists: switch zones. A fresh
+//       7. ZONE TRANSITIONS (after squad.tick, using its just-updated phase;
+//          see squad.phase design rule below): if the player is standing
+//          inside ANY of zone.exits[] (world.inRegion(player.x, player.y,
+//          exits[i])) AND squad.phase === "INFILTRATION" this tick:
+//            - if exits[i].to === "extraction" (new — see MISSION STATS /
+//              EXTRACTION / RANK above): completeMission() — checked BEFORE
+//              the Game.ZONES lookup below, so this never falls into the
+//              zoneBlocked branch. Terminal; no zone switch happens.
+//            - else if Game.ZONES[exits[i].to] exists: switch zones. A fresh
 //              world/soundEvents/vision/squad/guards stack is built for the
 //              target zone (guards from ZONE_GUARDS[target.id], same table
 //              opts.guardConfigs defaults from — see file header above; the
@@ -4979,6 +5160,11 @@
 //                              // with no doors.
 //         keycards: { L1, L2, L3 }, // NEW (Laboratory cycle) —
 //                              // engine.inventory.keycards verbatim.
+//         missionComplete: boolean, // NEW (win-state cycle) — engine.
+//                              // missionComplete verbatim; see MISSION
+//                              // STATS / EXTRACTION / RANK above.
+//         stats: {...},        // NEW (win-state cycle) — a shallow clone of
+//                              // engine.stats (same shape documented above).
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -5071,6 +5257,35 @@
   // the file header) — far enough outside any zone's VISION.RANGE (14m, even
   // CAUTION-widened) that inCone always fails regardless of guard position.
   var HIDDEN_DECOY_POS = -9999;
+
+  // RANK TABLE (see file header MISSION STATS / EXTRACTION / RANK) — a PURE
+  // function, no engine/closure state, exported below as Game.computeRank so
+  // tests can exercise every threshold directly without spinning up a live
+  // engine.
+  var FOX_TIME_CAP_S = 15 * 60;
+
+  function computeRank(stats) {
+    var alerts = stats.alertsTotal;
+    var kills = stats.kills || 0;
+
+    if (alerts === 0 && kills === 0) return "BIG BOSS";
+
+    // KILLS CAP — see file header: stats.kills is always 0 this cycle (no
+    // lethal weapon exists), so this branch is dead code today, but the
+    // table already does the right thing the day a lethal option ships.
+    if (kills > 0) {
+      if (alerts <= 2) return "HOUND";
+      if (alerts <= 4) return "DOBERMAN";
+      if (alerts <= 6) return "JACKAL";
+      return "ELEPHANT";
+    }
+
+    if (alerts <= 1 && stats.missionTimeS < FOX_TIME_CAP_S) return "FOX";
+    if (alerts <= 2) return "HOUND";
+    if (alerts <= 4) return "DOBERMAN";
+    if (alerts <= 6) return "JACKAL";
+    return "ELEPHANT";
+  }
 
   function defaultGuardConfigs(zone) {
     return [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }];
@@ -5241,6 +5456,21 @@
       // spurious jam at boot). Mission-scoped like inventory.darts/rations/
       // chaff — NOT reset by switchZone.
       chaffUntil: 0,
+      // MISSION STATS / EXTRACTION / RANK (new — win-state cycle, see file
+      // header) — mission-scoped like inventory/chaffUntil above, NOT reset
+      // by switchZone.
+      stats: {
+        alertsTotal: 0,
+        dartsFired: 0,
+        cqcTakedowns: 0,
+        kills: 0,
+        rationsUsed: 0,
+        chaffUsed: 0,
+        savesUsed: 0,
+        knocksMade: 0,
+        missionTimeS: 0,
+      },
+      missionComplete: false,
     };
 
     // ---- CQC / DRAG / LOCKER helpers (see file header) ------------------------
@@ -5370,6 +5600,7 @@
       if (bestGuard) {
         bestGuard.cqc();
         engine.events.push({ type: "cqc", guardId: bestGuard.id });
+        engine.stats.cqcTakedowns++;
         var thudResults = soundEvents.emitRadius(bestGuard.x, bestGuard.y, CQC_NOISE_RADIUS, false, guards);
         for (var ti = 0; ti < thudResults.length; ti++) {
           if (thudResults[ti].heard) {
@@ -5496,6 +5727,33 @@
       engine.events.push({ type: "zoneChange", from: fromId, to: zone.id });
     }
 
+    // EXTRACTION / MISSION COMPLETE (see file header MISSION STATS /
+    // EXTRACTION / RANK) — called by tryZoneTransition() below the instant
+    // the player is standing in an exit region whose `to` is the literal
+    // "extraction" terminal, while squad.phase === "INFILTRATION" (the same
+    // gate every ordinary zone crossing already requires). Defensive
+    // `if (engine.missionComplete) return;` guard: unreachable in practice
+    // (a frozen engine's tick() never calls tryZoneTransition again), kept
+    // for the same reason the GAME OVER check above is written generically
+    // rather than assuming its own single call site.
+    function completeMission() {
+      if (engine.missionComplete) return;
+
+      // engine.time itself isn't bumped by THIS tick's own DT until step 8,
+      // further down this same tick() call (this runs from inside step 7) —
+      // see file header note on missionTimeS for why + DT here and the
+      // step-8 mirror converge on the identical number moments later.
+      engine.stats.missionTimeS = engine.time + DT;
+
+      var rank = computeRank(engine.stats);
+      engine.missionComplete = true;
+      engine.events.push({
+        type: "missionComplete",
+        stats: Object.assign({}, engine.stats),
+        rank: rank,
+      });
+    }
+
     // Checks zone.exits[] for the player standing in a trigger region and
     // acts per the DESIGN RULE in the file header: only while
     // squad.phase === "INFILTRATION". At most one switch per tick (first
@@ -5518,6 +5776,16 @@
         return;
       }
 
+      // EXTRACTION (see file header, MISSION STATS / EXTRACTION / RANK) —
+      // checked BEFORE the Game.ZONES lookup below: "extraction" is a
+      // documented PERMANENT TERMINAL, not a placeholder some future cycle
+      // resolves into a real zone, so it must never fall into the generic
+      // zoneBlocked branch below.
+      if (matched.to === "extraction") {
+        completeMission();
+        return;
+      }
+
       var targetZone = Game.ZONES[matched.to];
       if (targetZone) {
         switchZone(targetZone, matched.entranceKey);
@@ -5532,8 +5800,9 @@
 
     function tick(input) {
       // FROZEN CHECK (see file header, tick() step 0) — a latched gameOver
-      // stops the sim cold: no event clearing, no state mutation whatsoever.
-      if (engine.gameOver) return;
+      // OR missionComplete stops the sim cold: no event clearing, no state
+      // mutation whatsoever.
+      if (engine.gameOver || engine.missionComplete) return;
 
       engine.events = [];
 
@@ -5715,6 +5984,7 @@
       prevKnock = normalized.knock;
       if (knockPressed && world.isBlockedCircle(player.x, player.y, Game.SOUND.KNOCK_WALL_DIST)) {
         engine.events.push({ type: "knock", x: player.x, y: player.y });
+        engine.stats.knocksMade++;
         var knockResults = soundEvents.emit(player.x, player.y, "knock", guards);
         for (var ki = 0; ki < knockResults.length; ki++) {
           if (knockResults[ki].heard) {
@@ -5752,6 +6022,7 @@
             guardId: fireResult.guardId,
             impact: fireResult.impact,
           });
+          engine.stats.dartsFired++;
 
           var dartResults = soundEvents.emit(fireResult.impact.x, fireResult.impact.y, "dartImpact", guards);
           for (var di = 0; di < dartResults.length; di++) {
@@ -5787,6 +6058,7 @@
         if (rationResult.used) {
           player.hp = Math.min(1, player.hp + rationResult.healAmount);
           engine.events.push({ type: "ration", hp: player.hp });
+          engine.stats.rationsUsed++;
         }
       }
 
@@ -5801,6 +6073,7 @@
         if (chaffResult.used) {
           engine.chaffUntil = engine.time + Game.ITEMS.CHAFF_S;
           engine.events.push({ type: "chaff" });
+          engine.stats.chaffUsed++;
 
           var chaffResults = soundEvents.emitRadius(player.x, player.y, CHAFF_NOISE_RADIUS, true, guards);
           for (var chi = 0; chi < chaffResults.length; chi++) {
@@ -5949,6 +6222,11 @@
       if (squad.alertCount > alertCountBefore) {
         var lk = squad.lastKnown || { x: 0, y: 0 };
         engine.events.push({ type: "alert", x: lk.x, y: lk.y });
+        // MISSION STATS (see file header) — squad.alertCount is PER-SQUAD
+        // and gets rebuilt fresh by every switchZone (see ZONE TRANSITIONS
+        // above), so this module accumulates its OWN mission-wide total
+        // here, the exact same place a NEW alert is already detected.
+        engine.stats.alertsTotal++;
       }
 
       // ---- ZONE TRANSITIONS (see file header, tick() step 6) — after
@@ -5957,6 +6235,10 @@
 
       engine.tickCount++;
       engine.time = engine.tickCount * DT;
+      // MISSION STATS (see file header) — engine.time is never reset by
+      // switchZone, so mirroring it here every tick is all missionTimeS
+      // needs to accumulate seamlessly across every zone crossing.
+      engine.stats.missionTimeS = engine.time;
     }
 
     function snapshot() {
@@ -6000,6 +6282,11 @@
           L2: inventory.keycards.L2,
           L3: inventory.keycards.L3,
         },
+        // NEW (win-state cycle) — see MISSION STATS / EXTRACTION / RANK
+        // above. `stats` is a shallow clone, same "safe to JSON.stringify,
+        // never a live reference" posture as every other snapshot() field.
+        missionComplete: engine.missionComplete,
+        stats: Object.assign({}, engine.stats),
       };
     }
 
@@ -6044,6 +6331,14 @@
     //     tryZoneTransition above); miss it and a restored engine standing in
     //     a blocked-exit trigger re-fires zoneBlocked on its very next tick
     //     even though the "entry edge" already happened before the save.
+    //   stats/missionComplete (new — win-state cycle) — see MISSION STATS /
+    //     EXTRACTION / RANK above. Both are mission-scoped like
+    //     collectedPickups; miss `stats` and a restored engine loses every
+    //     counter accumulated before the save (a mid-mission save/restore
+    //     would silently reset alertsTotal/dartsFired/etc. back toward zero
+    //     the moment the run finally completes); miss `missionComplete` and
+    //     a save captured AFTER a (theoretical) extraction would restore into
+    //     a live, ticking engine instead of the frozen one it was saved as.
     function getState() {
       var lockerIndex = -1;
       if (hiddenLocker) {
@@ -6068,6 +6363,10 @@
         collectedPickups: Object.assign({}, collectedPickups),
         doorLastNear: Object.assign({}, doorLastNear),
         inBlockedExitRegion: inBlockedExitRegion,
+        // MISSION STATS / EXTRACTION / RANK (new — win-state cycle, see file
+        // header) — mission-scoped like collectedPickups above.
+        stats: Object.assign({}, engine.stats),
+        missionComplete: engine.missionComplete,
       };
     }
 
@@ -6078,6 +6377,15 @@
       engine.dragging = state.dragging;
       engine.playerHidden = state.playerHidden;
       engine.chaffUntil = state.chaffUntil;
+      // MISSION STATS / EXTRACTION / RANK (new — win-state cycle) — a save
+      // captured from a build before this cycle simply won't have `stats` on
+      // it; falling back to the fresh engine's own zeroed defaults (rather
+      // than clobbering them with `undefined`) keeps an old-format restore
+      // from crashing outright, though SAVE_VERSION was bumped for exactly
+      // this shape change (see src/saveState.js) so this fallback should
+      // never actually be exercised by a version-gated restore() call.
+      engine.stats = state.stats ? Object.assign({}, state.stats) : engine.stats;
+      engine.missionComplete = !!state.missionComplete;
       prevKnock = state.prevKnock;
       prevFire = state.prevFire;
       prevCqc = state.prevCqc;
@@ -6104,7 +6412,12 @@
   }
 
   Game.createEngine = createEngine;
-  if (typeof module !== "undefined") module.exports = { createEngine: createEngine };
+  // RANK TABLE (see file header MISSION STATS / EXTRACTION / RANK) — a pure
+  // function, exported alongside createEngine so tests can exercise every
+  // threshold directly without a live engine.
+  Game.computeRank = computeRank;
+  if (typeof module !== "undefined")
+    module.exports = { createEngine: createEngine, computeRank: computeRank };
 })(typeof window !== "undefined"
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
@@ -11513,16 +11826,25 @@ Game.selfTests.push({
 });
 
 // ---------------------------------------------------------------------------
-// 4. Extraction exit: known stub, resolves to zoneBlocked, engine keeps
-// ticking normally afterward (see tests/zones.test.js's own dedicated
-// zoneBlocked-mechanics test for the region-entry-edge assertions; this test
-// is about the stub's OWN identity plus post-block engine health).
+// 4. Extraction exit: PERMANENT TERMINAL (not a stub), resolves to
+// missionComplete, engine freezes afterward (see tests/zones.test.js's own
+// dedicated missionComplete-mechanics test for the region-entry-edge/rank/
+// stats assertions; this test is about the terminal's OWN identity plus
+// post-completion engine health). REPOINTED this cycle (win-state): this
+// used to assert a zoneBlocked stub, back when "extraction" was still an
+// unresolved placeholder pointing at a not-yet-built zone -- src/engine.js's
+// tryZoneTransition now special-cases exit.to === "extraction" as a terminal
+// BEFORE it ever reaches the zoneBlocked branch (see src/engine.js's own
+// MISSION STATS / EXTRACTION / RANK contract and tests/zones.test.js's
+// KNOWN_STUBS note), so the old "zoneBlocked fires" premise is no longer true
+// by design -- same "replace with a stricter test" pattern as that file's own
+// repointing, not a deletion.
 // ---------------------------------------------------------------------------
 Game.selfTests.push({
-  name: "commsTower: the extraction exit is the current known stub and the engine stays healthy after zoneBlocked",
+  name: "commsTower: the extraction exit is a permanent terminal and the engine freezes healthily after missionComplete",
   fn: function () {
     const tower = Game.ZONES.commsTower;
-    assert(!Game.ZONES.extraction, "setup: expected Game.ZONES.extraction to NOT exist yet this cycle");
+    assert(!Game.ZONES.extraction, "setup: expected Game.ZONES.extraction to never exist -- it's a terminal, not a zone");
 
     const engine = Game.createEngine({ seed: 62, zoneData: tower });
     const northExit = tower.exits[0];
@@ -11530,22 +11852,21 @@ Game.selfTests.push({
     engine.player.y = northExit.y + northExit.h / 2;
     engine.player.stance = "crawl"; // see tests/zones.test.js's own note on this same trigger sitting in camera0's facing line
 
-    let sawBlocked = false;
     engine.tick({ moveX: 0, moveY: 0 });
-    engine.player.x = northExit.x + northExit.w / 2;
-    engine.player.y = northExit.y + northExit.h / 2;
-    engine.events.forEach(function (e) { if (e.type === "zoneBlocked" && e.to === "extraction") sawBlocked = true; });
-    assert(sawBlocked, "expected a zoneBlocked event naming 'extraction' on entering the trigger");
-    assert(engine.zone.id === "commsTower", "expected to remain in commsTower after the block");
+    let sawComplete = false;
+    engine.events.forEach(function (e) { if (e.type === "missionComplete") sawComplete = true; });
+    assert(sawComplete, "expected a missionComplete event on entering the extraction trigger");
+    assert(engine.missionComplete === true, "expected engine.missionComplete latched true");
+    assert(engine.zone.id === "commsTower", "expected to remain in commsTower (no zone switch -- it's a terminal)");
 
-    // Keeps ticking fine afterward: no crash, tickCount advances, gameOver
-    // never latches from merely standing in a blocked exit trigger.
+    // Keeps ticking fine afterward: no crash, tickCount stays frozen (same
+    // FROZEN ENGINE contract as gameOver), never un-freezes on its own.
     const tickCountBefore = engine.tickCount;
     for (let i = 0; i < 30; i++) {
       engine.tick({ moveX: 0, moveY: 0 });
     }
-    assert(engine.tickCount === tickCountBefore + 30, "expected tickCount to keep advancing normally");
-    assert(engine.gameOver === false, "expected gameOver to remain false");
+    assert(engine.tickCount === tickCountBefore, "expected tickCount to stay frozen, got " + engine.tickCount + " vs " + tickCountBefore);
+    assert(engine.gameOver === false, "expected gameOver to remain false -- this is a WIN, not a loss");
   },
 });
 
@@ -16480,6 +16801,448 @@ Game.selfTests.push({
 });
 
 })(typeof window !== "undefined" ? window : global);
+// ==== tests/winState.test.js ====
+(function (global) {
+// tests/winState.test.js — headless assertions for the WIN STATE / RANK
+// SCREEN, the final bootstrap feature: engine.stats (src/engine.js), the
+// "extraction" terminal (src/engine.js's tryZoneTransition/completeMission),
+// Game.computeRank's pure rank table, and stats/missionComplete surviving a
+// save/restore round-trip (src/saveState.js). Same registry pattern as every
+// other tests/*.js file: push onto the shared Game.selfTests list; test.js
+// runs every entry and reports ok/FAIL with real exit codes.
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+
+// ---------------------------------------------------------------------------
+// RANK TABLE — Game.computeRank(stats), a pure function (see src/engine.js's
+// own MISSION STATS / EXTRACTION / RANK contract for the documented table).
+// ---------------------------------------------------------------------------
+
+// 1. BIG BOSS requires BOTH zero alerts AND zero kills -- either alone isn't
+// enough.
+Game.selfTests.push({
+  name: "rank table: BIG BOSS requires zero alerts AND zero kills",
+  fn: function () {
+    assert(
+      Game.computeRank({ alertsTotal: 0, kills: 0, missionTimeS: 0 }) === "BIG BOSS",
+      "expected 0 alerts / 0 kills to be BIG BOSS"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 1, kills: 0, missionTimeS: 0 }) !== "BIG BOSS",
+      "expected 1 alert to forfeit BIG BOSS"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 0, kills: 1, missionTimeS: 0 }) !== "BIG BOSS",
+      "expected 1 kill (even with 0 alerts) to forfeit BIG BOSS"
+    );
+  },
+});
+
+// 2. The alert-count ladder (kills 0, well under FOX's 15-minute cap) hits
+// every documented threshold boundary: FOX <=1, HOUND <=2, DOBERMAN <=4,
+// JACKAL <=6, ELEPHANT above that.
+Game.selfTests.push({
+  name: "rank table: alert-count ladder resolves at each documented threshold (kills 0)",
+  fn: function () {
+    var cases = [
+      [1, "FOX"],
+      [2, "HOUND"],
+      [3, "DOBERMAN"],
+      [4, "DOBERMAN"],
+      [5, "JACKAL"],
+      [6, "JACKAL"],
+      [7, "ELEPHANT"],
+    ];
+    cases.forEach(function (c) {
+      var alerts = c[0];
+      var expected = c[1];
+      var got = Game.computeRank({ alertsTotal: alerts, kills: 0, missionTimeS: 0 });
+      assert(got === expected, "expected " + alerts + " alert(s) -> " + expected + ", got " + got);
+    });
+  },
+});
+
+// 3. FOX ALSO requires missionTimeS < 15 minutes (900s) -- a clean-but-slow
+// run falls through to HOUND instead of failing outright.
+Game.selfTests.push({
+  name: "rank table: FOX additionally requires missionTimeS < 900s, else falls to HOUND",
+  fn: function () {
+    assert(
+      Game.computeRank({ alertsTotal: 1, kills: 0, missionTimeS: 899 }) === "FOX",
+      "expected 1 alert under 900s to be FOX"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 1, kills: 0, missionTimeS: 900 }) === "HOUND",
+      "expected 1 alert at exactly 900s (not < 900) to fall to HOUND"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 1, kills: 0, missionTimeS: 5000 }) === "HOUND",
+      "expected 1 alert well over 900s to fall to HOUND"
+    );
+  },
+});
+
+// 4. KILLS CAP: any kill forfeits BIG BOSS and FOX outright and caps the
+// achievable rank at HOUND, laddering down from there exactly like the
+// kills-0 table above (future-proofing -- stats.kills is always 0 this
+// cycle, no lethal weapon exists, see src/engine.js's own note).
+Game.selfTests.push({
+  name: "rank table: kills > 0 caps the achievable rank at HOUND regardless of alerts or time",
+  fn: function () {
+    assert(
+      Game.computeRank({ alertsTotal: 0, kills: 1, missionTimeS: 1 }) === "HOUND",
+      "expected 0 alerts + 1 kill + tiny time to be capped at HOUND, not BIG BOSS/FOX"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 2, kills: 1, missionTimeS: 0 }) === "HOUND",
+      "expected 2 alerts + 1 kill to be HOUND"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 3, kills: 1, missionTimeS: 0 }) === "DOBERMAN",
+      "expected 3 alerts + 1 kill to be DOBERMAN"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 5, kills: 2, missionTimeS: 0 }) === "JACKAL",
+      "expected 5 alerts + kills to be JACKAL"
+    );
+    assert(
+      Game.computeRank({ alertsTotal: 7, kills: 1, missionTimeS: 0 }) === "ELEPHANT",
+      "expected 7 alerts + a kill to be ELEPHANT"
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// engine.stats accumulation
+// ---------------------------------------------------------------------------
+
+// 5. Driving one knock, one dart, one CQC takedown, one ration, and one
+// chaff pop each increments their own counter exactly once -- and kills
+// (which nothing in this codebase can ever increment) stays 0.
+Game.selfTests.push({
+  name: "engine.stats accumulate: knock/dart/cqc/ration/chaff each increment their own counter exactly once",
+  fn: function () {
+    var engine = Game.createEngine({
+      seed: 9001,
+      // Stationary, facing due east (spawn === the single waypoint's
+      // direction) -- same "tg-cqc" convention as tests/cqc.test.js.
+      guardConfigs: [{ id: "tg-cqc", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    assert(
+      engine.stats.knocksMade === 0 &&
+        engine.stats.dartsFired === 0 &&
+        engine.stats.cqcTakedowns === 0 &&
+        engine.stats.rationsUsed === 0 &&
+        engine.stats.chaffUsed === 0 &&
+        engine.stats.kills === 0 &&
+        engine.stats.alertsTotal === 0,
+      "expected every stat to start at 0"
+    );
+
+    // KNOCK -- (14.6,15) is 0.6m from the west container's east edge, well
+    // within KNOCK_WALL_DIST (same coordinates as
+    // tests/soundEvents.test.js's own knock-verb test).
+    engine.player.x = 14.6;
+    engine.player.y = 15;
+    engine.tick({ moveX: 0, moveY: 0, knock: true });
+    assert(engine.stats.knocksMade === 1, "expected knocksMade 1 after one knock, got " + engine.stats.knocksMade);
+    var knockEvents = engine.events.filter(function (e) { return e.type === "knock"; });
+    assert(knockEvents.length === 1, "expected exactly one knock event");
+
+    // DART -- open south corridor facing due north, guaranteed miss with no
+    // guard anywhere near the ray (same coordinates as tests/tranq.test.js's
+    // own "a miss travels to the wall" test).
+    engine.player.x = 20;
+    engine.player.y = 27;
+    engine.player.facing = -Math.PI / 2;
+    engine.tick({ moveX: 0, moveY: 0, fire: true });
+    assert(engine.stats.dartsFired === 1, "expected dartsFired 1 after one shot, got " + engine.stats.dartsFired);
+    var tranqEvents = engine.events.filter(function (e) { return e.type === "tranqFired"; });
+    assert(tranqEvents.length === 1 && tranqEvents[0].hit === false, "expected exactly one missed tranqFired event");
+
+    // CQC -- 1.2m due WEST of tg-cqc, directly behind its east-facing cone
+    // (same coordinates as tests/cqc.test.js's own "takedown from behind" test).
+    engine.player.x = 18.8;
+    engine.player.y = 5;
+    engine.player.facing = 0;
+    assert(engine.squad.phase === "INFILTRATION", "setup: squad should still be INFILTRATION before the CQC");
+    engine.tick({ moveX: 0, moveY: 0, cqc: true });
+    assert(engine.stats.cqcTakedowns === 1, "expected cqcTakedowns 1 after one takedown, got " + engine.stats.cqcTakedowns);
+    var cqcEvents = engine.events.filter(function (e) { return e.type === "cqc"; });
+    assert(cqcEvents.length === 1, "expected exactly one cqc event");
+    assert(engine.guards[0].state === "SLEEPING", "expected tg-cqc asleep after the takedown");
+
+    // RATION -- damage the player directly (a legitimate flat-prop mutation,
+    // same as combat.test.js's own healing-reset convention) so useRation()
+    // actually has something to heal.
+    engine.player.hp = 0.5;
+    engine.tick({ moveX: 0, moveY: 0, ration: true });
+    assert(engine.stats.rationsUsed === 1, "expected rationsUsed 1 after one ration, got " + engine.stats.rationsUsed);
+    assert(engine.player.hp > 0.5, "expected the ration to have actually healed the player");
+
+    // CHAFF
+    engine.tick({ moveX: 0, moveY: 0, chaff: true });
+    assert(engine.stats.chaffUsed === 1, "expected chaffUsed 1 after one chaff pop, got " + engine.stats.chaffUsed);
+    assert(engine.chaffUntil > engine.time, "expected the chaff pop to have actually armed chaffUntil");
+
+    // kills is NEVER incremented -- no lethal weapon exists in this codebase.
+    assert(engine.stats.kills === 0, "expected kills to remain 0 -- no lethal weapon exists");
+    // None of the above should have cost an alert.
+    assert(engine.stats.alertsTotal === 0, "expected alertsTotal to remain 0 -- none of the above should alert anyone");
+  },
+});
+
+// 6. alertsTotal accumulates ACROSS zones: squad.alertCount is per-squad and
+// gets rebuilt fresh by every switchZone (see src/engine.js's ZONE
+// TRANSITIONS), so a real alert in loadingDock, a forced stand-down, a real
+// zone crossing, and a SECOND real alert in warehouse must add up to
+// engine.stats.alertsTotal === 2, not reset to 1 by the crossing.
+Game.selfTests.push({
+  name: "engine.stats.alertsTotal accumulates across zone transitions (alert in dock + alert in warehouse -> 2)",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var engine = Game.createEngine({
+      seed: 4002,
+      zoneData: dock,
+      // Same "alert-g1" convention as tests/zones.test.js's own "no
+      // transition during ALERT" test -- a stationary guard whose only
+      // waypoint is 1000m further along its own facing (it will never
+      // actually walk there within this test's short window).
+      guardConfigs: [{ id: "alert-g1", spawn: { x: 20, y: 5 }, waypoints: [{ x: 1020, y: 5 }] }],
+    });
+
+    engine.player.x = 22;
+    engine.player.y = 5;
+    var reachedAlert = false;
+    var MAX_SETUP_TICKS = Math.round(6 / DT);
+    for (var t = 0; t < MAX_SETUP_TICKS && !reachedAlert; t++) {
+      engine.tick();
+      engine.player.x = 22;
+      engine.player.y = 5;
+      if (engine.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT in loadingDock");
+    assert(engine.stats.alertsTotal === 1, "expected alertsTotal 1 after the dock alert, got " + engine.stats.alertsTotal);
+
+    // Stand down (bypassing the real EVASION/CAUTION decay timers -- same
+    // direct squad.phase mutation convention already used elsewhere, e.g.
+    // tests/guardAI-partB.test.js/tests/combat.test.js) and cross into the
+    // warehouse. The exit trigger (x:18-22,y:0-3) sits well outside
+    // alert-g1's own east-facing cone (the guard is due south of it, facing
+    // due east), so this crossing tick cannot itself trigger a SECOND dock
+    // alert regardless of the forced phase.
+    engine.squad.phase = "INFILTRATION";
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.zone.id === "warehouse", "expected to have crossed into the warehouse, got " + engine.zone.id);
+    assert(engine.stats.alertsTotal === 1, "expected alertsTotal to still read 1 immediately after the crossing (fresh squad, no new alert yet)");
+
+    // A REAL second alert, against the warehouse's own default guard roster
+    // (w1, engine.guards[0] post-transition) -- read its facing directly
+    // (same technique as tests/combat.test.js's firefightEngine) rather than
+    // assuming a value.
+    var w1 = engine.guards[0];
+    var ahead = 4;
+    engine.player.x = w1.x + Math.cos(w1.facing) * ahead;
+    engine.player.y = w1.y + Math.sin(w1.facing) * ahead;
+    reachedAlert = false;
+    for (t = 0; t < MAX_SETUP_TICKS && !reachedAlert; t++) {
+      engine.tick();
+      if (engine.squad.phase === "ALERT") reachedAlert = true;
+    }
+    assert(reachedAlert, "setup failed: squad never reached ALERT in the warehouse");
+    assert(engine.stats.alertsTotal === 2, "expected alertsTotal 2 after the warehouse alert, got " + engine.stats.alertsTotal);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// EXTRACTION / MISSION COMPLETE
+// ---------------------------------------------------------------------------
+
+// 7. Extraction requires squad.phase === INFILTRATION -- the same gate every
+// ordinary zone-changing exit already requires. Standing in the trigger
+// during CAUTION produces no missionComplete; forcing INFILTRATION on the
+// very next tick (same position, unchanged) then DOES complete it -- a
+// negative control immediately followed by a positive one, proving the gate
+// itself (not some other unrelated setup mistake) is what's being tested.
+Game.selfTests.push({
+  name: "extraction requires INFILTRATION: standing in the region during CAUTION produces no missionComplete",
+  fn: function () {
+    var tower = Game.ZONES.commsTower;
+    var engine = Game.createEngine({ seed: 5003, zoneData: tower });
+    var northExit = tower.exits[0];
+    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction terminal");
+
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+    engine.player.stance = "crawl"; // see tests/zones.test.js's own note on this trigger sitting in camera0's facing line
+
+    engine.squad.phase = "CAUTION";
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.missionComplete === false, "expected no missionComplete while squad.phase is CAUTION");
+    var completeDuringCaution = engine.events.filter(function (e) { return e.type === "missionComplete"; });
+    assert(completeDuringCaution.length === 0, "expected zero missionComplete events during CAUTION");
+
+    // Positive control: same position, INFILTRATION now -> completes.
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+    engine.squad.phase = "INFILTRATION";
+    engine.tick({ moveX: 0, moveY: 0 });
+    assert(engine.missionComplete === true, "expected missionComplete once squad.phase is INFILTRATION at the same trigger");
+  },
+});
+
+// 8. Reaching the extraction region sets missionComplete exactly once,
+// freezes the engine (same FROZEN ENGINE contract as gameOver), and both the
+// missionComplete event and engine.snapshot() carry the stats/rank.
+Game.selfTests.push({
+  name: "reaching the extraction region -> missionComplete once, engine frozen, snapshot carries it",
+  fn: function () {
+    var tower = Game.ZONES.commsTower;
+    var engine = Game.createEngine({ seed: 6004, zoneData: tower });
+
+    // Manufacture one dart-fired stat before extracting, so this test also
+    // proves the event/snapshot stats aren't just a hardcoded zero-state.
+    engine.player.x = 20;
+    engine.player.y = 26;
+    engine.player.facing = 0;
+    engine.tick({ moveX: 0, moveY: 0, fire: true });
+    assert(engine.stats.dartsFired === 1, "setup failed: expected one dart fired before extracting");
+    assert(engine.squad.phase === "INFILTRATION", "setup failed: expected still INFILTRATION after the dart");
+
+    var northExit = tower.exits[0];
+    engine.player.x = northExit.x + northExit.w / 2;
+    engine.player.y = northExit.y + northExit.h / 2;
+    engine.player.stance = "crawl";
+
+    assert(engine.missionComplete === false, "expected fresh engine.missionComplete false");
+    engine.tick({ moveX: 0, moveY: 0 });
+
+    assert(engine.missionComplete === true, "expected engine.missionComplete true after reaching extraction");
+    var completeEvents = engine.events.filter(function (e) { return e.type === "missionComplete"; });
+    assert(completeEvents.length === 1, "expected exactly one missionComplete event, got " + completeEvents.length);
+
+    var ev = completeEvents[0];
+    assert(ev.stats.dartsFired === 1, "expected the missionComplete event's stats to carry dartsFired 1, got " + JSON.stringify(ev.stats));
+    assert(ev.stats.alertsTotal === 0, "expected zero alerts on this clean run");
+    assert(ev.rank === Game.computeRank(ev.stats), "expected the event's rank to match Game.computeRank(ev.stats)");
+
+    var snap = engine.snapshot();
+    assert(snap.missionComplete === true, "expected snapshot().missionComplete true");
+    assert(snap.stats.dartsFired === 1, "expected snapshot().stats.dartsFired 1, got " + JSON.stringify(snap.stats));
+
+    // FROZEN ENGINE -- further ticks (even with real movement input) are
+    // total no-ops, same contract as gameOver.
+    var frozenTickCount = engine.tickCount;
+    var frozenEventsLength = engine.events.length;
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 1, moveY: 1 });
+    }
+    assert(engine.tickCount === frozenTickCount, "expected tickCount to freeze");
+    assert(engine.events.length === frozenEventsLength, "expected engine.events to stay exactly as the completing tick left it");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// SAVE / RESTORE
+// ---------------------------------------------------------------------------
+
+// 9. stats survive a save/restore round-trip mid-run, and correctly diverge
+// afterward -- the restored engine is a genuinely independent copy, not a
+// shared reference back into the original.
+Game.selfTests.push({
+  name: "engine.stats survive a save/restore round-trip, then diverge correctly with new events",
+  fn: function () {
+    // Default guard roster (NOT a custom guardConfigs override) -- restore()
+    // rebuilds the engine's guards from src/engine.js's own ZONE_GUARDS
+    // table (see its file header) and matches saved guards by id; a save
+    // captured from a bespoke roster that table doesn't know about is
+    // correctly rejected by restore() (see src/saveState.js's PER-GUARD
+    // RESTORE note), so this test sticks to the zone's real default guard.
+    var engine = Game.createEngine({ seed: 7005 });
+
+    // One knock and one ration before the save.
+    engine.player.x = 14.6;
+    engine.player.y = 15;
+    engine.tick({ moveX: 0, moveY: 0, knock: true });
+    engine.player.hp = 0.5;
+    engine.tick({ moveX: 0, moveY: 0, ration: true });
+    assert(engine.stats.knocksMade === 1 && engine.stats.rationsUsed === 1, "setup failed: expected 1 knock + 1 ration before the save");
+
+    var saveState = Game.createSaveState();
+    var save = saveState.capture(engine);
+    var reparsed = JSON.parse(JSON.stringify(save)); // prove it's plain-data safe, same convention as tests/saveState.test.js
+    var restored = saveState.restore(reparsed);
+
+    assert(
+      JSON.stringify(restored.stats) === JSON.stringify(engine.stats),
+      "expected restored.stats to equal the original's stats immediately after restore:\n" +
+        JSON.stringify(restored.stats) +
+        "\nvs\n" +
+        JSON.stringify(engine.stats)
+    );
+
+    // Diverge: one more KNOCK on the original, one more DART (miss) on the
+    // restored copy -- their stats must diverge from here, proving genuine
+    // independence rather than a shared reference.
+    engine.player.x = 14.6;
+    engine.player.y = 15;
+    engine.tick({ moveX: 0, moveY: 0, knock: true });
+    assert(engine.stats.knocksMade === 2, "expected the original's knocksMade to reach 2");
+    assert(restored.stats.knocksMade === 1, "expected the restored copy's knocksMade to stay at 1 (unaffected by the original's later tick)");
+
+    restored.player.x = 20;
+    restored.player.y = 27;
+    restored.player.facing = -Math.PI / 2;
+    restored.tick({ moveX: 0, moveY: 0, fire: true });
+    assert(restored.stats.dartsFired === 1, "expected the restored copy's dartsFired to reach 1");
+    assert(engine.stats.dartsFired === 0, "expected the original's dartsFired to stay at 0 (unaffected by the restored copy's later tick)");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// missionTimeS sanity
+// ---------------------------------------------------------------------------
+
+// 10. missionTimeS mirrors engine.time (tickCount * DT) every tick, and is
+// NOT reset by a real zone transition (same "mission-scoped, not
+// zone-scoped" posture as inventory/chaffUntil).
+Game.selfTests.push({
+  name: "engine.stats.missionTimeS is sane: 600 ticks reads ~10s, unaffected by a real zone transition",
+  fn: function () {
+    var dock = Game.ZONES.loadingDock;
+    var engine = Game.createEngine({ seed: 8006, zoneData: dock });
+
+    for (var i = 0; i < 600; i++) {
+      engine.tick({ moveX: 0, moveY: 0 });
+    }
+    assert(
+      Math.abs(engine.stats.missionTimeS - 10) < 1e-9,
+      "expected missionTimeS ~10s after 600 ticks, got " + engine.stats.missionTimeS
+    );
+
+    // A real zone crossing must not reset it.
+    engine.player.x = dock.exit.x + dock.exit.w / 2;
+    engine.player.y = dock.exit.y + dock.exit.h / 2;
+    engine.player.stance = "crouch";
+    engine.tick({ moveX: 0, moveY: 0, stance: "crouch" });
+    assert(engine.zone.id === "warehouse", "setup failed: expected to have crossed into the warehouse");
+    assert(
+      Math.abs(engine.stats.missionTimeS - engine.time) < 1e-9,
+      "expected missionTimeS to keep mirroring engine.time immediately after the crossing"
+    );
+    assert(engine.stats.missionTimeS > 10, "expected missionTimeS to keep accumulating across the crossing, not reset to 0");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
 // ==== tests/world.test.js ====
 (function (global) {
 // tests/world.test.js — headless assertions for src/world.js.
@@ -16740,24 +17503,26 @@ Game.selfTests.push({
 });
 
 // 3. entrances/exits well-formed: every exit's `to` + entranceKey resolve to
-// an actual spawn point on the target zone, EXCEPT a documented stub.
-// KNOWN_STUBS is the list of not-yet-built zone ids this cycle's Game.ZONES
-// is allowed to point at without resolving (see src/engine.js's zoneBlocked
-// handling) — UPDATED this cycle (Comms Tower built): the Laboratory's own
-// former "commsTower" stub now resolves for real (Game.ZONES.commsTower
-// exists), so it no longer hits the `!targetZone` branch below at all; the
-// Comms Tower zone's own new north exit ("extraction", not yet built — the
-// win-state lands a future cycle) is the one live stub exercising this
-// branch now. This list simply tracks whichever placeholder target(s) the
-// CURRENT cycle's zone data legitimately points at — same strictness as
-// before (an unrecognized/typo'd `to` still fails loudly), just not
-// hardcoded to a name that stopped being a stub.
-var KNOWN_STUBS = ["extraction"];
+// an actual spawn point on the target zone, EXCEPT the documented "extraction"
+// TERMINAL. KNOWN_STUBS used to be the list of not-yet-built zone ids this
+// cycle's Game.ZONES was allowed to point at without resolving (see
+// src/engine.js's zoneBlocked handling) — PREMISE EXPIRED this cycle (win-
+// state): the Comms Tower's own north exit, "extraction", was the last live
+// entry in that list (see the git history of this file for the earlier
+// Laboratory-stub/commsTower-stub eras), and this cycle's src/engine.js
+// change (see its own MISSION STATS / EXTRACTION / RANK contract) turns
+// "extraction" from "a zone some future cycle will build" into a PERMANENT
+// TERMINAL that tryZoneTransition() special-cases BEFORE ever consulting
+// Game.ZONES at all — it is not a stub waiting to be resolved, it is the
+// mission's actual end, and Game.ZONES.extraction is expected to NEVER
+// exist. So: KNOWN_STUBS is now permanently empty (kept, not deleted, so a
+// future genuine stub has an obvious place to land again), and the
+// well-formedness check below carves out "extraction" as its own named
+// exception rather than routing it through the KNOWN_STUBS mechanism.
+var KNOWN_STUBS = [];
 Game.selfTests.push({
-  name: "zones: every exit's to+entranceKey resolves (except a known stub)",
+  name: "zones: every exit's to+entranceKey resolves (except the extraction terminal)",
   fn: function () {
-    var checkedAtLeastOneStub = false;
-
     Object.keys(Game.ZONES).forEach(function (zoneId) {
       var zone = Game.ZONES[zoneId];
       zone.exits.forEach(function (exit, i) {
@@ -16765,15 +17530,15 @@ Game.selfTests.push({
         assert(typeof exit.to === "string" && exit.to.length > 0, label + ": missing `to`");
         assert(typeof exit.entranceKey === "string" && exit.entranceKey.length > 0, label + ": missing `entranceKey`");
 
-        var targetZone = Game.ZONES[exit.to];
-        if (!targetZone) {
-          assert(
-            KNOWN_STUBS.indexOf(exit.to) !== -1,
-            label + ": unresolvable `to` other than a known stub (" + KNOWN_STUBS.join(", ") + "): " + exit.to
-          );
-          checkedAtLeastOneStub = true;
+        if (exit.to === "extraction") {
+          // TERMINAL, not a zone — see src/engine.js's tryZoneTransition,
+          // which resolves this specially (completeMission()) before ever
+          // looking it up in Game.ZONES. Nothing further to check here.
           return;
         }
+
+        var targetZone = Game.ZONES[exit.to];
+        assert(targetZone, label + ": unresolvable `to` (not a real zone, not the extraction terminal): " + exit.to);
 
         var entrance = targetZone.entrances && targetZone.entrances[exit.entranceKey];
         assert(
@@ -16789,7 +17554,14 @@ Game.selfTests.push({
       });
     });
 
-    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (a known stub) to exercise that branch");
+    // PREMISE EXPIRY (see comment above): this cycle's own change is exactly
+    // what emptied KNOWN_STUBS, so assert that expiry stays true rather than
+    // silently accepting a KNOWN_STUBS list quietly regrowing without this
+    // test itself being reconsidered — a future cycle that adds a REAL stub
+    // must go through the same "documented terminal vs. genuine placeholder"
+    // decision this comment block just walked through, not just append to
+    // the array.
+    assert(KNOWN_STUBS.length === 0, "expected no known stubs left this cycle (extraction is now a terminal, not a stub)");
   },
 });
 
@@ -16925,64 +17697,62 @@ Game.selfTests.push({
   },
 });
 
-// 7. Known stub: standing in a zone's stub exit emits zoneBlocked exactly
-// once (region-entry edge, not per tick), engine stays put, and keeps
-// ticking fine afterward. UPDATED this cycle (Comms Tower built): the
-// Laboratory's own former "commsTower" stub now resolves for real (see test
-// #3's KNOWN_STUBS note above), so this test is repointed to the Comms
-// Tower's own new "extraction" stub — same assertions, same mechanism, just
-// exercising the CURRENT cycle's live placeholder exit instead of one that
-// no longer is one (same repointing this test itself already went through
-// once before, when Laboratory was built).
+// 7. Extraction terminal: standing in the Comms Tower's north exit while
+// INFILTRATION emits missionComplete exactly once and freezes the engine
+// (tick() becomes a no-op, same FROZEN ENGINE contract as gameOver).
+// REPOINTED this cycle (win-state): this test used to exercise the
+// zoneBlocked mechanic against this exact same exit, back when "extraction"
+// was still an ordinary unresolved stub — src/engine.js's tryZoneTransition
+// now special-cases exit.to === "extraction" as a PERMANENT TERMINAL BEFORE
+// it ever reaches the zoneBlocked branch (see test #3's KNOWN_STUBS note
+// above and src/engine.js's own MISSION STATS / EXTRACTION / RANK contract),
+// so the old "zoneBlocked fires" premise is no longer true by design — this
+// is the "replace with a stricter test" the old premise's expiry calls for,
+// not a deletion (see tests/winState.test.js for the fuller rank/stats
+// coverage this same terminal now also gets).
 Game.selfTests.push({
-  name: "engine zone transition: extraction stub emits zoneBlocked once and stays in commsTower",
+  name: "engine zone transition: extraction terminal emits missionComplete once and freezes the engine",
   fn: function () {
     var tower = Game.ZONES.commsTower;
     var engine = Game.createEngine({ seed: 3, zoneData: tower });
 
     var northExit = tower.exits[0]; // to: extraction
-    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction stub");
+    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction terminal");
 
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;
     // The extraction trigger sits directly up the helipad-approach camera's
     // own facing line (see src/world.js's commsTower cameras comment) --
     // crawl keeps visionProfile() at its lowest multiplier (0.3) so this
-    // test's 60-tick stand stays nowhere near VISION.ALERT_AT (a camera
-    // reaching it would flip squad.phase off INFILTRATION and starve
-    // tryZoneTransition of the very phase it needs to evaluate this trigger
-    // at all -- see src/engine.js's DESIGN RULE) -- this test is about the
-    // zoneBlocked mechanic, not about surviving the camera, so the setup
-    // deliberately removes that variable rather than relying on sweep timing.
+    // test's ticks stay nowhere near VISION.ALERT_AT (a camera reaching it
+    // would flip squad.phase off INFILTRATION and starve tryZoneTransition
+    // of the very phase it needs to evaluate this trigger at all -- see
+    // src/engine.js's DESIGN RULE) -- this test is about the missionComplete
+    // mechanic, not about surviving the camera, so the setup deliberately
+    // removes that variable rather than relying on sweep timing.
     engine.player.stance = "crawl";
 
-    var blockedCount = 0;
-    var TOTAL_TICKS = 60;
-    for (var i = 0; i < TOTAL_TICKS; i++) {
-      engine.tick({ moveX: 0, moveY: 0 });
-      // Re-pin the player in the trigger region every tick (null-input ticks
-      // don't move the player anyway, but this guards against that changing).
-      engine.player.x = northExit.x + northExit.w / 2;
-      engine.player.y = northExit.y + northExit.h / 2;
-      engine.events.forEach(function (e) {
-        if (e.type === "zoneBlocked") blockedCount++;
-      });
-      assert(engine.zone.id === "commsTower", "expected to stay in commsTower at tick " + i + ", got " + engine.zone.id);
-    }
+    assert(engine.missionComplete === false, "expected fresh engine.missionComplete false");
 
-    assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
+    engine.tick({ moveX: 0, moveY: 0 });
 
-    // Leave the region and re-enter: the edge should re-arm and fire once more.
-    engine.player.x = tower.entrances.fromLaboratory.x;
-    engine.player.y = tower.entrances.fromLaboratory.y;
-    engine.tick({ moveX: 0, moveY: 0 });
-    engine.player.x = northExit.x + northExit.w / 2;
-    engine.player.y = northExit.y + northExit.h / 2;
-    engine.tick({ moveX: 0, moveY: 0 });
-    var reentryBlocked = engine.events.filter(function (e) {
-      return e.type === "zoneBlocked";
+    assert(engine.missionComplete === true, "expected engine.missionComplete true after standing in the extraction trigger");
+    assert(engine.zone.id === "commsTower", "expected no zone switch to have happened, got zone " + engine.zone.id);
+    var completeEvents = engine.events.filter(function (e) {
+      return e.type === "missionComplete";
     });
-    assert(reentryBlocked.length === 1, "expected zoneBlocked to re-arm after leaving and re-entering the trigger, got " + reentryBlocked.length);
+    assert(completeEvents.length === 1, "expected exactly 1 missionComplete event, got " + completeEvents.length);
+    assert(typeof completeEvents[0].rank === "string" && completeEvents[0].rank.length > 0, "expected a non-empty rank string on the missionComplete event");
+    assert(completeEvents[0].stats && typeof completeEvents[0].stats.alertsTotal === "number", "expected a stats object on the missionComplete event");
+
+    var frozenTickCount = engine.tickCount;
+    var frozenEventsLength = engine.events.length;
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 1, moveY: 1 }); // even a movement input must be a total no-op while frozen
+    }
+    assert(engine.tickCount === frozenTickCount, "expected tickCount to freeze, got " + engine.tickCount + " vs " + frozenTickCount);
+    assert(engine.events.length === frozenEventsLength, "expected engine.events to stay exactly as the completing tick left it");
+    assert(engine.zone.id === "commsTower", "expected the frozen engine to still report commsTower");
   },
 });
 
@@ -17089,6 +17859,24 @@ Game.selfTests.push({
 // pressing Enter on it removes the overlay and calls runGame(rootEl) again —
 // the retry IS just another call to the one true startup path.
 //
+// MISSION COMPLETE + RANK SCREEN (new — the final bootstrap feature, see
+// src/engine.js's own MISSION STATS / EXTRACTION / RANK contract): frame()
+// below scans engine.events for a "missionComplete" entry exactly the same
+// way it already scans for "gameOver" — a local `missionCompleteShown` flag
+// (same shape as `gameOverShown`) reacts to the FIRST frame that sees it and
+// ignores every frame after (engine.missionComplete latches identically to
+// engine.gameOver — see src/engine.js's FROZEN ENGINE note — so the event
+// keeps sitting in engine.events forever after the completing tick). On
+// first sight: force-dismisses an open codec call (same as the gameOver
+// path) and shows the RANK SCREEN overlay (showMissionComplete below) with
+// that event's own `stats`/`rank` payload (already a frozen-in-time clone,
+// see src/engine.js's own note on why — no need to re-read engine.stats
+// later). Pressing Enter on it is NOT another runGame() call like a
+// game-over retry — a completed mission goes all the way back to the TITLE
+// SCREEN (full teardown via this same instance's own `stop()`, then
+// showTitle(rootEl, runSelfTests()) again), so the next Enter starts a
+// genuinely fresh playthrough rather than resuming anything.
+//
 // F5 SAVE / F9 LOAD (new — see src/saveState.js's own contract for the full
 // capture()/restore() write-up): plain keydown edges, handled directly in
 // onKeyDown below (NOT threaded through buildInput()/engine.tick() the way
@@ -17117,6 +17905,18 @@ Game.selfTests.push({
 //     GATE) is treated the same as "no save": a toast, no crash, the CURRENT
 //     playthrough keeps running untouched (restore() throwing happens BEFORE
 //     runGame() is ever called again, so nothing has been torn down yet).
+//     MISSION STATS (new — see src/engine.js's own contract): a successful
+//     restore() increments the FRESHLY-RESTORED engine's own
+//     engine.stats.savesUsed by 1, right here, BEFORE runGame() hands that
+//     engine off to a live frame loop — "F9 loads count against you, MGS-
+//     style continues; F5 saves do not" (see engine.js). A plain flat-prop
+//     mutation, same legitimacy as e.g. the RATION VERB's own direct
+//     player.hp mutation — there is no in-engine "load" concept, so this
+//     meta-level counter has to live here, not in engine.tick(). Because
+//     engine.stats round-trips through save/restore like every other
+//     mission-scoped counter (see saveState.js), this one increment already
+//     accounts for every PRIOR load a save blob carries forward; it never
+//     double-counts a load that happened before this save was captured.
 //
 // LOCALSTORAGE ISOLATION (project mandate, see CLAUDE.md's "audio exempt...
 // can never crash the game" precedent, applied here to storage): every
@@ -17405,6 +18205,10 @@ Game.selfTests.push({
         showToast(rootEl, "NO SAVE");
         return;
       }
+      // MISSION STATS (see file header F9 LOAD note / src/engine.js's own
+      // contract) -- this load itself counts as a "continue," on the
+      // freshly-restored engine, before it ever ticks again.
+      restored.stats.savesUsed++;
       runGame(rootEl, { engine: restored });
       // NOTE: this call above tears down and rebuilds the entire
       // renderer/radar/hud/music/codec/input stack (see runGame's own file
@@ -17451,6 +18255,7 @@ Game.selfTests.push({
     var lastNow = null;
     var stopped = false; // set true by stop(), below — makes frame() a no-op
     var gameOverShown = false; // latches once the overlay has been shown
+    var missionCompleteShown = false; // latches once the rank screen has been shown
 
     function frame(now) {
       if (stopped) return;
@@ -17521,6 +18326,30 @@ Game.selfTests.push({
         }
       }
 
+      // MISSION COMPLETE + RANK SCREEN (see file header) — same latch-once
+      // scan shape as gameOver above, checked independently (a frozen
+      // engine only ever latches ONE of gameOver/missionComplete, per
+      // src/engine.js's own FROZEN CHECK, so these two blocks never both
+      // fire for the same playthrough).
+      if (!missionCompleteShown) {
+        for (var mi = 0; mi < engine.events.length; mi++) {
+          if (engine.events[mi].type === "missionComplete") {
+            missionCompleteShown = true;
+            if (codec.isOpen()) codec.dismiss();
+            showMissionComplete(rootEl, engine.events[mi].stats, engine.events[mi].rank, function onDone() {
+              // Back to the TITLE SCREEN, not another runGame() call (see
+              // file header) — tear this playthrough down completely first
+              // (this closure's own `stop()`, the same handle currentGame
+              // holds), then wipe rootEl and show a fresh title.
+              stop();
+              rootEl.innerHTML = "";
+              showTitle(rootEl, runSelfTests());
+            });
+            break;
+          }
+        }
+      }
+
       renderer.render(engine);
       radar.render(engine);
       hud.render(engine);
@@ -17565,6 +18394,90 @@ Game.selfTests.push({
       window.removeEventListener("keydown", onEnter);
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       onRetry();
+    }
+    window.addEventListener("keydown", onEnter);
+  }
+
+  // mm:ss clock formatting for the rank screen's TIME row — a small local
+  // copy of src/hud.js's own formatClock (that module isn't in scope this
+  // cycle and doesn't export the helper anyway; same one-liner logic, kept
+  // here rather than reached for across a module boundary).
+  function formatMmSs(seconds) {
+    var s = Math.max(0, Math.floor(seconds || 0));
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return (mm < 10 ? "0" + mm : "" + mm) + ":" + (ss < 10 ? "0" + ss : "" + ss);
+  }
+
+  // RANK SCREEN (see file header's MISSION COMPLETE + RANK SCREEN note).
+  // Styled like the codec/HUD's own green CRT monospace aesthetic (see
+  // src/codec.js/src/hud.js's #39ff6a-family palette) rather than reusing
+  // MISSION FAILED's red above — this is a WIN, not a loss. Dark backdrop,
+  // blocks nothing but keyboard focus (same posture as showGameOver).
+  // `stats`/`rank` are the missionComplete event's own payload verbatim (see
+  // src/engine.js's contract — stats is already a frozen-in-time clone).
+  // Enter -> removes itself, then hands control to onDone (back to the
+  // title screen — see file header for why this is NOT another runGame()
+  // call the way a game-over retry is).
+  function showMissionComplete(rootEl, stats, rank, onDone) {
+    stats = stats || {};
+    var overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(2,10,6,0.93);color:#9fffb8;" +
+      "display:flex;align-items:center;justify-content:center;" +
+      "flex-direction:column;font:16px monospace;letter-spacing:0.2em;" +
+      "z-index:9999";
+
+    var rows = [
+      ["TIME", formatMmSs(stats.missionTimeS)],
+      ["ALERTS", String(stats.alertsTotal || 0)],
+      ["KILLS", String(stats.kills || 0)],
+      ["DARTS FIRED", String(stats.dartsFired || 0)],
+      ["CQC", String(stats.cqcTakedowns || 0)],
+      ["RATIONS", String(stats.rationsUsed || 0)],
+      ["CONTINUES", String(stats.savesUsed || 0)],
+    ];
+    var tableHtml = rows
+      .map(function (r) {
+        return (
+          "<div style='display:flex;justify-content:space-between;width:280px;padding:3px 0;font-size:14px'>" +
+          "<span style='color:#5a7'>" + r[0] + "</span><span style='color:#dfe'>" + r[1] + "</span></div>"
+        );
+      })
+      .join("");
+
+    var rankColor = rank === "BIG BOSS" ? "#ffd75e" : "#39ff6a";
+
+    overlay.innerHTML =
+      "<div style='font-size:34px;color:#39ff6a'>MISSION COMPLETE</div>" +
+      "<div style='margin:20px 0;border-top:1px solid #234;border-bottom:1px solid #234;padding:14px 0'>" +
+      tableHtml +
+      "</div>" +
+      "<div id='rankReveal' style='font-size:56px;letter-spacing:0.15em;color:" +
+      rankColor +
+      ";min-height:64px'></div>" +
+      "<div style='margin-top:28px;font-size:18px;letter-spacing:0.15em;color:#fff'>PRESS ENTER FOR TITLE</div>";
+    rootEl.appendChild(overlay);
+
+    // Typed-in rank reveal — one character at a time, same "reveal" flavor
+    // as src/codec.js's own dialogue type-in, but a fresh self-contained
+    // timer (this module must never reach into codec.js's own internals).
+    var rankName = rank || "";
+    var rankEl = overlay.querySelector("#rankReveal");
+    var revealed = 0;
+    var typer = setInterval(function () {
+      revealed++;
+      if (rankEl) rankEl.textContent = rankName.slice(0, revealed);
+      if (revealed >= rankName.length) clearInterval(typer);
+    }, 90);
+
+    function onEnter(e) {
+      if (e.code !== "Enter") return;
+      e.preventDefault();
+      clearInterval(typer);
+      window.removeEventListener("keydown", onEnter);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      onDone();
     }
     window.addEventListener("keydown", onEnter);
   }

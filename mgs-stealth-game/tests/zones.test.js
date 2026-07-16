@@ -82,24 +82,26 @@ Game.selfTests.push({
 });
 
 // 3. entrances/exits well-formed: every exit's `to` + entranceKey resolve to
-// an actual spawn point on the target zone, EXCEPT a documented stub.
-// KNOWN_STUBS is the list of not-yet-built zone ids this cycle's Game.ZONES
-// is allowed to point at without resolving (see src/engine.js's zoneBlocked
-// handling) — UPDATED this cycle (Comms Tower built): the Laboratory's own
-// former "commsTower" stub now resolves for real (Game.ZONES.commsTower
-// exists), so it no longer hits the `!targetZone` branch below at all; the
-// Comms Tower zone's own new north exit ("extraction", not yet built — the
-// win-state lands a future cycle) is the one live stub exercising this
-// branch now. This list simply tracks whichever placeholder target(s) the
-// CURRENT cycle's zone data legitimately points at — same strictness as
-// before (an unrecognized/typo'd `to` still fails loudly), just not
-// hardcoded to a name that stopped being a stub.
-var KNOWN_STUBS = ["extraction"];
+// an actual spawn point on the target zone, EXCEPT the documented "extraction"
+// TERMINAL. KNOWN_STUBS used to be the list of not-yet-built zone ids this
+// cycle's Game.ZONES was allowed to point at without resolving (see
+// src/engine.js's zoneBlocked handling) — PREMISE EXPIRED this cycle (win-
+// state): the Comms Tower's own north exit, "extraction", was the last live
+// entry in that list (see the git history of this file for the earlier
+// Laboratory-stub/commsTower-stub eras), and this cycle's src/engine.js
+// change (see its own MISSION STATS / EXTRACTION / RANK contract) turns
+// "extraction" from "a zone some future cycle will build" into a PERMANENT
+// TERMINAL that tryZoneTransition() special-cases BEFORE ever consulting
+// Game.ZONES at all — it is not a stub waiting to be resolved, it is the
+// mission's actual end, and Game.ZONES.extraction is expected to NEVER
+// exist. So: KNOWN_STUBS is now permanently empty (kept, not deleted, so a
+// future genuine stub has an obvious place to land again), and the
+// well-formedness check below carves out "extraction" as its own named
+// exception rather than routing it through the KNOWN_STUBS mechanism.
+var KNOWN_STUBS = [];
 Game.selfTests.push({
-  name: "zones: every exit's to+entranceKey resolves (except a known stub)",
+  name: "zones: every exit's to+entranceKey resolves (except the extraction terminal)",
   fn: function () {
-    var checkedAtLeastOneStub = false;
-
     Object.keys(Game.ZONES).forEach(function (zoneId) {
       var zone = Game.ZONES[zoneId];
       zone.exits.forEach(function (exit, i) {
@@ -107,15 +109,15 @@ Game.selfTests.push({
         assert(typeof exit.to === "string" && exit.to.length > 0, label + ": missing `to`");
         assert(typeof exit.entranceKey === "string" && exit.entranceKey.length > 0, label + ": missing `entranceKey`");
 
-        var targetZone = Game.ZONES[exit.to];
-        if (!targetZone) {
-          assert(
-            KNOWN_STUBS.indexOf(exit.to) !== -1,
-            label + ": unresolvable `to` other than a known stub (" + KNOWN_STUBS.join(", ") + "): " + exit.to
-          );
-          checkedAtLeastOneStub = true;
+        if (exit.to === "extraction") {
+          // TERMINAL, not a zone — see src/engine.js's tryZoneTransition,
+          // which resolves this specially (completeMission()) before ever
+          // looking it up in Game.ZONES. Nothing further to check here.
           return;
         }
+
+        var targetZone = Game.ZONES[exit.to];
+        assert(targetZone, label + ": unresolvable `to` (not a real zone, not the extraction terminal): " + exit.to);
 
         var entrance = targetZone.entrances && targetZone.entrances[exit.entranceKey];
         assert(
@@ -131,7 +133,14 @@ Game.selfTests.push({
       });
     });
 
-    assert(checkedAtLeastOneStub, "expected at least one unresolved stub exit (a known stub) to exercise that branch");
+    // PREMISE EXPIRY (see comment above): this cycle's own change is exactly
+    // what emptied KNOWN_STUBS, so assert that expiry stays true rather than
+    // silently accepting a KNOWN_STUBS list quietly regrowing without this
+    // test itself being reconsidered — a future cycle that adds a REAL stub
+    // must go through the same "documented terminal vs. genuine placeholder"
+    // decision this comment block just walked through, not just append to
+    // the array.
+    assert(KNOWN_STUBS.length === 0, "expected no known stubs left this cycle (extraction is now a terminal, not a stub)");
   },
 });
 
@@ -267,64 +276,62 @@ Game.selfTests.push({
   },
 });
 
-// 7. Known stub: standing in a zone's stub exit emits zoneBlocked exactly
-// once (region-entry edge, not per tick), engine stays put, and keeps
-// ticking fine afterward. UPDATED this cycle (Comms Tower built): the
-// Laboratory's own former "commsTower" stub now resolves for real (see test
-// #3's KNOWN_STUBS note above), so this test is repointed to the Comms
-// Tower's own new "extraction" stub — same assertions, same mechanism, just
-// exercising the CURRENT cycle's live placeholder exit instead of one that
-// no longer is one (same repointing this test itself already went through
-// once before, when Laboratory was built).
+// 7. Extraction terminal: standing in the Comms Tower's north exit while
+// INFILTRATION emits missionComplete exactly once and freezes the engine
+// (tick() becomes a no-op, same FROZEN ENGINE contract as gameOver).
+// REPOINTED this cycle (win-state): this test used to exercise the
+// zoneBlocked mechanic against this exact same exit, back when "extraction"
+// was still an ordinary unresolved stub — src/engine.js's tryZoneTransition
+// now special-cases exit.to === "extraction" as a PERMANENT TERMINAL BEFORE
+// it ever reaches the zoneBlocked branch (see test #3's KNOWN_STUBS note
+// above and src/engine.js's own MISSION STATS / EXTRACTION / RANK contract),
+// so the old "zoneBlocked fires" premise is no longer true by design — this
+// is the "replace with a stricter test" the old premise's expiry calls for,
+// not a deletion (see tests/winState.test.js for the fuller rank/stats
+// coverage this same terminal now also gets).
 Game.selfTests.push({
-  name: "engine zone transition: extraction stub emits zoneBlocked once and stays in commsTower",
+  name: "engine zone transition: extraction terminal emits missionComplete once and freezes the engine",
   fn: function () {
     var tower = Game.ZONES.commsTower;
     var engine = Game.createEngine({ seed: 3, zoneData: tower });
 
     var northExit = tower.exits[0]; // to: extraction
-    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction stub");
+    assert(northExit.to === "extraction", "setup: expected commsTower.exits[0] to be the extraction terminal");
 
     engine.player.x = northExit.x + northExit.w / 2;
     engine.player.y = northExit.y + northExit.h / 2;
     // The extraction trigger sits directly up the helipad-approach camera's
     // own facing line (see src/world.js's commsTower cameras comment) --
     // crawl keeps visionProfile() at its lowest multiplier (0.3) so this
-    // test's 60-tick stand stays nowhere near VISION.ALERT_AT (a camera
-    // reaching it would flip squad.phase off INFILTRATION and starve
-    // tryZoneTransition of the very phase it needs to evaluate this trigger
-    // at all -- see src/engine.js's DESIGN RULE) -- this test is about the
-    // zoneBlocked mechanic, not about surviving the camera, so the setup
-    // deliberately removes that variable rather than relying on sweep timing.
+    // test's ticks stay nowhere near VISION.ALERT_AT (a camera reaching it
+    // would flip squad.phase off INFILTRATION and starve tryZoneTransition
+    // of the very phase it needs to evaluate this trigger at all -- see
+    // src/engine.js's DESIGN RULE) -- this test is about the missionComplete
+    // mechanic, not about surviving the camera, so the setup deliberately
+    // removes that variable rather than relying on sweep timing.
     engine.player.stance = "crawl";
 
-    var blockedCount = 0;
-    var TOTAL_TICKS = 60;
-    for (var i = 0; i < TOTAL_TICKS; i++) {
-      engine.tick({ moveX: 0, moveY: 0 });
-      // Re-pin the player in the trigger region every tick (null-input ticks
-      // don't move the player anyway, but this guards against that changing).
-      engine.player.x = northExit.x + northExit.w / 2;
-      engine.player.y = northExit.y + northExit.h / 2;
-      engine.events.forEach(function (e) {
-        if (e.type === "zoneBlocked") blockedCount++;
-      });
-      assert(engine.zone.id === "commsTower", "expected to stay in commsTower at tick " + i + ", got " + engine.zone.id);
-    }
+    assert(engine.missionComplete === false, "expected fresh engine.missionComplete false");
 
-    assert(blockedCount === 1, "expected exactly one zoneBlocked event across " + TOTAL_TICKS + " ticks standing in the trigger, got " + blockedCount);
+    engine.tick({ moveX: 0, moveY: 0 });
 
-    // Leave the region and re-enter: the edge should re-arm and fire once more.
-    engine.player.x = tower.entrances.fromLaboratory.x;
-    engine.player.y = tower.entrances.fromLaboratory.y;
-    engine.tick({ moveX: 0, moveY: 0 });
-    engine.player.x = northExit.x + northExit.w / 2;
-    engine.player.y = northExit.y + northExit.h / 2;
-    engine.tick({ moveX: 0, moveY: 0 });
-    var reentryBlocked = engine.events.filter(function (e) {
-      return e.type === "zoneBlocked";
+    assert(engine.missionComplete === true, "expected engine.missionComplete true after standing in the extraction trigger");
+    assert(engine.zone.id === "commsTower", "expected no zone switch to have happened, got zone " + engine.zone.id);
+    var completeEvents = engine.events.filter(function (e) {
+      return e.type === "missionComplete";
     });
-    assert(reentryBlocked.length === 1, "expected zoneBlocked to re-arm after leaving and re-entering the trigger, got " + reentryBlocked.length);
+    assert(completeEvents.length === 1, "expected exactly 1 missionComplete event, got " + completeEvents.length);
+    assert(typeof completeEvents[0].rank === "string" && completeEvents[0].rank.length > 0, "expected a non-empty rank string on the missionComplete event");
+    assert(completeEvents[0].stats && typeof completeEvents[0].stats.alertsTotal === "number", "expected a stats object on the missionComplete event");
+
+    var frozenTickCount = engine.tickCount;
+    var frozenEventsLength = engine.events.length;
+    for (var i = 0; i < 30; i++) {
+      engine.tick({ moveX: 1, moveY: 1 }); // even a movement input must be a total no-op while frozen
+    }
+    assert(engine.tickCount === frozenTickCount, "expected tickCount to freeze, got " + engine.tickCount + " vs " + frozenTickCount);
+    assert(engine.events.length === frozenEventsLength, "expected engine.events to stay exactly as the completing tick left it");
+    assert(engine.zone.id === "commsTower", "expected the frozen engine to still report commsTower");
   },
 });
 

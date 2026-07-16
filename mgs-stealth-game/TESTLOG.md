@@ -1,5 +1,32 @@
 # TESTLOG.md
 
+## Cycle 28 (win state + rank screen — BOOTSTRAP COMPLETE)
+
+194/194; 20/20; 5/5 shots (05-rank inspected: gold BIG BOSS, stats table,
+clean CRT aesthetic). Extraction is a terminal special-cased before zone
+lookup, INFILTRATION-gated, freezing like gameOver. engine.stats mission-
+scoped (survives transitions AND save/restore; SAVE_VERSION bumped 1→2;
+F9 continues count against rank, F5 saves don't). Rank table: BIG BOSS
+(0 alerts, 0 kills) / FOX / HOUND / DOBERMAN / JACKAL / ELEPHANT, kill-cap
+future-proofed. KNOWN_STUBS is now empty — stub tests repointed stricter
+(premise expiry, inline-documented).
+
+THE CAPSTONE PASSES: dock → warehouse → laboratory → comms tower → extract,
+real guards/cameras/lasers throughout, zero alerts, rank BIG BOSS — machine-
+checked on every test run forever.
+
+**Problems:** (1) capstone route avoids the tower laser geometrically
+(crosses west of its span) — fine, but no scenario exercises laser TIMING in
+the tower; add when tower gets a second laser. (2) rank screen stats all
+zeros in the screenshot (F9-synthesized run) — cosmetically odd CONTINUES 1;
+harmless, note only. (3) 15-min FOX threshold untested at boundary in real
+play — table tested pure, pacing untested. → playtest well.
+
+**Delights:** (1) the game is a GAME: winnable, loseable, rankable, saveable.
+(2) extraction reusing the transition gate means you can't cheese an extract
+mid-chase — Consequence holds at the finish line. (3) the whole bootstrap
+shipped in 28 cycles with zero red commits.
+
 ## Cycle 27 (saveState)
 
 184/184; 19/19; 4/4 shots; F5/F9 hand-verified in a live browser (localStorage

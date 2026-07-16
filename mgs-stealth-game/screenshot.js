@@ -114,6 +114,79 @@ const SCENES = [
       await page.waitForTimeout(1400);
     },
   },
+  {
+    name: "05-rank",
+    setup: async (page) => {
+      // RANK SCREEN (see src/boot.js's MISSION COMPLETE + RANK SCREEN note /
+      // src/engine.js's own MISSION STATS / EXTRACTION / RANK contract).
+      //
+      // WHY THIS GOES THROUGH F5/F9, NOT A DIRECT dbg.engine.zone= SWAP: the
+      // live playthrough's tick()/tryZoneTransition() close over their OWN
+      // PRIVATE zone/world/squad/guards variables (see src/engine.js's own
+      // construction) -- only engine.player is a genuinely shared object
+      // reference; engine.zone/world/squad/etc are just OUTPUT MIRRORS
+      // reassigned by switchZone(), not inputs it reads back from. Overwriting
+      // those mirrors from outside (as an earlier version of this scene
+      // tried) leaves the sim's actual internals still pointed at whatever
+      // zone the playthrough was already in -- it does not fool tick() at
+      // all. The one LEGITIMATE way to hand the running game a different,
+      // fully-wired engine is the exact same path F9 LOAD already uses (see
+      // src/boot.js's own F5 SAVE / F9 LOAD contract): build a fresh,
+      // properly-constructed engine (Game.createEngine -- real guards,
+      // cameras, squad, everything), position it, capture() it, stash it
+      // under the save key, then press F9 for real. That's a full
+      // teardown-and-rebuild around the new engine (same runGame(rootEl,
+      // {engine}) path a real load takes), so everything downstream (render,
+      // hud, radar, the frame loop's own tick accumulator) is correctly
+      // wired to it afterward -- not a half-mutated mirror.
+      //
+      // Scene 04 above leaves its own throwaway codec call open (never
+      // dismissed -- that IS scene 04's shot). src/boot.js's onKeyDown
+      // swallows EVERY key while codec.isOpen() (see its own FROZEN INPUT /
+      // PAUSE note), including F9 -- so that call has to be dismissed first,
+      // or the upcoming F9 press below would silently do nothing at all.
+      await page.evaluate(() => {
+        var dbg = window.Game._debug;
+        if (dbg && dbg.codec && dbg.codec.isOpen()) dbg.codec.dismiss();
+      });
+      await page.evaluate(() => {
+        var G = window.Game;
+        var tower = G.ZONES.commsTower;
+        // A fresh, fully-wired commsTower engine (real guards/cameras/squad
+        // via ordinary construction -- no manual stand-in needed): parked
+        // directly in the extraction trigger. squad.phase is INFILTRATION by
+        // construction default, satisfying the "can't extract mid-alert"
+        // gate with zero extra setup.
+        var engine = G.createEngine({ seed: 1, zoneData: tower });
+        var exit = tower.exits[0]; // to: "extraction"
+        engine.player.x = exit.x + exit.w / 2;
+        engine.player.y = exit.y + exit.h / 2;
+        engine.player.stance = "crouch";
+        var save = G.createSaveState().capture(engine);
+        window.localStorage.setItem("shadowloop-save", JSON.stringify(save));
+      });
+      await page.keyboard.press("F9");
+      // F9 LOAD rebuilds the ENTIRE playthrough stack (see src/boot.js's own
+      // runGame() contract) -- including a brand-new codecDirector, whose
+      // very first update() always wants to open the "missionOpen" briefing
+      // call (see src/codec.js's own contract) the instant this fresh
+      // playthrough's frame loop starts. That call would otherwise sit open
+      // forever (nothing here presses Space/Enter to advance it) and, per
+      // src/boot.js's own CODEC PAUSE note, an open call skips the ENTIRE
+      // tick accumulator -- freezing tryZoneTransition() right along with
+      // everything else. Dismiss it the instant it appears so the very next
+      // real tick can fire the genuine tryZoneTransition() -> completeMission()
+      // path (not a mocked-up DOM overlay).
+      await page.waitForTimeout(400);
+      await page.evaluate(() => {
+        var dbg = window.Game._debug;
+        if (dbg && dbg.codec && dbg.codec.isOpen()) dbg.codec.dismiss();
+      });
+      // Let the rank reveal's own type-in timer finish (see
+      // showMissionComplete's 90ms/char interval) before the shot.
+      await page.waitForTimeout(2000);
+    },
+  },
 ];
 
 (async () => {
