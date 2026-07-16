@@ -1,13 +1,13 @@
 # PROGRESS.md
 
-**Version:** v0.9 (cycle 9 — soundEvents)
+**Version:** v0.10 (cycle 10 — render; FIRST PLAYABLE; snapshot in releases/)
 
 ## Module status
 
 | Module         | Status      | Notes                                    |
 |----------------|-------------|------------------------------------------|
 | rng            | stub        | seeded RNG single source                 |
-| boot           | stub        | game loop shell + boot self-test hook    |
+| boot           | v1          | self-test gate, title, input, fixed-step loop |
 | world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
@@ -21,7 +21,7 @@
 | hud            | not started |                                          |
 | codec          | not started |                                          |
 | music          | not started | WebAudio, failure-isolated               |
-| render         | not started | ONLY module allowed to touch THREE       |
+| render         | v1          | iso scene, state-colored wall-clipped cones, meters |
 
 ## Known issues
 
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 10: render — playable! iso view, state-colored wall-clipped vision
+  cones, stance-scaled player, markers/meter, WASD+knock input, 3-scene
+  screenshot suite; release v0.10 snapshotted, PLAYME regenerated
 - cycle 9: soundEvents — SPEC radii, 50%/wall attenuation (analytic), sharp vs
   soft stimuli, engine knock verb + noiseHeard events; knock-lure scenario
   passes end to end (63/63, 9/9)

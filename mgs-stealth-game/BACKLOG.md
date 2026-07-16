@@ -16,7 +16,8 @@ content rotation) take over. L items must be split before selection.
 5c. ~~GuardAI part B~~ DONE cycle 6 (reinforcements + radio check-ins → director module, below).
 5d. ~~Engine module~~ DONE cycle 8 (vision staggering deferred — see below).
 6. ~~SoundEvents~~ DONE cycle 9.
-6b. Render layer: minimum playable | feature | M | Tension | src/render.js (ONLY module touching THREE): isometric camera per SPEC, boxes-for-walls Loading Dock, player+guard meshes with facing, dark-zone floor tint; boot.js starts engine loop + keyboard input (WASD run/crouch/crawl/knock) behind the title screen; screenshot scenes expand to 3 (title, in-game, alert); THE GAME BECOMES PLAYABLE THIS CYCLE.
+6b. ~~Render layer~~ DONE cycle 10 (v0.10 released).
+6c. Cone/marker readability pass | polish | S | Readability | PATROL cone brighter (alpha/edge line); "?"/"!" and detection meter scaled to frustum (readable at 720p); screenshot diff verified by eye.
 7. Radar | feature | M | Readability | top-right soliton radar: walls, player, guards + live cones; static during ALERT/EVASION; canvas-drawn, gorgeous.
 8. HUD | feature | S | Readability | life top-left, item box bottom-right, weapon box bottom-left, alert-phase indicator, zone name cards.
 9. Music | feature | M | Tension | WebAudio state machine sneak→sting→combat→evasion→caution→resolve, crossfades only, failure-isolated no-op wrapper.

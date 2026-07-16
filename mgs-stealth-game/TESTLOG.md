@@ -1,5 +1,35 @@
 # TESTLOG.md
 
+## Cycle 10 (render layer — GAME IS PLAYABLE; release v0.10)
+
+63/63 tests; 9/9 scenarios; 3/3 screenshots inspected by eye (title, patrol
+with wall-clipped green cone, alert with red cone + meter). THREE isolated to
+render.js (grep-verified). Release snapshot releases/v0.10.html + PLAYME.md
+regenerated.
+
+Playtest (real one, via screenshot driving + scripted keys):
+
+**3 problems:**
+1. PATROL cone at alpha 0.18 additive is too faint against the dark floor —
+   the Readability centerpiece shouldn't need squinting. Bump alpha/brightness
+   or add a cone edge line. → backlog (polish, top).
+2. State markers ("?"/"!") and the detection meter are tiny at this camera
+   scale — at 720p they're a few pixels. Scale sprites by frustum size.
+   → backlog (polish).
+3. Camera is near-vertical tilted top-down, not the diagonal MGS isometric;
+   subagent chose it deliberately (wall overlap at 40×30 aspect). Defensible
+   but drifts from SPEC's "locked isometric" — revisit with the peek-rotation
+   feature; keep an eye on it. → backlog (design note).
+
+**3 delights:**
+1. Cones honestly hug walls per-frame (24 raycasts/guard) — what the guard
+   sees and what the fan shows can never disagree. Readability pillar, kept
+   honest by geometry.
+2. Cold-boot file:// double-click → 63 tests → title → playable, all in one
+   196KB file with zero external assets beyond the THREE CDN tag.
+3. The knock lure works with real keyboard input exactly as the headless
+   scenario predicted — sim.js and the browser agree on reality.
+
 ## Cycle 9 (soundEvents + engine noise/knock wiring)
 
 63/63 tests; 9/9 scenarios; screenshot clean. Wall attenuation counts wall

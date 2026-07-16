@@ -12,6 +12,33 @@ const { chromium } = require("playwright");
 const SCENES = [
   // { name, setup(page) } — setup drives the game into the scene before capture.
   { name: "01-boot-title", setup: async (page) => page.waitForTimeout(1500) },
+  {
+    name: "02-ingame-patrol",
+    setup: async (page) => {
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(800);
+      await page.keyboard.down("KeyW");
+      await page.waitForTimeout(600);
+      await page.keyboard.up("KeyW");
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    name: "03-alert",
+    setup: async (page) => {
+      // Teleport the player to a spot ~3m ahead of guard 0's facing so the
+      // render smoke test can capture the ALERT state (red cone + "!") without
+      // waiting out a real patrol route.
+      await page.evaluate(() => {
+        var dbg = window.Game._debug;
+        var guard = dbg.engine.guards[0];
+        var ahead = 3;
+        dbg.engine.player.x = guard.x + Math.cos(guard.facing) * ahead;
+        dbg.engine.player.y = guard.y + Math.sin(guard.facing) * ahead;
+      });
+      await page.waitForTimeout(1200);
+    },
+  },
 ];
 
 (async () => {
