@@ -59,8 +59,7 @@
 //                               // ratchet-rule-2 NOTE on the one assertion
 //                               // that changed): mirrors engine.inventory
 //                               // when present -- name is always "RATION"
-//                               // (the item slot shows rations; chaff has no
-//                               // HUD slot this cycle, see BACKLOG), count is
+//                               // (the item slot shows rations), count is
 //                               // engine.inventory.rations. Falls back to the
 //                               // original placeholder { name: "---", count:
 //                               // null } if engine.inventory is absent (e.g.
@@ -70,6 +69,12 @@
 //                               // the content text out when count === 0 (see
 //                               // drawItemBox), reusing the exact same
 //                               // DEPLETED_COLOR gate as the weapon box.
+//       chaff: number,          // ADDITIVE (chaff cycle): count of chaff
+//                               // grenades held. Mirrors engine.inventory.chaff
+//                               // when present, else 0 (same backward-compat
+//                               // fallback posture as weapon/item above). A
+//                               // small "CHAFF xN" tag is drawn in the view
+//                               // near the item box (grays at 0).
 //       status: "DRAGGING" | "HIDDEN" | "BOX" | null,
 //                               // ADDITIVE field, separate from `item` above
 //                               // by design (see the note on `item` — this
@@ -244,6 +249,7 @@
       item: engine.inventory
         ? { name: "RATION", count: engine.inventory.rations }
         : { name: "---", count: null },
+      chaff: engine.inventory ? engine.inventory.chaff : 0,
       status: engine.playerHidden
         ? "HIDDEN"
         : engine.dragging

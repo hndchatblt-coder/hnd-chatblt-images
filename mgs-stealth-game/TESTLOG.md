@@ -1,5 +1,14 @@
 # TESTLOG.md
 
+## Cycle 30 (polish: audit A3/A4/A11/A12 + v0.30 release)
+
+197/197; 20/20; 5/5 shots. Engine contract block synced to reality; chaff
+count in the HUD (+2 regression tests); SPEC hedged on the two unbuilt
+director features; LOGIC_ORDER unified (radar/hud/music/codec) and six
+self-require guards removed with zero assertion changes. Release v0.30
+snapshotted; PLAYME regenerated. Audit scoreboard: 8/12 closed, A5 merged,
+A7/A9 watch-items, A2 remains (semantics decision).
+
 ## Cycle 29 (bugfix: ration pickups collectible)
 
 195/195; 20/20; 5/5 shots. "ration" wired into collectPickup (no cap v1,

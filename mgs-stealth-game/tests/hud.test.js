@@ -4,17 +4,7 @@
 // here -- screenshot.js is what verifies the rendered canvas actually looks
 // right (open shots/02-ingame-patrol.png and shots/03-alert.png and look).
 //
-// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
-// not yet list src/hud.js, so this file loads it itself, the same require
-// test.js uses for every other src module -- safe in node (require exists as
-// a free variable in every CommonJS module) and a complete no-op in the
-// browser build (build.js's game.html already concatenates src/hud.js, in
-// dependency order, before any tests/*.js content runs -- see build.js's
-// ORDER array, which lists hud.js ahead of the test-file collection step).
-// Mirrors tests/radar.test.js's own self-require guard trick exactly.
-if (typeof require !== "undefined") {
-  require("../src/hud.js");
-}
+// loader unified cycle 30 — see test.js LOGIC_ORDER
 
 const Game = global.Game;
 const DT = 1 / 60;

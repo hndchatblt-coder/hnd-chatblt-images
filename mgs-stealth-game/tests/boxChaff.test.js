@@ -9,18 +9,7 @@
 // teleport-the-player tricks, a dedicated low-level harness for scenarios
 // too fiddly to script through a full engine).
 //
-// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
-// not yet list src/hud.js or src/radar.js, and this file sorts alphabetically
-// BEFORE tests/hud.test.js and tests/radar.test.js (see test.js's loadDir,
-// which requires tests/*.js in sorted filename order) — so this file must do
-// its own self-require of both, the exact same guard tests/hud.test.js and
-// tests/radar.test.js each already carry (safe in node; a complete no-op in
-// the browser build, where build.js already concatenates every src module
-// ahead of any tests/*.js content).
-if (typeof require !== "undefined") {
-  require("../src/hud.js");
-  require("../src/radar.js");
-}
+// loader unified cycle 30 — see test.js LOGIC_ORDER
 
 const Game = global.Game;
 const DT = 1 / 60;

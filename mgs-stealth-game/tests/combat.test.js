@@ -5,15 +5,7 @@
 // push onto the shared Game.selfTests list; test.js runs every entry and
 // reports ok/FAIL with real exit codes.
 //
-// test.js's own LOGIC_ORDER (fixed, out of scope to touch this cycle) does
-// not list src/hud.js — mirrors tests/hud.test.js's own self-require guard
-// trick so the one hudModel assertion below works standalone regardless of
-// tests/ file load order (all tests/*.js files are `require`d before ANY
-// test .fn() runs — see test.js's loadDir then run-loop split — but this
-// keeps combat.test.js correct in isolation too).
-if (typeof require !== "undefined") {
-  require("../src/hud.js");
-}
+// loader unified cycle 30 — see test.js LOGIC_ORDER
 
 const Game = global.Game;
 

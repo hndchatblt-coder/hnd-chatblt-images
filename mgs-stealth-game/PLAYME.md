@@ -1,13 +1,42 @@
-# PLAYME.md — v0.20 (regenerated at cycle 20)
+# PLAYME.md — v0.30 (regenerated at cycle 30)
 
-Open `game.html` (or `releases/v0.20.html`) — double-click, no server. ENTER
-to start. Music starts with the mission (WebAudio needs that first keypress).
+Open `game.html` (or `releases/v0.30.html`) — double-click, no server. ENTER
+to start. **The game is now winnable: reach the Comms Tower helipad and
+extract for a rank. BIG BOSS = zero alerts, zero kills.**
 
 ## Controls
 
 WASD/arrows move · SHIFT run · C crouch · Z crawl · E knock · F tranq dart
 Q CQC (from behind) · G drag body / stuff in locker / hide in locker · B box
-R ration · X chaff grenade
+R ration · X chaff grenade · F5 save · F9 load (continues count against rank)
+
+## New since v0.20 (cycles 21–30)
+
+- **The full facility:** Laboratory (keycard doors L1→L2→L3, timed laser
+  grids, 3 cameras — the L1 keycard hides in the warehouse's dark corner) and
+  the Comms Tower finale (4 interlocking patrols, wide-sweep searchlight
+  cameras, extraction at the north helipad).
+- **Security cameras** — sweeping cones, alerts that send guards to come
+  find you; chaff blinds them 15s. Lasers don't care about chaff or the box.
+- **Codec calls** — COMMANDER (140.85) and MEI (141.12) with procedural
+  pixel portraits; briefing at start, advice on your first alert, first
+  takedown, low darts. SPACE/ENTER to advance.
+- **Win state + rank screen** — TIME/ALERTS/KILLS/DARTS/CQC/RATIONS/
+  CONTINUES, ranks ELEPHANT → JACKAL → DOBERMAN → HOUND → FOX → BIG BOSS.
+- **Save/load** — F5/F9, full sim state, byte-identical resume.
+- The cardboard box no longer lets you fire or CQC from inside it (that was
+  a bug, not a feature).
+
+## Things to try
+
+1. **Go for BIG BOSS:** the ghost route exists — the test suite walks one
+   every run. Dark zones, knocks, and patience.
+2. **Chaff the lab's east wing** — its camera watches the L3 keycard with no
+   geometric dodge; the bonus chaff in that wing is your refund.
+3. **Save before the tower** (F5), try the 4-guard gauntlet loud, F9, try it
+   quiet. Continues count against your rank — the pressure is intentional.
+4. **Split the pair:** miss a dart on purpose near the warehouse's far guard
+   and watch the two patrols pull apart to investigate.
 
 ## New since v0.10 (cycles 11–20)
 

@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.29 (cycle 29 — ration pickup fix)
+**Version:** v0.30 (cycle 30 — audit polish batch; release snapshot)
 
 ## Module status
 
@@ -34,6 +34,8 @@
 
 ## Changelog (last 5)
 
+- cycle 30: polish — engine contract synced, chaff HUD count, SPEC hedges,
+  LOGIC_ORDER unified; v0.30 released, PLAYME regenerated (197/197, 20/20)
 - cycle 29: bugfix — ration pickups collectible (+regression) (195/195, 20/20)
 - cycle 28: win state — extraction terminal, mission stats (cross-zone,
   save-surviving), rank table w/ BIG BOSS, rank screen; capstone BIG BOSS

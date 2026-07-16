@@ -41,11 +41,12 @@
 //
 //   engine — flat, readable props (mutated in place by tick()):
 //     world, player, guards (array), squad, vision, director, rng,
-//       soundEvents, zone — the wired instances/data above (zone === zoneData,
+//       soundEvents, inventory, zone — the wired instances/data above (zone === zoneData,
 //       the plain-object level data; soundEvents is the
 //       Game.createSoundEvents({world}) instance — see src/soundEvents.js
 //       contract; director is the Game.createDirector({...}) instance above —
-//       see src/director.js contract).
+//       see src/director.js contract; inventory is the Game.createInventory()
+//       instance — see src/items.js contract).
 //     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
 //                 advances the simulation by exactly this much regardless of
 //                 wall-clock time — the engine has NO notion of real time; the
@@ -53,6 +54,9 @@
 //                 call tick().
 //     tickCount — integer, number of tick() calls so far (starts at 0).
 //     time      — tickCount * DT, seconds of simulated time elapsed.
+//     gameOver  — boolean, true when player.hp reached 0 (latched — never
+//                 reverts to false once set, see GAME OVER below). tick() is
+//                 a no-op while gameOver is true, so simulation is frozen.
 //     dragging  — NEW (CQC/locker cycle): guardId | null. The id of the
 //                 guard currently being dragged (see DRAG VERB below), or
 //                 null when nothing is in tow. Reset to null on a zone
@@ -60,6 +64,16 @@
 //     playerHidden — NEW (CQC/locker cycle): boolean, true while the player
 //                 is tucked inside a locker (see LOCKER VERB below). Reset to
 //                 false on a zone transition (see switchZone).
+//     chaffUntil — CHAFF VERB: absolute sim-time deadline (compared against
+//                 engine.time, never a countdown counter), 0 meaning "never
+//                 thrown yet". Mission-scoped, NOT reset by switchZone.
+//     stats     — MISSION STATS (new — win-state cycle): mission-scoped stats
+//                 object with fields alertsTotal, dartsFired, cqcTakedowns,
+//                 kills, rationsUsed, chaffUsed, savesUsed, knocksMade,
+//                 missionTimeS. Mission-scoped, NOT reset by switchZone.
+//     missionComplete — EXTRACTION / RANK (new — win-state cycle): boolean,
+//                 true when player has extracted from Comms Tower roof
+//                 (mission victory). Mission-scoped, NOT reset by switchZone.
 //     events    — array of event objects emitted by the MOST RECENT tick()
 //                 only; cleared at the start of every tick() (i.e. it is NOT
 //                 a running log — read it right after calling tick() if you

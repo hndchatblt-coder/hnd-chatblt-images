@@ -46,16 +46,14 @@ content rotation) take over. L items must be split before selection.
 
 - ~~A1: box doesn't gate fire/CQC~~ FIXED cycle 21 (regression test in tests/regressions/).
 - A2: ration/chaff ungated while hidden/dragging | bugfix | S | Readability | decide semantics explicitly (ration-always-ok may stand), document, test.
-- A3: engine contract block missing gameOver/inventory/chaffUntil | polish | S | Readability | fold the last 4 cycles' props into the canonical list.
-- A4: chaff has no HUD slot + dangling "see BACKLOG" comment | polish | S | Readability | show chaff count; fix comment.
+- ~~A3~~ FIXED cycle 30. ~~A4~~ FIXED cycle 30 (chaff HUD + regressions).
 - A5: radar blind to hidden/dragging (dup of existing item — merged) | polish | S | Readability.
 - ~~A6~~ FIXED cycle 22 (renamed + separate crawl scenario).
 - A7: 5 duplicated distance/angle helpers across modules | polish | M | — | acceptable per module-local-math mandate BUT document the invariant; consider tests asserting cross-module agreement instead of merging.
 - ~~A8~~ FIXED cycle 22 (cross-check regression test).
 - A9: 13/15 event types unconsumed in production | note | — | expected (codec/audio consumers pending); recheck at cycle 40 audit.
 - ~~A10~~ FIXED cycle 22 (moveCircle routing + corner-drag regression).
-- A11: SPEC states reinforcements + radio check-ins as fact; unbuilt | polish | S | — | annotate SPEC with (director module, pending) hedges — SPEC stays the target, but no silent contradiction.
-- A12: LOGIC_ORDER never extended; 6 test files carry self-require boilerplate | polish | S | — | add hud/radar/music to test.js LOGIC_ORDER, drop the guards.
+- ~~A11~~ FIXED cycle 30 (SPEC hedges). ~~A12~~ FIXED cycle 30 (loader unified).
 
 ## Non-bootstrap items (from playtests)
 

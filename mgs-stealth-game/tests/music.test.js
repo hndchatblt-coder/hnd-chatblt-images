@@ -7,16 +7,7 @@
 // createMusic().update() runs for real (or no-ops silently) without ever
 // throwing a page error.
 //
-// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
-// not yet list src/music.js, so this file loads it itself, the same require
-// test.js uses for every other src module -- safe in node (require exists as
-// a free variable in every CommonJS module) and a complete no-op in the
-// browser build (build.js's own ORDER array already lists music.js ahead of
-// the test-file collection step -- see build.js). Mirrors tests/radar.test.js
-// and tests/hud.test.js's own self-require guard trick exactly.
-if (typeof require !== "undefined") {
-  require("../src/music.js");
-}
+// loader unified cycle 30 — see test.js LOGIC_ORDER
 
 const Game = global.Game;
 const DT = 1 / 60;

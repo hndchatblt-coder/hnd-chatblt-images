@@ -6,16 +6,7 @@
 // its procedural portraits) actually look right (open shots/04-codec.png and
 // look).
 //
-// test.js's own LOGIC_ORDER (fixed; out of scope to touch this cycle) does
-// not yet list src/codec.js, so this file loads it itself, the same require
-// test.js uses for every other src module -- safe in node (require exists as
-// a free variable in every CommonJS module) and a complete no-op in the
-// browser build (build.js's ORDER array already lists codec.js ahead of the
-// test-file collection step). Mirrors tests/radar.test.js's/tests/music.test.js's
-// own self-require guard trick exactly.
-if (typeof require !== "undefined") {
-  require("../src/codec.js");
-}
+// loader unified cycle 30 — see test.js LOGIC_ORDER
 
 const Game = global.Game;
 

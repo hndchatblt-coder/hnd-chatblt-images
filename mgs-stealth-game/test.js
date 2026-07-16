@@ -17,6 +17,10 @@ const LOGIC_ORDER = [
   "director.js",
   "saveState.js",
   "engine.js",
+  "radar.js",
+  "hud.js",
+  "music.js",
+  "codec.js",
   "tests.js",
 ];
 const srcDir = path.join(__dirname, "src");
