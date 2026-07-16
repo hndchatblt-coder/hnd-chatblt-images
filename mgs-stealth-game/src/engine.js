@@ -76,9 +76,79 @@
 //                     stub). Edge-triggered like "knock": fires once when the
 //                     player ENTERS the trigger region, not once per tick
 //                     spent standing in it (see ZONE TRANSITIONS below).
-//                 More event types (item pickups, damage, ...) will be
-//                 appended by later modules — treat `type` as an open set and
-//                 always branch on it, never assume this is the full list.
+//                   { type: "guardFire", guardId, hit } — a guard in ALERT
+//                     took a shot this tick (see COMBAT below); hit is the
+//                     boolean outcome of guardAI.js's own accuracy roll.
+//                     Fired regardless of hit/miss — a miss is still an
+//                     observable shot (muzzle flash/sound cue material for a
+//                     future render/audio hookup).
+//                   { type: "playerHit", hp } — a guardFire this tick was a
+//                     HIT and player.damage() was applied; hp is
+//                     player.hp AFTER the damage (so consecutive playerHit
+//                     events across a firefight read as a strictly
+//                     decreasing sequence while the player survives).
+//                   { type: "gameOver" } — player.hp reached 0 this tick (see
+//                     GAME OVER below). Fires exactly once, the tick hp hits
+//                     0; never again afterward (engine.gameOver latches, and
+//                     a latched engine stops ticking altogether — see below).
+//                 More event types (item pickups, ...) will be appended by
+//                 later modules — treat `type` as an open set and always
+//                 branch on it, never assume this is the full list.
+//
+//   COMBAT — guard fire / player damage / game over (new this cycle):
+//     Step 3 (guard update loop) below passes each guard.update() a THIRD ctx
+//     field beyond `player`: onGuardFire(guard, hit), guardAI.js's hook for
+//     "this guard just fired" (see its own ALERT/COMBAT contract — it never
+//     applies damage itself, only reports the outcome). This callback, per
+//     shot:
+//       1. Pushes { type: "guardFire", guardId: guard.id, hit: hit }.
+//       2. Emits gunshot NOISE — a genuinely loud, SHARP stimulus regardless
+//          of hit/miss: soundEvents.emitRadius(guard.x, guard.y, 10, true,
+//          guards) (10m unattenuated radius, matching GUARD.FIRE_RANGE; sharp
+//          -> "strong", same semantics as the knock verb — see soundEvents.js
+//          contract). Listeners = every guard on the CURRENT guards array,
+//          same convention as the movement-noise/knock steps in step 2 below
+//          (this necessarily includes the shooter itself as a listener — its
+//          own hearNoise() is a harmless no-op while ALERT/EVASION, per
+//          guardAI.js's hearNoise contract, so no special-casing is needed to
+//          exclude it). Any listener that heard it pushes the same
+//          { type: "noiseHeard", guardId, x, y, strength: "strong" } shape
+//          step 2 uses, x/y being the GUNSHOT's origin (the firing guard's
+//          position at the moment of the shot). This is what lets an
+//          uninvolved squadmate elsewhere in the zone converge on a firefight
+//          it didn't personally see — "gunshot -> ALERT" support fire, using
+//          the SAME hearNoise("strong") pathway a knock uses (a guard already
+//          ALERT/EVASION ignores it per hearNoise's contract; a PATROL/
+//          SUSPICIOUS/CAUTION guard investigates it exactly like any other
+//          strong stimulus, escalating to ALERT itself only through its OWN
+//          confirmed sighting later, same as ever).
+//       3. If hit: calls player.damage(Game.GUARD.FIRE_DAMAGE), then pushes
+//          { type: "playerHit", hp: player.hp } (hp read AFTER damage()).
+//     GAME OVER: after the guard update loop (so it sees any damage a shot
+//     just applied this same tick) — if player.hp has reached 0 and
+//     engine.gameOver isn't already true: sets engine.gameOver = true and
+//     pushes { type: "gameOver" }. Deliberately generic (checks
+//     player.alive, not "was this tick's damage source a guardFire") so ANY
+//     future damage source (traps, a boss, ...) drives game over through the
+//     same single check rather than needing its own copy of this logic.
+//     FROZEN ENGINE: once engine.gameOver is true, tick() returns
+//     IMMEDIATELY as its very first statement on every SUBSEQUENT call — no
+//     event clearing, no player/guard/squad update, no tickCount/time
+//     advance. The tick that actually set gameOver still runs to completion
+//     as normal (its own tickCount++ happens, its gameOver event is visible
+//     via engine.events same as any other tick) — only calls AFTER that one
+//     are no-ops. This means engine.events is left holding that final tick's
+//     events forever after (not re-cleared to [] by the frozen no-op calls)
+//     — callers polling engine.events every frame (see src/boot.js) must
+//     track "have I already reacted to gameOver" themselves rather than
+//     expecting the event to eventually disappear.
+//     RATION HOOK (not this cycle — see items/director TODOs elsewhere): hp
+//     restoration, when it arrives, is expected to be a plain
+//     player.hp = Math.min(1, player.hp + amount) (or an equivalent
+//     player.heal(amount) method) — the inverse shape of player.damage(),
+//     living on src/player.js, NOT engine.js; this module's own job stays
+//     "turn a damage/heal call into an event + a gameOver check", not owning
+//     the hp arithmetic itself.
 //
 //   engine.tick(input?) — advances the simulation by exactly ONE fixed step
 //     (DT seconds). THIS IS THE ONLY SANCTIONED TICK LOOP: render/boot must
@@ -86,6 +156,12 @@
 //     (never by calling player.update/guard.update/squad.tick directly), and
 //     every test/sim harness that wants engine-level behavior should call it
 //     the same way. Canonical per-tick order (do not reorder):
+//       0. FROZEN CHECK (new — see GAME OVER / FROZEN ENGINE above): if
+//          engine.gameOver is already true, return IMMEDIATELY — before
+//          clearing engine.events, before touching player/guards/squad/
+//          tickCount/time. Every other step below only runs on a tick where
+//          this check passes (i.e. every tick up to and including the one
+//          that FIRST sets engine.gameOver).
 //       1. player.update(input, DT). `input` may be null/undefined, meaning
 //          "no movement": it is normalized to
 //          { moveX: 0, moveY: 0, run: false, stance: player.stance } so a
@@ -126,10 +202,21 @@
 //            { type: "noiseHeard", guardId: guard.id, x, y, strength } onto
 //            engine.events (x,y are the SOUND's origin, i.e. the (x,y) passed
 //            to emit/emitRadius above, not the guard's own position).
-//       3. Each guard, in array order: guard.update(DT, { player: player }).
+//       3. Each guard, in array order: guard.update(DT, { player: player,
+//          onGuardFire: onGuardFire }) — onGuardFire is the COMBAT hook
+//          described above; a guard in ALERT within range/LOS/cadence may
+//          call it synchronously from inside this update() call, which is
+//          how a guardFire/playerHit event and a player.damage() call land
+//          within the SAME tick the shot was taken.
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
-//       4. squad.tick(DT, anyLOS) exactly once, where
+//       4. GAME OVER CHECK (new — see GAME OVER above): if !player.alive and
+//          engine.gameOver is not already true, set engine.gameOver = true
+//          and push { type: "gameOver" }. Runs right after the guard loop so
+//          it sees any damage a shot just applied this very tick; checks
+//          player.alive generically (not "did a guardFire happen"), so any
+//          future damage source drives game over through this one check.
+//       5. squad.tick(DT, anyLOS) exactly once, where
 //          anyLOS = guards.some(function (g) { return g.hasLOS; }) — read
 //          directly off each guard's own guard.hasLOS (set every tick by
 //          guard.update's perception step, see guardAI.js contract: "guard.
@@ -146,23 +233,25 @@
 //          header and exercised by sim.js's "full alert ladder" scenario:
 //          update every guard first, THEN squad.tick with the OR of every
 //          guard's hasLOS.
-//       5. Event collection: engine.events is cleared at the TOP of tick(),
-//          before step 1, and squad.phase/alertCount are snapshotted at that
-//          same moment (BEFORE step 2) — a guard's own broadcastAlert() call
-//          (fired from inside guard.update() the instant its meter confirms
-//          sight; see guardAI.js's SUSPICIOUS/INVESTIGATE/EVASION/CAUTION
-//          notes) can flip squad.phase/alertCount immediately, well before
-//          squad.tick() runs in step 4, so a snapshot taken any later would
-//          miss exactly that transition. After step 4, the snapshot is
-//          compared against the live squad.phase/alertCount: phaseChange
-//          when phase differs; alert when alertCount increased, using the
-//          NEW squad.lastKnown for x/y since an alertCount bump only happens
-//          alongside a broadcastAlert() call that just set lastKnown (see
-//          guardAI.js's squad contract). The "knock"/"noiseHeard" events from
-//          step 2 are pushed directly at emission time (step 2), not diffed
-//          from a snapshot — they're edge-triggered facts about that step,
-//          not state to compare before/after.
-//       6. ZONE TRANSITIONS (new — after squad.tick, using its just-updated
+//       6. Event collection: engine.events is cleared at the TOP of tick(),
+//          right after the frozen check (step 0), before step 1, and
+//          squad.phase/alertCount are snapshotted at that same moment
+//          (BEFORE step 2) — a guard's own broadcastAlert() call (fired from
+//          inside guard.update() the instant its meter confirms sight; see
+//          guardAI.js's SUSPICIOUS/INVESTIGATE/EVASION/CAUTION notes) can
+//          flip squad.phase/alertCount immediately, well before squad.tick()
+//          runs in step 5, so a snapshot taken any later would miss exactly
+//          that transition. After step 5, the snapshot is compared against
+//          the live squad.phase/alertCount: phaseChange when phase differs;
+//          alert when alertCount increased, using the NEW squad.lastKnown for
+//          x/y since an alertCount bump only happens alongside a
+//          broadcastAlert() call that just set lastKnown (see guardAI.js's
+//          squad contract). The "knock"/"noiseHeard" (step 2) and
+//          "guardFire"/"playerHit"/"gameOver" (steps 3-4) events are pushed
+//          directly at emission time, not diffed from a snapshot — they're
+//          edge-triggered facts about those steps, not state to compare
+//          before/after.
+//       7. ZONE TRANSITIONS (new — after squad.tick, using its just-updated
 //          phase; see squad.phase design rule below): if the player is
 //          standing inside ANY of zone.exits[] (world.inRegion(player.x,
 //          player.y, exits[i])) AND squad.phase === "INFILTRATION" this tick:
@@ -174,11 +263,14 @@
 //              v1 semantics, see design note below). The player object itself
 //              is also rebuilt (Game.createPlayer only takes its world at
 //              construction, see src/player.js contract — there is no hook to
-//              swap a live player's world), but its stance and facing are
-//              copied onto the new instance and its position is set to
-//              target.entrances[exits[i].entranceKey] — so from the outside
-//              (engine.player.stance/facing/x/y) this reads as "the same
-//              player, teleported to the new zone's entrance." engine.zone/
+//              swap a live player's world), but its stance, facing, hp, and
+//              alive are copied onto the new instance (hp/alive copied so a
+//              zone transition never doubles as a free heal — a fresh
+//              Game.createPlayer defaults to full hp) and its position is set
+//              to target.entrances[exits[i].entranceKey] — so from the
+//              outside (engine.player.stance/facing/x/y/hp) this reads as
+//              "the same player, teleported to the new zone's entrance."
+//              engine.zone/
 //              world/player/guards/squad/vision/soundEvents are all
 //              reassigned to the new instances; rng is NOT rebuilt (the one
 //              seeded stream continues across zones, which is what makes the
@@ -201,7 +293,7 @@
 //          when ALERT interrupts, then the squad stands down while they're
 //          still standing there, no second zoneBlocked fires (it reads as one
 //          continuous, uninterrupted "entry").
-//       7. tickCount++ and time = tickCount * DT.
+//       8. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
 //   is for guard i to refresh its expensive computeSight only on ticks where
@@ -226,9 +318,11 @@
 //       {
 //         tickCount: number,
 //         zoneId: string,      // NEW — engine.zone.id at the moment of the snapshot
-//         player: { x, y, stance, facing },
+//         player: { x, y, stance, facing, hp, alive },  // hp/alive NEW — see
+//                              // GAME OVER above, mirror player.hp/alive verbatim
 //         guards: [ { id, x, y, state, meter, facing }, ... ],  // same order as engine.guards
 //         squad: { phase, phaseTime, lastKnown, alertCount },
+//         gameOver: boolean,   // NEW — engine.gameOver verbatim; see GAME OVER above
 //       }
 //
 // Pure JS logic — no THREE, no DOM, no Date/Math.random/performance.now used
@@ -335,7 +429,36 @@
       tickCount: 0,
       time: 0,
       events: [],
+      gameOver: false,
     };
+
+    // COMBAT (see file header) — passed as ctx.onGuardFire to every
+    // guard.update() call in the tick() guard loop below. References the
+    // OUTER `player`/`guards`/`soundEvents`/`engine` closure vars directly
+    // (not local copies), so it stays correct across a zone transition's
+    // reassignment of those vars (see switchZone below) without needing to be
+    // rebuilt itself.
+    function onGuardFire(guard, hit) {
+      engine.events.push({ type: "guardFire", guardId: guard.id, hit: hit });
+
+      var noiseResults = soundEvents.emitRadius(guard.x, guard.y, 10, true, guards);
+      for (var ni = 0; ni < noiseResults.length; ni++) {
+        if (noiseResults[ni].heard) {
+          engine.events.push({
+            type: "noiseHeard",
+            guardId: noiseResults[ni].listenerId,
+            x: guard.x,
+            y: guard.y,
+            strength: noiseResults[ni].strength,
+          });
+        }
+      }
+
+      if (hit) {
+        player.damage(Game.GUARD.FIRE_DAMAGE);
+        engine.events.push({ type: "playerHit", hp: player.hp });
+      }
+    }
 
     // ZONE TRANSITIONS (see file header, tick() step 6). Rebuilds the entire
     // world/soundEvents/vision/squad/guards stack for `targetZone`, and a
@@ -362,6 +485,16 @@
       newPlayer.y = entrance.y;
       newPlayer.stance = player.stance;
       newPlayer.facing = player.facing;
+      // hp/alive carry across the switch too (a fresh Game.createPlayer
+      // defaults to full hp — copying these over is what keeps "walked
+      // through a door" from doubling as a free heal; see src/player.js hp
+      // contract). A dead player can't be standing in an exit trigger in the
+      // first place (tryZoneTransition only runs while squad.phase is
+      // INFILTRATION, and player.update ignores input once !alive, but
+      // neither of those actually forbids this path on paper) — copied
+      // defensively regardless.
+      newPlayer.hp = player.hp;
+      newPlayer.alive = player.alive;
 
       zone = targetZone;
       world = newWorld;
@@ -418,6 +551,10 @@
     }
 
     function tick(input) {
+      // FROZEN CHECK (see file header, tick() step 0) — a latched gameOver
+      // stops the sim cold: no event clearing, no state mutation whatsoever.
+      if (engine.gameOver) return;
+
       engine.events = [];
 
       // Captured BEFORE guards update: a guard's own broadcastAlert() call
@@ -475,7 +612,15 @@
       // ---- END NOISE STEP ---------------------------------------------------
 
       for (var i = 0; i < guards.length; i++) {
-        guards[i].update(DT, { player: player });
+        guards[i].update(DT, { player: player, onGuardFire: onGuardFire });
+      }
+
+      // GAME OVER CHECK (see file header, tick() step 4) — generic on
+      // player.alive, not "did a guardFire just happen," so any future
+      // damage source drives game over through this one check.
+      if (!engine.gameOver && !player.alive) {
+        engine.gameOver = true;
+        engine.events.push({ type: "gameOver" });
       }
 
       var anyLOS = guards.some(function (g) {
@@ -509,6 +654,8 @@
           y: player.y,
           stance: player.stance,
           facing: player.facing,
+          hp: player.hp,
+          alive: player.alive,
         },
         guards: guards.map(function (g) {
           return { id: g.id, x: g.x, y: g.y, state: g.state, meter: g.meter, facing: g.facing };
@@ -519,6 +666,7 @@
           lastKnown: squad.lastKnown,
           alertCount: squad.alertCount,
         },
+        gameOver: engine.gameOver,
       };
     }
 

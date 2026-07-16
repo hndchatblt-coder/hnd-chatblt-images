@@ -11,6 +11,35 @@
 // container element), drives the fixed-timestep accumulator loop, and turns
 // keyboard state into engine.tick() input objects. Every Three.js call lives
 // in src/render.js.
+//
+// GAME OVER + RESTART (new — see src/engine.js's GAME OVER / FROZEN ENGINE
+// contract): runGame(rootEl) is the ONE code path that stands up a full
+// playthrough — engine, renderer, radar, hud, music, input listeners, and the
+// rAF frame loop. Both the very first playthrough (from the title screen) and
+// every RETRY after a game over go through this exact same function; there is
+// no separate "restart" implementation to drift out of sync with "start."
+// Each call:
+//   - tears down the PREVIOUS instance first (if any): stops its frame loop
+//     (a closure `stopped` flag the old frame() checks before scheduling its
+//     next requestAnimationFrame) and removes its window keydown/keyup/resize
+//     listeners, via a `currentGame.stop()` handle stashed in the module-level
+//     `currentGame` var. Without this, a second runGame() call would leave
+//     the old game's input listeners AND rAF loop still alive alongside the
+//     new one — every keypress double-firing into two engines, both ticking.
+//   - clears rootEl's DOM (rootEl.innerHTML = "") — wipes the previous
+//     renderer/radar/hud canvases (and the title screen div, and any
+//     game-over overlay) in one shot, so a fresh renderer/radar/hud can
+//     re-append their own canvases into a clean container.
+//   - builds a brand-new engine/renderer/radar/hud/music stack exactly like
+//     the original startGame() did, and starts its own frame loop.
+// Each playthrough's frame() checks engine.events for a "gameOver" entry
+// once per animation frame, right after draining the tick accumulator (see
+// engine.js: a frozen engine leaves its final tick's events sitting in
+// engine.events forever, so this check is guarded by a local `gameOverShown`
+// flag — react to the FIRST frame that sees it, ignore every frame after).
+// On first sight: shows the MISSION FAILED overlay (showGameOver below);
+// pressing Enter on it removes the overlay and calls runGame(rootEl) again —
+// the retry IS just another call to the one true startup path.
 (function (Game) {
   function runSelfTests() {
     // Game.selfTests is populated by src/tests.js (same assertions node runs).
@@ -38,8 +67,22 @@
     Enter: true,
   };
 
-  function startGame(rootEl, titleEl) {
-    rootEl.removeChild(titleEl);
+  // Handle to the currently-running playthrough's teardown, so a second
+  // runGame() call (a retry after game over) can cleanly stop the previous
+  // one's frame loop/listeners before standing up a fresh one — see the file
+  // header's GAME OVER + RESTART note. null before the first playthrough.
+  var currentGame = null;
+
+  function runGame(rootEl) {
+    if (currentGame) {
+      currentGame.stop();
+      currentGame = null;
+    }
+    // Wipes whatever was in rootEl before this call — the title screen div on
+    // the very first call, or the previous playthrough's renderer/radar/hud
+    // canvases (and any game-over overlay) on a retry. Every DOM element this
+    // function creates is appended fresh below.
+    rootEl.innerHTML = "";
 
     var engine = Game.createEngine();
     var renderer = Game.createRenderer({ container: rootEl, zone: engine.zone });
@@ -48,8 +91,9 @@
     var music = Game.createMusic();
 
     // AUDIO GESTURE: WebAudio requires a user gesture to construct/resume an
-    // AudioContext. startGame() is only ever invoked synchronously from the
-    // Enter-keydown handler (see onEnter in showTitle below) — so calling
+    // AudioContext. runGame() is only ever invoked synchronously from a
+    // keydown handler (title screen Enter, see onEnter in showTitle below; or
+    // the game-over retry Enter, see showGameOver below) — so calling
     // music.update() once right here, still inside that keydown event's call
     // stack, lazily constructs music's AudioContext (and starts fading in the
     // "sneak" bed) WHILE the gesture is live, instead of waiting for the
@@ -87,11 +131,13 @@
       held[e.code] = false;
     }
 
+    function onResize() {
+      renderer.resize();
+    }
+
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("resize", function () {
-      renderer.resize();
-    });
+    window.addEventListener("resize", onResize);
 
     function buildInput() {
       var moveX = 0;
@@ -115,8 +161,11 @@
     var MAX_ACC = 0.25; // caps the catch-up burst after e.g. a suspended tab
     var acc = 0;
     var lastNow = null;
+    var stopped = false; // set true by stop(), below — makes frame() a no-op
+    var gameOverShown = false; // latches once the overlay has been shown
 
     function frame(now) {
+      if (stopped) return;
       if (lastNow === null) lastNow = now;
       var frameDt = (now - lastNow) / 1000;
       lastNow = now;
@@ -129,6 +178,23 @@
         acc -= DT;
       }
 
+      // GAME OVER (see engine.js's GAME OVER / FROZEN ENGINE contract, and
+      // this file's header note): engine.events keeps holding the tick that
+      // set engine.gameOver forever after (a frozen engine no longer clears
+      // it), so gameOverShown is what keeps this from re-showing the overlay
+      // every subsequent frame.
+      if (!gameOverShown) {
+        for (var i = 0; i < engine.events.length; i++) {
+          if (engine.events[i].type === "gameOver") {
+            gameOverShown = true;
+            showGameOver(rootEl, function onRetry() {
+              runGame(rootEl);
+            });
+            break;
+          }
+        }
+      }
+
       renderer.render(engine);
       radar.render(engine);
       hud.render(engine);
@@ -136,7 +202,44 @@
       requestAnimationFrame(frame);
     }
 
+    function stop() {
+      stopped = true;
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("resize", onResize);
+    }
+
+    currentGame = { stop: stop };
+
     requestAnimationFrame(frame);
+  }
+
+  // MISSION FAILED overlay (see file header's GAME OVER + RESTART note).
+  // Dark backdrop, red monospace text, blocks nothing but keyboard focus
+  // (this file owns no pointer-interactive elements, so no pointer-events
+  // handling is needed). Enter -> removes itself, then hands control back to
+  // onRetry (runGame(rootEl) again).
+  function showGameOver(rootEl, onRetry) {
+    var overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,0.86);color:#f33;" +
+      "display:flex;align-items:center;justify-content:center;" +
+      "flex-direction:column;font:16px monospace;letter-spacing:0.2em;" +
+      "z-index:9999";
+    overlay.innerHTML =
+      "<div style='font-size:44px'>MISSION FAILED</div>" +
+      "<div style='margin-top:26px;font-size:18px;letter-spacing:0.15em;color:#fff'>" +
+      "PRESS ENTER TO RETRY</div>";
+    rootEl.appendChild(overlay);
+
+    function onEnter(e) {
+      if (e.code !== "Enter") return;
+      e.preventDefault();
+      window.removeEventListener("keydown", onEnter);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      onRetry();
+    }
+    window.addEventListener("keydown", onEnter);
   }
 
   function showTitle(rootEl, results) {
@@ -157,7 +260,7 @@
       if (e.code !== "Enter") return;
       e.preventDefault();
       window.removeEventListener("keydown", onEnter);
-      startGame(rootEl, title);
+      runGame(rootEl);
     }
     window.addEventListener("keydown", onEnter);
   }

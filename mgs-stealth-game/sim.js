@@ -804,6 +804,159 @@ scenarios.push({
   },
 });
 
+// ---- combat playtest scenario (cycle: combat) ------------------------------
+// A full firefight round-trip against the REAL engine: get made (ALERT),
+// take at least one hit, then break contact and survive long enough for the
+// squad ladder to wind all the way back down on its own — the "shootout,
+// then get away" loop the guardFire/playerHit/gameOver wiring exists for.
+
+scenarios.push({
+  name: "firefight survival: alert, take hits, break contact, survive",
+  seed: 20260716010,
+  run: function (G) {
+    const zone = G.ZONES.loadingDock;
+    const engine = G.createEngine({ seed: this.seed, zoneData: zone });
+    const guard = engine.guards[0];
+
+    // Teleport 5m directly ahead of the guard's initial facing (0 rad, +x —
+    // guard g1 spawns AT its own first waypoint, see src/guardAI.js's
+    // initialFacing derivation) — the same close-range, dead-ahead setup
+    // tests/combat.test.js's engine-driven tests use to force a real ALERT
+    // (and, this cycle, real gunfire) quickly and reliably, without waiting
+    // out a full patrol route.
+    engine.player.x = guard.x + Math.cos(guard.facing) * 5;
+    engine.player.y = guard.y + Math.sin(guard.facing) * 5;
+
+    // ---- Phase 1: hold position and eat at least one hit ----
+    const HOLD_MAX_TICKS = Math.round(25 / DT);
+    let tookHit = false;
+    let guardFireAfterAlertEnded = false;
+    let alertEverSeen = false;
+    let alertEndedTick = null; // tick index (in the flattened count below) ALERT first stopped being the phase
+    let tickIndex = 0;
+
+    for (; tickIndex < HOLD_MAX_TICKS && !tookHit; tickIndex++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.phase === "ALERT") alertEverSeen = true;
+      for (const ev of engine.events) {
+        if (ev.type === "playerHit") tookHit = true;
+      }
+    }
+    if (!alertEverSeen) {
+      throw new Error("setup invalid: squad never reached ALERT while the player held position in plain sight");
+    }
+    if (!tookHit) {
+      throw new Error("setup invalid: player never took a hit within " + (HOLD_MAX_TICKS * DT).toFixed(0) + "s of holding position under fire");
+    }
+    const hpAfterFirstHit = engine.player.hp;
+    if (!(hpAfterFirstHit < 1 && hpAfterFirstHit > 0)) {
+      throw new Error("expected 0 < hp < 1 right after the first hit, got " + hpAfterFirstHit);
+    }
+
+    // ---- Phase 2: break contact — flee to the west-flank dark zone ----
+    // (x:2-7, y:9-20 — see src/world.js's loadingDock.darkZones), landing at
+    // (4, 15): comfortably inside it, and far from BOTH squad.lastKnown
+    // (pinned at wherever the player was actually last SEEN — near the
+    // encounter point around (6-8, 2), see below) and every leg of the
+    // guard's own patrol/CAUTION waypoint loop (the 4 perimeter corners at
+    // roughly x~3/x~37/y~2/y~27 — see loadingDock.waypoints in src/world.js),
+    // so neither EVASION's convergence-and-sweep at lastKnown nor CAUTION's
+    // widened-cone patrol of the perimeter ever comes close enough to
+    // re-spot the player here (verified empirically against several
+    // candidate hideouts while authoring this scenario — a full scripted
+    // sprint across the map, tried first, kept ending in the player either
+    // running face-first into the west shipping container's north face
+    // (guard hut/container geometry — see src/world.js) or, once it did
+    // route around, getting run down again during EVASION's convergence
+    // since it stopped moving at a reachable point, which both re-enables
+    // the un-halved base 0.75 hit chance (see the ALERT/COMBAT accuracy note
+    // in src/guardAI.js: player.moving must stay true for the halving to
+    // apply) and gives the guard time to close in — repeatedly fatal in
+    // practice). A teleport here is the same "jump straight to the next
+    // beat" technique tests/combat.test.js and screenshot.js's scene setup
+    // already use to skip re-deriving a full walking route for state that
+    // isn't what's under test; what IS under test (a real hit taken, a real
+    // multi-tick FSM ladder unwind, real guardFire-after-ALERT exclusion) is
+    // still driven entirely through engine.tick().
+    engine.player.x = 4;
+    engine.player.y = 15;
+    engine.player.stance = "crouch";
+
+    const BREAK_MAX_TICKS = Math.round(5 / DT); // hasLOS should fail the very next tick
+    let brokeContact = false;
+    for (let i = 0; i < BREAK_MAX_TICKS && !brokeContact; i++, tickIndex++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      if (engine.squad.phase === "ALERT") alertEverSeen = true;
+      if (alertEndedTick === null && engine.squad.phase !== "ALERT") alertEndedTick = tickIndex;
+      for (const ev of engine.events) {
+        if (ev.type === "guardFire" && alertEndedTick !== null) guardFireAfterAlertEnded = true;
+      }
+      if (engine.squad.phase === "EVASION" || engine.squad.phase === "CAUTION" || engine.squad.phase === "INFILTRATION") {
+        brokeContact = true;
+      }
+    }
+    if (!brokeContact) {
+      throw new Error("player never broke contact (squad stayed ALERT) within " + (BREAK_MAX_TICKS * DT).toFixed(0) + "s of fleeing to the dark zone");
+    }
+
+    // ---- Phase 3: hold in the dark zone and let the squad ladder wind all the way down ----
+    const COOLDOWN_MAX_TICKS = Math.round(120 / DT); // EVASION_S(30) + CAUTION_S(45) + generous margin
+    let sawEvasion = engine.squad.phase === "EVASION";
+    let sawCaution = engine.squad.phase === "CAUTION";
+    let backToInfiltration = engine.squad.phase === "INFILTRATION";
+    for (let i = 0; i < COOLDOWN_MAX_TICKS && !backToInfiltration; i++, tickIndex++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      if (engine.squad.phase === "EVASION") sawEvasion = true;
+      if (engine.squad.phase === "CAUTION") sawCaution = true;
+      if (engine.squad.phase === "INFILTRATION") backToInfiltration = true;
+      for (const ev of engine.events) {
+        if (ev.type === "guardFire" && alertEndedTick !== null) guardFireAfterAlertEnded = true;
+      }
+    }
+
+    if (!sawEvasion) throw new Error("squad never passed through EVASION after breaking contact");
+    if (!sawCaution) throw new Error("squad never passed through CAUTION after EVASION");
+    if (!backToInfiltration) {
+      throw new Error("squad never wound all the way back down to INFILTRATION within " + (COOLDOWN_MAX_TICKS * DT).toFixed(0) + "s of breaking contact");
+    }
+    if (guardFireAfterAlertEnded) {
+      throw new Error("a guard fired a shot after ALERT had already ended — firing must be exclusive to ALERT");
+    }
+    if (!(engine.player.hp > 0)) {
+      throw new Error("expected player.hp > 0 (survived) at the end, got " + engine.player.hp);
+    }
+    if (engine.player.hp >= 1) {
+      throw new Error("expected player.hp < 1 (damage was actually taken) at the end, got " + engine.player.hp);
+    }
+    if (!engine.player.alive) {
+      throw new Error("expected player.alive true at the end");
+    }
+    if (engine.gameOver) {
+      throw new Error("expected engine.gameOver false — the player should have survived the firefight");
+    }
+
+    const snapshot = engine.snapshot();
+    let json;
+    try {
+      json = JSON.stringify(snapshot);
+    } catch (e) {
+      throw new Error("final snapshot() is not JSON-serializable: " + (e && e.message));
+    }
+    if (typeof json !== "string" || json.length === 0) {
+      throw new Error("final snapshot() serialized to an unexpected empty value");
+    }
+    if (snapshot.gameOver !== false || snapshot.player.alive !== true) {
+      throw new Error("final snapshot should read gameOver:false, player.alive:true, got " + json);
+    }
+
+    // A few more ticks for good measure: the engine keeps ticking cleanly
+    // (no throw) well after the whole ladder has resolved.
+    for (let i = 0; i < 60; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

@@ -17,11 +17,30 @@
 //                               resolve — it reflects INTENT to move, not
 //                               whether a wall fully absorbed it).
 //     player.radius           — 0.4 (constant)
+//     player.hp               — 0..1, starts at 1 (full health). Damage
+//                               reduces it (see player.damage below); nothing
+//                               in this module restores it (a future
+//                               items/ration cycle would call damage() with a
+//                               negative amount, or add its own setter — hp is
+//                               a plain mutable property, not read-only).
+//     player.alive            — boolean, player.hp > 0. Kept as a separate
+//                               flat prop (rather than making callers compare
+//                               hp themselves) so "is the player still in the
+//                               fight" is a single obvious read. Recomputed
+//                               every time hp changes (i.e. inside damage());
+//                               never touched by update().
 //
 //   player.update(input, dt):
 //     input: { moveX: -1..1, moveY: -1..1, run: boolean,
 //              stance: "stand" | "crouch" | "crawl" }
 //     dt: fixed timestep in seconds (engine uses 1/60).
+//     - DEAD PLAYER: if !player.alive, update() ignores input entirely — no
+//       movement, no facing/stance change. player.moving and player.running
+//       are forced to false (so noiseRadius()/vision profile callers reading
+//       a dead player don't see a stale "was moving" flag) and the function
+//       returns immediately. Position, facing, and stance are left exactly as
+//       they were at the moment of death (a frozen pose), consistent with
+//       engine.js's gameOver freeze (see src/engine.js contract).
 //     - The (moveX, moveY) vector is clamped to magnitude 1 (diagonal input is
 //       not faster than axis-aligned input).
 //     - input.stance sets player.stance for this tick (and is retained if the
@@ -32,6 +51,18 @@
 //     - facing updates only on nonzero input; otherwise unchanged.
 //     - Movement is resolved through world.moveCircle — the player can never
 //       end up overlapping a wall.
+//
+//   player.damage(amount) — reduces player.hp by `amount` (same 0..1 unit as
+//   hp itself), clamped so hp never goes below 0 (over-damage is silently
+//   silently absorbed, not tracked as "overkill"). Recomputes player.alive
+//   (hp > 0) immediately after. Amount is expected non-negative (a future
+//   ration/heal hook would be its own method, not a negative-amount call to
+//   this one — see the hp note above); this function itself does not clamp
+//   the upper bound past 1 because it only ever subtracts, never adds. Pure
+//   state mutation — no events, no side effects beyond hp/alive; callers
+//   (engine.js) are responsible for turning a damage() call into any
+//   observable event (e.g. {type:"playerHit"}) and for checking
+//   player.alive afterward to drive game-over.
 //
 //   player.visionProfile() -> number
 //     Perception multiplier for the vision module: stand 1.0, crouch 0.6
@@ -87,6 +118,8 @@
       running: false,
       moving: false,
       radius: RADIUS,
+      hp: 1,
+      alive: true,
     };
 
     function speedFor(stance, run) {
@@ -98,6 +131,16 @@
 
     function update(input, dt) {
       input = input || {};
+
+      if (!player.alive) {
+        // Dead: ignore input entirely, no movement, no facing/stance change
+        // (see file header). Position/facing/stance stay exactly as they
+        // were the instant hp hit 0.
+        player.moving = false;
+        player.running = false;
+        return;
+      }
+
       if (input.stance !== undefined) player.stance = input.stance;
 
       var rawX = input.moveX || 0;
@@ -137,9 +180,17 @@
       return NOISE_WALK;
     }
 
+    // See file header: pure hp/alive mutation, no events/side effects beyond
+    // that — engine.js turns this into observable events and game-over.
+    function damage(amount) {
+      player.hp = Math.max(0, player.hp - amount);
+      player.alive = player.hp > 0;
+    }
+
     player.update = update;
     player.visionProfile = visionProfile;
     player.noiseRadius = noiseRadius;
+    player.damage = damage;
 
     return player;
   }

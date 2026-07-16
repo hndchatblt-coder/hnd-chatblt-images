@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.15 (cycle 15 — Warehouse + transitions)
+**Version:** v0.16 (cycle 16 — combat/hp/game over)
 
 ## Module status
 
@@ -26,12 +26,15 @@
 ## Known issues
 
 - engine.events clears every tick — consumers must drain post-tick same-tick.
-- ALERT guards hold at 2m with no damage — player HP lands with items/HUD.
+- No render damage feedback (hit flash) yet — hp only visible in LIFE bar.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 16: combat — player hp, ALERT gunfire (grace + cadence + stance-aware
+  accuracy), gunshot noise, MISSION FAILED + restart, engine freeze (95/95,
+  11/11)
 - cycle 15: Warehouse zone (aisle maze, 2 guards, 2 loops) + INFILTRATION-gated
   zone transitions, cross-zone determinism (87/87, 10/10)
 - cycle 14: music — sneak/combat/evasion/caution beds + sting/resolve

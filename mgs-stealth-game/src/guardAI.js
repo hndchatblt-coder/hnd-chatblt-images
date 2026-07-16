@@ -17,6 +17,15 @@
 //       CAUTION_FOV_MULT: 1.3,    // widened cone angle multiplier while squad is CAUTION
 //       CAUTION_RANGE_MULT: 1.2,  // widened cone range multiplier while squad is CAUTION
 //       CAUTION_SPEED: 2.0,       // m/s, patrol speed while squad is CAUTION
+//       FIRE_RANGE: 10,           // m — max distance ALERT will fire from
+//       FIRE_INTERVAL_S: 1.5,     // s between shots, per guard, once firing
+//       FIRE_DAMAGE: 0.15,        // hp fraction a HIT shot deals (applied by
+//                                 // the engine, not this module — see below)
+//       FIRE_FIRST_DELAY_S: 0.6,  // s grace period after ENTERING ALERT
+//                                 // before the first shot — gives the player
+//                                 // a beat to react/break LOS before combat
+//                                 // starts, rather than an instant shot the
+//                                 // moment the meter tips over ALERT_AT.
 //       MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity }
 //         // hard invariants: a guard's stateTime in SUSPICIOUS/INVESTIGATE must
 //         // NEVER exceed these (INVESTIGATE includes travel time to the
@@ -114,12 +123,16 @@
 //              moveCircle/raycast(indirectly through vision)/inRegion/zone.
 //   vision:    a Game.createVision({world}) instance (src/vision.js) —
 //              consumed via computeSight/tickMeter.
-//   rng:       a Game.createRng(seed) instance (src/rng.js). Stored but not
-//              required by this module's own logic (all FSM timing/sweeps
-//              are deterministic functions of stateTime, not dice rolls);
-//              kept in the signature so future pick()-style choices (e.g.
-//              random alternate patrol routes) have it available without an
-//              API change.
+//   rng:       a Game.createRng(seed) instance (src/rng.js). All FSM
+//              timing/sweeps remain deterministic functions of stateTime, not
+//              dice rolls — the one consumer of rng.next() in this module is
+//              ALERT's fire-accuracy roll (see the ALERT/COMBAT section
+//              below). engine.js hands every guard on a squad the SAME rng
+//              instance (rng.js's own "single source of randomness for the
+//              whole game" rule) — multiple guards' fire rolls draw from one
+//              shared sequence, consumed in whatever order their update()
+//              calls happen to fire a shot that tick (array order), which is
+//              still fully deterministic given a fixed seed and input log.
 //   spawn:     { x, y } initial position. Defaults to waypoints[0], or
 //              world.zone.playerSpawn if no waypoints are given.
 //   waypoints: [{x,y}, ...] patrol loop, walked in array order then wrapped
@@ -184,9 +197,17 @@
 //   into the matching state the very next tick regardless of what it was
 //   doing (that forcing IS the "radio call" — see ALERT below).
 //
-//   guard.update(dt, ctx) — ctx = { player }, player satisfying the
-//   target/player contract ({x, y, visionProfile()}). Call once per tick
-//   (engine uses dt = 1/60). Per tick:
+//   guard.update(dt, ctx) — ctx = { player, onGuardFire? }, player satisfying
+//   the target/player contract ({x, y, visionProfile(), moving, stance} — the
+//   last two are read only by ALERT's fire-accuracy roll, see below).
+//   onGuardFire(guard, hit) is an OPTIONAL callback: this module calls it the
+//   instant this guard fires a shot (see ALERT below), passing itself and the
+//   boolean hit/miss outcome — it does NOT apply any damage itself ("engine
+//   owns consequences", per the file's combat design). Omitting onGuardFire
+//   (e.g. every part-A/part-B test, sim.js scenario predating combat) is
+//   silently fine: a fired shot with no callback simply produces no
+//   observable side effect outside this guard's own internal fire-timer
+//   bookkeeping. Call once per tick (engine uses dt = 1/60). Per tick:
 //     0. stateTime += dt, up front (unchanged from part A).
 //     1. RADIO CALL / SQUAD-PHASE SYNC (new in part B, runs before
 //        perception): if squad.phase is ALERT/EVASION/CAUTION and this
@@ -260,9 +281,8 @@
 //           the line and — because it re-reads the player's current position
 //           every tick — track a moving player while holding that gap; it
 //           NEVER overlaps the player by construction). Facing tracks the
-//           player continuously. This is where combat lands once the items
-//           cycle adds a damage system — for now, reaching ARREST_DIST is
-//           the end state: hold position, face them.
+//           player continuously — this is also what a fire attempt (below)
+//           relies on to guarantee "facing toward the player" for free.
 //         - if this guard does NOT currently hasLOS: it calls
 //           squad.loseContact() (see squad contract — a documented no-op on
 //           squad state) and instead converges on squad.lastKnown (the
@@ -274,6 +294,37 @@
 //       (GUARD.MAX_STATE_S.ALERT === Infinity) — it persists for exactly as
 //       long as squad.phase says ALERT, which is governed by squad.tick(),
 //       not by this guard alone (see EVASION below for how it ends).
+//       COMBAT (fire behavior — exclusive to ALERT; EVASION/CAUTION never
+//       fire, by definition they have no confirmed LOS to fire on): each
+//       guard keeps a private fire-timer, reset to 0 the instant it
+//       (re-)enters ALERT (via setState — so re-broadcasting while ALREADY
+//       ALERT does not reset it, per broadcastAlert's own no-op-if-already-
+//       ALERT rule, but an EVASION -> ALERT re-engagement DOES, since that's
+//       a fresh setState("ALERT", ...) call — a freshly re-acquired contact
+//       earns a fresh grace period). The timer advances by dt every ALERT
+//       tick regardless of hasLOS (a per-guard clock, not a LOS-gated one).
+//       The first shot is eligible once the timer reaches
+//       GUARD.FIRE_FIRST_DELAY_S (0.6s — a beat for the player to react
+//       before combat starts); every shot after a successful one is eligible
+//       GUARD.FIRE_INTERVAL_S (1.5s) later. An eligible tick actually fires
+//       only if guard.hasLOS is true AND the straight-line distance to
+//       ctx.player is <= GUARD.FIRE_RANGE (10m) — an eligible tick that fails
+//       this check is NOT consumed (the interval is not advanced), so the
+//       guard keeps re-checking every subsequent tick and fires the instant
+//       LOS/range is regained, rather than waiting out a fresh interval.
+//       "Facing must be toward the player to fire" needs no separate check:
+//       tickAlert always sets guard.facing = atan2(target - guard) at the end
+//       of its pursuit step above, with target === the player's live
+//       position whenever hasLOS is true — exactly the condition gating a
+//       fire attempt — so facing is toward the player by construction on
+//       every tick a shot is even considered. On a firing tick: rolls hit
+//       chance — base 0.75, halved (x0.5) if ctx.player.moving is true, and
+//       halved again (a further x0.5, i.e. x0.25 combined) if
+//       ctx.player.stance is "crouch" or "crawl" — via this guard's own
+//       rng.next() < chance, then calls ctx.onGuardFire(guard, hit) if the
+//       caller provided it (see ctx's contract above) — this module never
+//       applies damage itself, only reports the outcome ("engine owns
+//       consequences").
 //     EVASION — entered only via the radio-call sync (step 1) when
 //       squad.phase becomes EVASION (squad.tick() flips ALERT -> EVASION the
 //       tick NO guard on the squad has LOS) — never entered directly by a
@@ -416,6 +467,10 @@
     CAUTION_FOV_MULT: 1.3,
     CAUTION_RANGE_MULT: 1.2,
     CAUTION_SPEED: 2.0,
+    FIRE_RANGE: 10,
+    FIRE_INTERVAL_S: 1.5,
+    FIRE_DAMAGE: 0.15,
+    FIRE_FIRST_DELAY_S: 0.6,
     MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity },
   };
 
@@ -539,10 +594,27 @@
     var sweepBaseFacing = 0;
     var sweepOffset = hashToUnit(guard.id) * TWO_PI;
 
+    // Combat fire-timer (ALERT only — see file header COMBAT note). fireTimer
+    // is a private per-guard clock, seconds since this ALERT engagement
+    // began; nextFireAt is the next fireTimer value an attempt is eligible.
+    // null nextFireAt means "not currently eligible for any state" (every
+    // non-ALERT state), so tickAlert's own check is the only reader.
+    var fireTimer = 0;
+    var nextFireAt = null;
+
     function setState(newState, stimulus) {
       guard.state = newState;
       guard.stateTime = 0;
       if (stimulus) guard.stimulus = { x: stimulus.x, y: stimulus.y };
+      // Every state transition resets the fire-timer; ALERT alone re-arms it
+      // with a fresh FIRE_FIRST_DELAY_S grace period (see file header — this
+      // is what makes an EVASION->ALERT re-engagement earn a fresh beat
+      // instead of resuming a stale cadence, while re-broadcasting during an
+      // ALREADY-ALERT state never reaches setState at all, per
+      // broadcastAlert's own no-op-if-already-ALERT rule, so an ongoing
+      // engagement's cadence is untouched).
+      fireTimer = 0;
+      nextFireAt = newState === "ALERT" ? GUARD.FIRE_FIRST_DELAY_S : null;
       if (newState === "PATROL" || newState === "CAUTION") {
         pausing = false;
         pauseTime = 0;
@@ -677,6 +749,8 @@
     // ---- ALERT (real pursuit — see file header) ---------------------------------
 
     function tickAlert(dt, ctx) {
+      fireTimer += dt;
+
       var target;
       if (guard.hasLOS) {
         squad.updateSighting(ctx.player.x, ctx.player.y);
@@ -702,6 +776,23 @@
       // d rounds to 0 (atan2(0,0) is a harmless 0, no NaN risk here since
       // target/guard positions are always finite).
       guard.facing = Math.atan2(target.y - guard.y, target.x - guard.x);
+
+      // COMBAT (see file header) — fire on the player. Only an ELIGIBLE tick
+      // (fireTimer past nextFireAt) that also has LOS + is in range actually
+      // fires; an eligible-but-blocked tick leaves nextFireAt untouched so
+      // the guard fires the instant conditions are met, rather than waiting
+      // out a full extra interval.
+      if (nextFireAt !== null && fireTimer >= nextFireAt) {
+        var distToPlayer = distance(guard.x, guard.y, ctx.player.x, ctx.player.y);
+        if (guard.hasLOS && distToPlayer <= GUARD.FIRE_RANGE) {
+          var chance = 0.75;
+          if (ctx.player.moving) chance *= 0.5;
+          if (ctx.player.stance === "crouch" || ctx.player.stance === "crawl") chance *= 0.5;
+          var hit = rng.next() < chance;
+          if (ctx.onGuardFire) ctx.onGuardFire(guard, hit);
+          nextFireAt = fireTimer + GUARD.FIRE_INTERVAL_S;
+        }
+      }
     }
 
     // ---- EVASION (coordinated sweep — see file header) --------------------------
@@ -853,9 +944,8 @@
     guard.update = update;
     guard.hearNoise = hearNoise;
 
-    // rng is accepted per contract for future pick()-style choices; not used
-    // by any logic in this version, but kept alive to avoid an unused-var
-    // lint false-positive reading as "forgot to wire it up".
+    // rng now backs ALERT's fire-accuracy roll (see tickAlert/COMBAT above);
+    // kept alive on the guard too in case future callers want it directly.
     guard._rng = rng;
 
     return guard;

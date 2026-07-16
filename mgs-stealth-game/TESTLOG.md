@@ -1,5 +1,30 @@
 # TESTLOG.md
 
+## Cycle 16 (combat: hp, guard fire, game over)
+
+95/95; 11/11; screens clean; restart flow verified live (die → MISSION
+FAILED → Enter → fresh run). Guards fire in ALERT only: 0.6s grace, 1.5s
+cadence, hit chance 0.75 halved by moving and halved by crouch/crawl
+independently. Gunshots emit 10m noise other guards hear. hp carries across
+zone transitions (no door-heal). Engine freezes on gameOver.
+
+Interesting find by the build agent: crouched+stationary and standing+moving
+are mathematically identical hit chances (0.375) — the planned test was a
+guaranteed tie; replaced with crouched+moving vs standing+moving which has a
+real margin. Documented in combat.test.js.
+
+**3 problems:** (1) no damage feedback in render (no flinch/flash) — player
+hp only visible in the LIFE bar; hit-flash → backlog (polish). (2) guards
+never reload/flank — sustained ALERT is stand-and-shoot; fine for v1, note
+for guard-variety well. (3) death by drained hp mid-EVASION can feel abrupt
+with no music cue — death sting → music backlog.
+
+**3 delights:** (1) MISSION FAILED at 0hp makes every earlier system suddenly
+matter — dark zones, crouching, breaking LOS are survival now, not style.
+(2) the accuracy model rewards exactly the verbs the game teaches. (3) the
+firefight-survival scenario proves recoverable-chaos (Consequence pillar) end
+to end: get shot, flee, outlast the ladder, live.
+
 ## Cycle 15 (Warehouse zone + transitions)
 
 87/87; 10/10 (incl. two-zone unseen round trip); screenshots clean. Facility
