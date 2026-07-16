@@ -1,5 +1,27 @@
 # TESTLOG.md
 
+## Cycle 20 (AUDIT — no building)
+
+Fresh-eyes Sonnet audit of the whole repo at HEAD 8d485bb (131/131, 14/14
+green, clean tree). 12 findings → BACKLOG as A1-A12. Highest: the cardboard
+box does not gate fire/CQC (verified by live repro — you can snipe from
+inside the disguise); ration/chaff similarly ungated; engine contract block
+drifted (missing gameOver/inventory/chaffUntil); a sim scenario name claims
+crawl but tests stand+move; noise radii exist in triplicate; drag-follow
+bypasses wall collision.
+
+Clean bill: zero THREE leaks, zero import/export, zero Math.random/Date
+outside the sanctioned perf-test shim, no double-loading between node and
+browser loaders, both prior ratchet-rule-2 test replacements verified
+stricter, no cross-test state coupling.
+
+Verdict (auditor's words): "unusually disciplined... the rot found is
+concentrated exactly where the newest surface hasn't had its edges squared
+— all backlog-shaped, not fire-shaped."
+
+Next cycles: A1 (box/fire gate) leads as bugfix; A6+A8+A10 batchable as a
+small-fixes cycle; A3/A4/A11/A12 as a docs/harness polish cycle.
+
 ## Cycle 19 (box, ration, chaff — item set complete)
 
 131/131; 14/14; screens clean. Box: 0.05 flat profile stationary, 1.0 the

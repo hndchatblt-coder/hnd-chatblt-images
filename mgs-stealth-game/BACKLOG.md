@@ -37,6 +37,21 @@ content rotation) take over. L items must be split before selection.
 13. SaveState | feature | S | Consequence | serialize/restore full sim state; deterministic resume proven by replay test.
 14. Win state + rank screen | feature | M | Consequence | extract from Comms Tower roof; rank on time/alerts/kills/darts; BIG BOSS for no-alert no-kill.
 
+## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
+
+- **A1: box doesn't gate fire/CQC** | bugfix | S | Readability | sniping/choking from inside the box is an undocumented loophole; decide + gate + regression test. TOP PRIORITY.
+- A2: ration/chaff ungated while hidden/dragging | bugfix | S | Readability | decide semantics explicitly (ration-always-ok may stand), document, test.
+- A3: engine contract block missing gameOver/inventory/chaffUntil | polish | S | Readability | fold the last 4 cycles' props into the canonical list.
+- A4: chaff has no HUD slot + dangling "see BACKLOG" comment | polish | S | Readability | show chaff count; fix comment.
+- A5: radar blind to hidden/dragging (dup of existing item — merged) | polish | S | Readability.
+- A6: "box camp" sim scenario name says crawl, tests stand+move | bugfix | S | — | rename or add crawl leg (append-only: extend, don't weaken).
+- A7: 5 duplicated distance/angle helpers across modules | polish | M | — | acceptable per module-local-math mandate BUT document the invariant; consider tests asserting cross-module agreement instead of merging.
+- A8: noise radii triplicated (player.js locals, SOUND.RADII, test literals) | bugfix | S | Toybox | make player read Game.SOUND.RADII (load-order safe) or add a cross-check test binding them.
+- A9: 13/15 event types unconsumed in production | note | — | expected (codec/audio consumers pending); recheck at cycle 40 audit.
+- A10: drag-follow bypasses wall collision | bugfix | S | Consequence | route dragged body through moveCircle or clamp; corner-drag regression test.
+- A11: SPEC states reinforcements + radio check-ins as fact; unbuilt | polish | S | — | annotate SPEC with (director module, pending) hedges — SPEC stays the target, but no silent contradiction.
+- A12: LOGIC_ORDER never extended; 6 test files carry self-require boilerplate | polish | S | — | add hud/radar/music to test.js LOGIC_ORDER, drop the guards.
+
 ## Non-bootstrap items (from playtests)
 
 - moveCircle substep guard vs wall tunneling | bugfix | S | Consequence | a single-tick displacement of any magnitude never crosses a wall; regression test with a 2m/tick displacement into a 1m wall. (Blocked-by-need: do before any dash/throw physics.)
