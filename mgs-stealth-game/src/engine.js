@@ -9,19 +9,22 @@
 //                    [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }].
 //
 //   Construction wires up the full module stack in dependency order:
-//     rng    = Game.createRng(seed)
-//     world  = Game.createWorld(zoneData)
-//     vision = Game.createVision({ world: world })
-//     squad  = Game.createSquad()
-//     player = Game.createPlayer({ world: world })
-//     guards = guardConfigs.map(cfg => Game.createGuard({
+//     rng         = Game.createRng(seed)
+//     world       = Game.createWorld(zoneData)
+//     soundEvents = Game.createSoundEvents({ world: world })
+//     vision      = Game.createVision({ world: world })
+//     squad       = Game.createSquad()
+//     player      = Game.createPlayer({ world: world })
+//     guards      = guardConfigs.map(cfg => Game.createGuard({
 //                world: world, vision: vision, rng: rng, squad: squad,
 //                spawn: cfg.spawn, waypoints: cfg.waypoints, id: cfg.id,
 //              }))
 //
 //   engine — flat, readable props (mutated in place by tick()):
-//     world, player, guards (array), squad, vision, rng, zone — the wired
-//       instances/data above (zone === zoneData, the plain-object level data).
+//     world, player, guards (array), squad, vision, rng, soundEvents, zone —
+//       the wired instances/data above (zone === zoneData, the plain-object
+//       level data; soundEvents is the Game.createSoundEvents({world})
+//       instance — see src/soundEvents.js contract).
 //     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
 //                 advances the simulation by exactly this much regardless of
 //                 wall-clock time — the engine has NO notion of real time; the
@@ -39,7 +42,19 @@
 //                     tick (a NEW incident, per squad.broadcastAlert's
 //                     alertCount rule — see guardAI.js contract); x,y are
 //                     squad.lastKnown at the moment the alert fired.
-//                 More event types (item pickups, noise, damage, ...) will be
+//                   { type: "knock", x, y } — input.knock had a false->true
+//                     edge THIS tick AND the player was adjacent to a wall
+//                     (see KNOCK VERB below); x,y are the player's position
+//                     at the moment of the knock. Fires at most once per
+//                     edge, regardless of whether any guard heard it.
+//                   { type: "noiseHeard", guardId, x, y, strength } — one per
+//                     guard that heard ANY sound this tick (movement noise
+//                     and/or a knock), per soundEvents.emit/emitRadius's
+//                     return value (see src/soundEvents.js contract); x,y are
+//                     the sound's ORIGIN (not the guard's position), strength
+//                     is "faint" or "strong". If a guard hears more than one
+//                     sound in the same tick, one event is pushed per sound.
+//                 More event types (item pickups, damage, ...) will be
 //                 appended by later modules — treat `type` as an open set and
 //                 always branch on it, never assume this is the full list.
 //
@@ -55,10 +70,44 @@
 //          missing/omitted stance holds whatever the player was already in
 //          (player.update's own "retain stance if omitted" rule handles this
 //          once moveX/moveY/run are defaulted — see src/player.js contract).
-//       2. Each guard, in array order: guard.update(DT, { player: player }).
+//       2. NOISE STEP (new — soundEvents), AFTER player.update, BEFORE any
+//          guard updates, so a sound made THIS tick can already be reflected
+//          in guard.state by the time step 3's guard.update() runs (matching
+//          sim.js's existing "hearNoise() then update()" convention for
+//          guardAI — see guardAI.js's hearNoise contract):
+//            a. MOVEMENT NOISE: if player.noiseRadius() > 0 (i.e. the player
+//               is actually moving this tick — see src/player.js contract),
+//               call soundEvents.emitRadius(player.x, player.y,
+//               player.noiseRadius(), false, guards) every such tick. This is
+//               a SOFT ("faint") sound; guard.hearNoise("faint") only does
+//               anything from PATROL (-> SUSPICIOUS), so repeated faint hits
+//               while a guard is already SUSPICIOUS/INVESTIGATE/etc. are
+//               harmless no-ops (see guardAI.js's hearNoise contract) — no
+//               extra bookkeeping needed here to avoid "re-triggering."
+//            b. KNOCK VERB: input.knock (boolean) is EDGE-TRIGGERED — engine
+//               tracks the previous tick's input.knock internally (private
+//               closure state, not an engine prop) and only acts on a
+//               false->true transition, exactly once per press (holding
+//               input.knock true across many ticks fires nothing further
+//               until it goes false and back to true). On that edge: if
+//               world.isBlockedCircle(player.x, player.y,
+//               Game.SOUND.KNOCK_WALL_DIST) (the player is adjacent to a
+//               wall), call soundEvents.emit(player.x, player.y, "knock",
+//               guards) — a SHARP ("strong") sound — and push
+//               { type: "knock", x: player.x, y: player.y } onto
+//               engine.events. If the player is NOT adjacent to a wall on
+//               that edge, nothing is emitted and no event fires (knocking
+//               on thin air is silent).
+//            For every listener that heard EITHER sound this tick (per the
+//            `heard` flag in soundEvents' returned results — see
+//            src/soundEvents.js contract), push
+//            { type: "noiseHeard", guardId: guard.id, x, y, strength } onto
+//            engine.events (x,y are the SOUND's origin, i.e. the (x,y) passed
+//            to emit/emitRadius above, not the guard's own position).
+//       3. Each guard, in array order: guard.update(DT, { player: player }).
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
-//       3. squad.tick(DT, anyLOS) exactly once, where
+//       4. squad.tick(DT, anyLOS) exactly once, where
 //          anyLOS = guards.some(function (g) { return g.hasLOS; }) — read
 //          directly off each guard's own guard.hasLOS (set every tick by
 //          guard.update's perception step, see guardAI.js contract: "guard.
@@ -75,20 +124,23 @@
 //          header and exercised by sim.js's "full alert ladder" scenario:
 //          update every guard first, THEN squad.tick with the OR of every
 //          guard's hasLOS.
-//       4. Event collection: engine.events is cleared at the TOP of tick(),
+//       5. Event collection: engine.events is cleared at the TOP of tick(),
 //          before step 1, and squad.phase/alertCount are snapshotted at that
 //          same moment (BEFORE step 2) — a guard's own broadcastAlert() call
 //          (fired from inside guard.update() the instant its meter confirms
 //          sight; see guardAI.js's SUSPICIOUS/INVESTIGATE/EVASION/CAUTION
 //          notes) can flip squad.phase/alertCount immediately, well before
-//          squad.tick() runs in step 3, so a snapshot taken any later would
-//          miss exactly that transition. After step 3, the snapshot is
+//          squad.tick() runs in step 4, so a snapshot taken any later would
+//          miss exactly that transition. After step 4, the snapshot is
 //          compared against the live squad.phase/alertCount: phaseChange
 //          when phase differs; alert when alertCount increased, using the
 //          NEW squad.lastKnown for x/y since an alertCount bump only happens
 //          alongside a broadcastAlert() call that just set lastKnown (see
-//          guardAI.js's squad contract).
-//       5. tickCount++ and time = tickCount * DT.
+//          guardAI.js's squad contract). The "knock"/"noiseHeard" events from
+//          step 2 are pushed directly at emission time (step 2), not diffed
+//          from a snapshot — they're edge-triggered facts about that step,
+//          not state to compare before/after.
+//       6. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
 //   is for guard i to refresh its expensive computeSight only on ticks where
@@ -132,6 +184,11 @@
       moveY: input.moveY || 0,
       run: !!input.run,
       stance: input.stance !== undefined ? input.stance : player.stance,
+      // knock: NOT part of player.js's own input contract (player.update
+      // ignores unknown fields, see src/player.js) — carried here purely for
+      // the engine's own edge-triggered knock-verb handling (see tick()
+      // step 2b in the file header). Defaults to false, same as run.
+      knock: !!input.knock,
     };
   }
 
@@ -147,9 +204,15 @@
 
     var rng = Game.createRng(seed);
     var world = Game.createWorld(zone);
+    var soundEvents = Game.createSoundEvents({ world: world });
     var vision = Game.createVision({ world: world });
     var squad = Game.createSquad();
     var player = Game.createPlayer({ world: world });
+
+    // Edge-trigger state for the knock verb (see file header, tick() step
+    // 2b) — private to this engine instance, not exposed on `engine` since
+    // it's an implementation detail of the input, not simulation truth.
+    var prevKnock = false;
 
     var guards = guardConfigs.map(function (cfg) {
       return Game.createGuard({
@@ -170,6 +233,7 @@
       squad: squad,
       vision: vision,
       rng: rng,
+      soundEvents: soundEvents,
       zone: zone,
       DT: DT,
       tickCount: 0,
@@ -192,6 +256,47 @@
 
       var normalized = normalizeInput(input, player);
       player.update(normalized, DT);
+
+      // ---- NOISE STEP (see file header, tick() step 2) — AFTER
+      // player.update, BEFORE any guard.update, so a sound made this tick is
+      // already reflected in guard.state by the time guards update below.
+      var moveNoiseRadius = player.noiseRadius();
+      if (moveNoiseRadius > 0) {
+        var moveResults = soundEvents.emitRadius(player.x, player.y, moveNoiseRadius, false, guards);
+        for (var mi = 0; mi < moveResults.length; mi++) {
+          if (moveResults[mi].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: moveResults[mi].listenerId,
+              x: player.x,
+              y: player.y,
+              strength: moveResults[mi].strength,
+            });
+          }
+        }
+      }
+
+      // Knock verb: edge-triggered (false->true only), and only actually
+      // emits a sound when the player is adjacent to a wall (see file header
+      // and Game.SOUND.KNOCK_WALL_DIST in src/soundEvents.js).
+      var knockPressed = normalized.knock && !prevKnock;
+      prevKnock = normalized.knock;
+      if (knockPressed && world.isBlockedCircle(player.x, player.y, Game.SOUND.KNOCK_WALL_DIST)) {
+        engine.events.push({ type: "knock", x: player.x, y: player.y });
+        var knockResults = soundEvents.emit(player.x, player.y, "knock", guards);
+        for (var ki = 0; ki < knockResults.length; ki++) {
+          if (knockResults[ki].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: knockResults[ki].listenerId,
+              x: player.x,
+              y: player.y,
+              strength: knockResults[ki].strength,
+            });
+          }
+        }
+      }
+      // ---- END NOISE STEP ---------------------------------------------------
 
       for (var i = 0; i < guards.length; i++) {
         guards[i].update(DT, { player: player });

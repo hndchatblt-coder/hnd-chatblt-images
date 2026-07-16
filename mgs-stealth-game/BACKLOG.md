@@ -15,7 +15,8 @@ content rotation) take over. L items must be split before selection.
 5b. ~~Waypoint route bugfix~~ DONE cycle 5.
 5c. ~~GuardAI part B~~ DONE cycle 6 (reinforcements + radio check-ins → director module, below).
 5d. ~~Engine module~~ DONE cycle 8 (vision staggering deferred — see below).
-6. SoundEvents | feature | M | Toybox | emit radii per SPEC; wall attenuation 50%/wall; guards receive stimuli; knock verb; sim asserts guard INVESTIGATEs a knock within 2s.
+6. ~~SoundEvents~~ DONE cycle 9.
+6b. Render layer: minimum playable | feature | M | Tension | src/render.js (ONLY module touching THREE): isometric camera per SPEC, boxes-for-walls Loading Dock, player+guard meshes with facing, dark-zone floor tint; boot.js starts engine loop + keyboard input (WASD run/crouch/crawl/knock) behind the title screen; screenshot scenes expand to 3 (title, in-game, alert); THE GAME BECOMES PLAYABLE THIS CYCLE.
 7. Radar | feature | M | Readability | top-right soliton radar: walls, player, guards + live cones; static during ALERT/EVASION; canvas-drawn, gorgeous.
 8. HUD | feature | S | Readability | life top-left, item box bottom-right, weapon box bottom-left, alert-phase indicator, zone name cards.
 9. Music | feature | M | Tension | WebAudio state machine sneak→sting→combat→evasion→caution→resolve, crossfades only, failure-isolated no-op wrapper.

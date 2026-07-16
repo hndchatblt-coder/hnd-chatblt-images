@@ -504,6 +504,195 @@ scenarios.push({
   },
 });
 
+// ---- soundEvents playtest scenarios (cycle: soundEvents) -------------------
+// Same engine-driven style as the "engine-driven infiltration" scenario
+// above, exercising the knock verb + noise pipeline end to end against a
+// guard on the REAL loadingDock waypoint loop.
+
+scenarios.push({
+  name: "knock lures guard from patrol and player slips by unseen",
+  seed: 20260716007,
+  run: function (G) {
+    const zone = G.ZONES.loadingDock;
+    // Guard spawns mid-leg on the real waypoint loop's west leg (SW(3,27)
+    // <-> NW(3,2), a vertical x=3 line — see src/world.js's loadingDock
+    // comment), heading toward waypoints[0] = NW next, same as any guard
+    // walking that leg would be. waypoints is the REAL zone.waypoints array,
+    // so after this the guard continues the normal NW->NE->SE->SW loop.
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: zone,
+      guardConfigs: [{ id: "lure-g1", spawn: { x: 3, y: 15 }, waypoints: zone.waypoints }],
+    });
+
+    // Player crouches at the west container's edge ((x:8-14,y:9-20) — see
+    // zone comment) at (7.5,15): isBlockedCircle(7.5,15,KNOCK_WALL_DIST=1.2)
+    // is true (0.5m from the container's west face), so a knock here is
+    // valid, and the straight line back to the guard's (3,15) west-leg
+    // position is 0 walls / 4.5m — well inside the ~8m "clear line" this
+    // scenario calls for and the knock's 10m base radius.
+    const knockAt = { x: 7.5, y: 15 };
+    engine.player.x = knockAt.x;
+    engine.player.y = knockAt.y;
+
+    // A few settle ticks, crouched and still, so the guard's position at
+    // knock time is exactly known (it will have barely moved off spawn).
+    for (let i = 0; i < 5; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      engine.player.x = knockAt.x;
+      engine.player.y = knockAt.y;
+    }
+    if (engine.guards[0].state !== "PATROL") {
+      throw new Error("setup failed: guard not in PATROL before the knock, got " + engine.guards[0].state);
+    }
+
+    // Fire the knock.
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch", knock: true });
+    engine.player.x = knockAt.x;
+    engine.player.y = knockAt.y;
+
+    if (!engine.events.some((e) => e.type === "knock")) {
+      throw new Error("expected a knock event on the input.knock edge (player was adjacent to the west container)");
+    }
+    // A strong knock heard from PATROL goes straight to INVESTIGATE (see
+    // guardAI.js's hearNoise contract) — same tick, so "within 2s of the
+    // knock" holds with room to spare.
+    if (engine.guards[0].state !== "INVESTIGATE") {
+      throw new Error("expected the knock to lure the guard into INVESTIGATE, got " + engine.guards[0].state);
+    }
+
+    // The instant the knock lands, the player crawls away NORTH-WEST through
+    // the west dark zone (x:2-7,y:9-20 — see zone comment) toward its far
+    // (NW) corner at (2.5,9) — moving immediately (not lingering at the
+    // stimulus point, which the guard's cone is about to converge on) is
+    // what keeps exposure low: crawl (noiseRadius 0, visionProfile 0.3)
+    // stacks with the zone's darkness (0.5x fill) so the guard's meter never
+    // gets close to SUSPICIOUS_AT while it travels to, and searches, the now
+    // player-vacated knock point. The run stops once the search completes
+    // and the guard is confirmed back in PATROL — this scenario is about the
+    // lure+slip-by, not the guard's unrelated patrol resumption afterward.
+    const escapeTarget = { x: 2.5, y: 9 };
+    const TOTAL_TICKS = Math.round(20 / DT); // ~2.3s travel + 8s search + buffer
+    let minDistToKnock = Infinity;
+    let backToPatrolAtTick = null;
+
+    for (let tick = 0; tick < TOTAL_TICKS; tick++) {
+      const t = tick * DT;
+      const dx = escapeTarget.x - engine.player.x;
+      const dy = escapeTarget.y - engine.player.y;
+      const d2 = Math.hypot(dx, dy);
+      const input =
+        d2 > 0.1
+          ? { moveX: dx / d2, moveY: dy / d2, run: false, stance: "crawl" }
+          : { moveX: 0, moveY: 0, run: false, stance: "crawl" };
+      engine.tick(input);
+
+      const d = Math.hypot(engine.guards[0].x - knockAt.x, engine.guards[0].y - knockAt.y);
+      if (d < minDistToKnock) minDistToKnock = d;
+      if (engine.squad.phase !== "INFILTRATION") {
+        throw new Error(
+          "squad phase left INFILTRATION (" +
+            engine.squad.phase +
+            ") at t=" +
+            t.toFixed(2) +
+            "s — the guard spotted the player, the lure/slip-by failed"
+        );
+      }
+      if (backToPatrolAtTick === null && engine.guards[0].state === "PATROL") {
+        backToPatrolAtTick = tick;
+        break; // lure+search+all-clear confirmed; stop here (see comment above)
+      }
+    }
+
+    if (minDistToKnock > G.GUARD.ARRIVE_DIST) {
+      throw new Error("guard never arrived at the knock's stimulus point, min dist " + minDistToKnock.toFixed(2));
+    }
+    if (backToPatrolAtTick === null) {
+      throw new Error("guard never finished its search and returned to PATROL within the scenario window");
+    }
+  },
+});
+
+scenarios.push({
+  name: "wall kills the knock: guard hut blocks a knock just beyond the attenuated radius",
+  seed: 20260716008,
+  run: function (G) {
+    const zone = G.ZONES.loadingDock;
+    // Guard spawns west of the guard hut ({x:9,y:3,w:6,h:5} = x:9-15,y:3-8 —
+    // see zone comment), on the real waypoint loop (heading toward
+    // waypoints[0] = NW next, same route any patrolling guard follows).
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: zone,
+      guardConfigs: [{ id: "wall-g1", spawn: { x: 7, y: 5 }, waypoints: zone.waypoints }],
+    });
+
+    // Player knocks from the EAST side of the guard hut, adjacent to it
+    // (isBlockedCircle(15.5,5,KNOCK_WALL_DIST=1.2) true — 0.5m from the
+    // hut's east face). The straight line back to the guard crosses the hut
+    // exactly once (1 wall) and the RAW distance (8.5m) is comfortably under
+    // knock's unattenuated 10m radius — it's specifically
+    // WALL_ATTENUATION^1 (10 * 0.5 = 5m effective) putting 8.5m out of
+    // range that kills this knock, not mere distance.
+    const knockAt = { x: 15.5, y: 5 };
+    engine.player.x = knockAt.x;
+    engine.player.y = knockAt.y;
+
+    const wallsCrossed = engine.soundEvents.wallsBetween(
+      engine.guards[0].x,
+      engine.guards[0].y,
+      knockAt.x,
+      knockAt.y
+    );
+    if (wallsCrossed < 1) {
+      throw new Error("setup failed: expected >=1 wall (the guard hut) between guard and knock point, got " + wallsCrossed);
+    }
+    const rawDist = Math.hypot(knockAt.x - engine.guards[0].x, knockAt.y - engine.guards[0].y);
+    if (rawDist >= G.SOUND.RADII.knock) {
+      throw new Error(
+        "setup failed: raw distance " +
+          rawDist.toFixed(2) +
+          "m already exceeds the unattenuated knock radius (" +
+          G.SOUND.RADII.knock +
+          "m) -- this wouldn't isolate the wall's effect"
+      );
+    }
+
+    for (let i = 0; i < 5; i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      engine.player.x = knockAt.x;
+      engine.player.y = knockAt.y;
+    }
+    if (engine.guards[0].state !== "PATROL") {
+      throw new Error("setup failed: guard not in PATROL before the knock, got " + engine.guards[0].state);
+    }
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch", knock: true });
+    engine.player.x = knockAt.x;
+    engine.player.y = knockAt.y;
+
+    if (!engine.events.some((e) => e.type === "knock")) {
+      throw new Error("expected a knock event to fire (player was adjacent to the guard hut wall)");
+    }
+    if (engine.events.some((e) => e.type === "noiseHeard" && e.guardId === "wall-g1")) {
+      throw new Error("expected the guard NOT to hear the knock through the wall, but it did");
+    }
+
+    const TOTAL_TICKS = Math.round(10 / DT); // 10s after the knock
+    for (let tick = 0; tick < TOTAL_TICKS; tick++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch" });
+      engine.player.x = knockAt.x;
+      engine.player.y = knockAt.y;
+      if (engine.guards[0].state !== "PATROL") {
+        throw new Error(
+          "guard left PATROL within 10s of a knock that should have been blocked by the wall, state=" +
+            engine.guards[0].state
+        );
+      }
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

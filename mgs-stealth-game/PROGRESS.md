@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.8 (cycle 8 — engine)
+**Version:** v0.9 (cycle 9 — soundEvents)
 
 ## Module status
 
@@ -12,7 +12,7 @@
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
 | guardAI        | v2 (full)   | full FSM ladder + createSquad phase controller |
-| soundEvents    | not started | emit radii, wall attenuation             |
+| soundEvents    | v1          | emit radii, analytic wall attenuation, knock verb |
 | items          | not started | box, tranq, CQC, lockers, chaff          |
 | director       | not started | reinforcements, radio check-ins          |
 | engine         | v1          | canonical tick, events, snapshot(); perf 0.031ms/10 guards |
@@ -32,6 +32,9 @@
 
 ## Changelog (last 5)
 
+- cycle 9: soundEvents — SPEC radii, 50%/wall attenuation (analytic), sharp vs
+  soft stimuli, engine knock verb + noiseHeard events; knock-lure scenario
+  passes end to end (63/63, 9/9)
 - cycle 8: engine — canonical fixed-timestep loop (player→guards→squad→events),
   snapshot(), smoke + perf gates (54/54, 7/7, 0.031ms/tick @ 10 guards)
 - cycle 7: bugfix — full test suite (47) now bundled into game.html; in-browser

@@ -1,5 +1,38 @@
 # TESTLOG.md
 
+## Cycle 9 (soundEvents + engine noise/knock wiring)
+
+63/63 tests; 9/9 scenarios; screenshot clean. Wall attenuation counts wall
+entries analytically (unclamped slab t in (0,1) per wall) — no raycast
+marching, no epsilon traps. Knock is edge-triggered and wall-adjacent only.
+Sharp sounds (knock/dart/bodyDrop/locker) = strong stimulus; movement = faint.
+
+The classic MGS beat now passes as a machine-checked scenario: knock on the
+container, guard INVESTIGATEs within 2s, player crawls past through the dark
+zone, squad never leaves INFILTRATION. And its mirror: one wall between
+source and guard kills a knock just beyond attenuated radius.
+
+**3 problems:**
+1. Movement noise re-emits every tick while moving — hearNoise("faint") spam
+   is absorbed by SUSPICIOUS refresh semantics today, but INVESTIGATE-grade
+   soft sounds (future: running on metal floors) would re-stimulate mid-search
+   constantly. Needs a per-guard stimulus cooldown when that lands. → backlog.
+2. Guards never emit sounds themselves (footsteps) — player has no audio
+   awareness of off-screen guards until music/audio cycle. Radar mitigates
+   first; note for music cycle (positional footstep synth). → backlog well.
+3. sim lure scenario is seed-tuned and route-brittle (documented by the
+   subagent) — survives layout guards but not big redesigns. Waypoint-follow
+   helper item already on backlog; raise its priority when zones multiply.
+
+**3 delights:**
+1. Toybox pillar has its first machine-verified unscripted-story primitive:
+   sound × FSM × level geometry composing into a working lure.
+2. The engine event stream now carries knock + noiseHeard — radar/HUD get
+   "visualize what guards perceive" (Readability pillar) for free.
+3. Analytical wall counting is exact and O(walls) — no pathological cases,
+   no iteration caps, and it reuses the same closed-edge convention as
+   collision, so sound and sight can never disagree about geometry.
+
 ## Cycle 8 (engine: fixed-timestep orchestrator)
 
 54/54 tests; 7/7 scenarios; screenshot clean (54/54 in-browser). Perf gate:

@@ -420,6 +420,222 @@
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
 
+// ==== src/soundEvents.js ====
+// src/soundEvents.js
+// PUBLIC API:
+//   Game.SOUND — tunable constants:
+//     {
+//       RADII: { run: 8, walk: 3, crouch: 1, knock: 10, dartImpact: 5,
+//                bodyDrop: 6, locker: 4 },   // meters, unattenuated
+//       WALL_ATTENUATION: 0.5,   // effective radius multiplier PER wall crossed
+//       SHARP: { knock: true, dartImpact: true, bodyDrop: true, locker: true },
+//                // sharp -> "strong" stimulus (deliberate/alarming); anything
+//                // NOT in this map (movement kinds: run/walk/crouch) is soft
+//                // -> "faint".
+//       KNOCK_WALL_DIST: 1.2,    // player must be this close to a wall to knock
+//     }
+//
+//   Game.createSoundEvents({ world }) -> soundEvents, where `world` is a
+//   Game.createWorld(...) instance (src/world.js). Only world.zone.walls (the
+//   plain AABB array) is consumed — see wallsBetween below for why this module
+//   does NOT call world.raycast.
+//
+//     wallsBetween(x1, y1, x2, y2) -> integer
+//       Number of DISTINCT wall AABBs the straight segment (x1,y1)->(x2,y2)
+//       crosses strictly between its two endpoints.
+//       IMPLEMENTATION NOTE (why not world.raycast in a marching loop): the
+//       obvious approach — cast, step an epsilon past the hit, cast again,
+//       repeat — is a trap here. world.js's segmentVsRect (the slab method)
+//       CLAMPS a segment that starts inside a box to t=0 (see world.js
+//       comment: "t is clamped to 0 if the segment starts inside the box").
+//       So the moment a marching cast lands even slightly inside a wall (which
+//       it must, to get past the entry surface), the NEXT cast from that point
+//       reports dist ~0 forever — an infinite-loop hazard, not a corner case.
+//       Instead this module keeps a LOCAL copy of the slab math (wallEntryT
+//       below) that returns the UNCLAMPED entry parameter t for the segment
+//       against the INFINITE line through it, so "segment starts inside/past
+//       this wall" (t <= 0) is distinguishable from "segment actually enters
+//       this wall somewhere in the middle" (0 < t < 1). wallsBetween then just
+//       iterates world.zone.walls ONCE and counts entries with 0 < t < 1 — no
+//       marching, no epsilon stepping, no iteration cap needed, and each wall
+//       is counted at most once (its single entry crossing), which is exactly
+//       "how many distinct walls does this line cross".
+//
+//     effectiveRadius(kind, x1, y1, x2, y2) -> number
+//       RADII[kind] * WALL_ATTENUATION ^ wallsBetween(x1, y1, x2, y2). Throws
+//       if `kind` is not a key of RADII.
+//
+//     emitRadius(x, y, radius, sharp, listeners) -> results[]
+//       The general emission primitive `emit` (below) delegates to. `radius`
+//       is the unattenuated (0-wall) radius in meters; `sharp` (boolean)
+//       selects "strong" (true) or "faint" (false) as the stimulus strength
+//       delivered to listeners in range. `listeners` is an array of objects
+//       shaped like { x, y, hearNoise(x,y,strength), id? } (guards satisfy
+//       this — see guardAI.js contract). For each listener: computes
+//       effRadius = radius * WALL_ATTENUATION^wallsBetween(x,y,listener.x,listener.y),
+//       dist = straight-line distance from (x,y) to the listener. If
+//       dist <= effRadius: calls listener.hearNoise(x, y, sharp?"strong":"faint")
+//       and marks heard true; otherwise heard false and hearNoise is NOT
+//       called. Returns one result object per listener, in listener order:
+//         { listenerId, id, dist, strength, heard, effRadius }
+//       listenerId is listener.id verbatim (may be undefined if the listener
+//       has none); id falls back to the listener's array index when the
+//       listener has no .id, so every result is addressable even for
+//       anonymous listeners. strength reflects sharp/soft regardless of
+//       whether it was actually heard (it's a property of the SOUND, not the
+//       outcome) — useful for tests/debug UI wanting to know "how loud would
+//       this have been."
+//
+//     emit(x, y, kind, listeners) -> results[]
+//       Same return shape as emitRadius, via RADII[kind] as the base radius
+//       and !!SHARP[kind] as sharp. Throws if `kind` is not a key of RADII
+//       (same rule as effectiveRadius).
+//
+// Pure JS, deterministic, no THREE/DOM/Math.random/Date. Local helpers only —
+// runs headless in node. Consumes world only via world.zone.walls (read-only);
+// does not modify world/player/vision/guardAI/rng.
+(function (Game) {
+  // ---- local math helpers (no dependency on other modules) -----------------
+
+  function distance(x1, y1, x2, y2) {
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Local copy of world.js's segmentVsRect slab test, EXCEPT it returns the
+  // RAW (unclamped) entry parameter t for the segment's INFINITE line against
+  // `rect`, rather than clamping a "starts inside" case to 0. See the
+  // wallsBetween contract note above for why that distinction matters here.
+  // Returns null if the infinite line never enters rect at all.
+  function wallEntryT(x1, y1, x2, y2, rect) {
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    var tmin = -Infinity;
+    var tmax = Infinity;
+
+    if (dx === 0) {
+      if (x1 < rect.x || x1 > rect.x + rect.w) return null;
+    } else {
+      var tx1 = (rect.x - x1) / dx;
+      var tx2 = (rect.x + rect.w - x1) / dx;
+      if (tx1 > tx2) {
+        var tmpx = tx1;
+        tx1 = tx2;
+        tx2 = tmpx;
+      }
+      if (tx1 > tmin) tmin = tx1;
+      if (tx2 < tmax) tmax = tx2;
+      if (tmin > tmax) return null;
+    }
+
+    if (dy === 0) {
+      if (y1 < rect.y || y1 > rect.y + rect.h) return null;
+    } else {
+      var ty1 = (rect.y - y1) / dy;
+      var ty2 = (rect.y + rect.h - y1) / dy;
+      if (ty1 > ty2) {
+        var tmpy = ty1;
+        ty1 = ty2;
+        ty2 = tmpy;
+      }
+      if (ty1 > tmin) tmin = ty1;
+      if (ty2 < tmax) tmax = ty2;
+      if (tmin > tmax) return null;
+    }
+
+    return tmin;
+  }
+
+  // ---- constants -------------------------------------------------------------
+
+  var SOUND = {
+    RADII: {
+      run: 8,
+      walk: 3,
+      crouch: 1,
+      knock: 10,
+      dartImpact: 5,
+      bodyDrop: 6,
+      locker: 4,
+    },
+    WALL_ATTENUATION: 0.5,
+    SHARP: { knock: true, dartImpact: true, bodyDrop: true, locker: true },
+    KNOCK_WALL_DIST: 1.2,
+  };
+
+  // ---- soundEvents factory ----------------------------------------------------
+
+  function createSoundEvents(deps) {
+    var world = deps.world;
+    var walls = world.zone.walls;
+
+    function wallsBetween(x1, y1, x2, y2) {
+      if (x1 === x2 && y1 === y2) return 0; // degenerate: same point, nothing "between"
+      var count = 0;
+      for (var i = 0; i < walls.length; i++) {
+        var t = wallEntryT(x1, y1, x2, y2, walls[i]);
+        if (t !== null && t > 0 && t < 1) count++;
+      }
+      return count;
+    }
+
+    function baseRadiusFor(kind) {
+      var base = SOUND.RADII[kind];
+      if (base === undefined) throw new Error("soundEvents: unknown sound kind '" + kind + "'");
+      return base;
+    }
+
+    function effectiveRadiusFromBase(baseRadius, x1, y1, x2, y2) {
+      var crossed = wallsBetween(x1, y1, x2, y2);
+      return baseRadius * Math.pow(SOUND.WALL_ATTENUATION, crossed);
+    }
+
+    function effectiveRadius(kind, x1, y1, x2, y2) {
+      return effectiveRadiusFromBase(baseRadiusFor(kind), x1, y1, x2, y2);
+    }
+
+    function emitRadius(x, y, radius, sharp, listeners) {
+      var strength = sharp ? "strong" : "faint";
+      var results = [];
+      for (var i = 0; i < listeners.length; i++) {
+        var listener = listeners[i];
+        var effRadius = effectiveRadiusFromBase(radius, x, y, listener.x, listener.y);
+        var dist = distance(x, y, listener.x, listener.y);
+        var heard = dist <= effRadius;
+        if (heard) listener.hearNoise(x, y, strength);
+        results.push({
+          listenerId: listener.id,
+          id: listener.id !== undefined ? listener.id : i,
+          dist: dist,
+          strength: strength,
+          heard: heard,
+          effRadius: effRadius,
+        });
+      }
+      return results;
+    }
+
+    function emit(x, y, kind, listeners) {
+      return emitRadius(x, y, baseRadiusFor(kind), !!SOUND.SHARP[kind], listeners);
+    }
+
+    return {
+      wallsBetween: wallsBetween,
+      effectiveRadius: effectiveRadius,
+      emitRadius: emitRadius,
+      emit: emit,
+    };
+  }
+
+  Game.SOUND = SOUND;
+  Game.createSoundEvents = createSoundEvents;
+  if (typeof module !== "undefined")
+    module.exports = { createSoundEvents: createSoundEvents, SOUND: SOUND };
+})(typeof window !== "undefined"
+  ? (window.Game = window.Game || {})
+  : (global.Game = global.Game || {}));
+
 // ==== src/vision.js ====
 // src/vision.js
 // PUBLIC API:
@@ -1503,19 +1719,22 @@
 //                    [{ id: "g1", spawn: zone.waypoints[0], waypoints: zone.waypoints }].
 //
 //   Construction wires up the full module stack in dependency order:
-//     rng    = Game.createRng(seed)
-//     world  = Game.createWorld(zoneData)
-//     vision = Game.createVision({ world: world })
-//     squad  = Game.createSquad()
-//     player = Game.createPlayer({ world: world })
-//     guards = guardConfigs.map(cfg => Game.createGuard({
+//     rng         = Game.createRng(seed)
+//     world       = Game.createWorld(zoneData)
+//     soundEvents = Game.createSoundEvents({ world: world })
+//     vision      = Game.createVision({ world: world })
+//     squad       = Game.createSquad()
+//     player      = Game.createPlayer({ world: world })
+//     guards      = guardConfigs.map(cfg => Game.createGuard({
 //                world: world, vision: vision, rng: rng, squad: squad,
 //                spawn: cfg.spawn, waypoints: cfg.waypoints, id: cfg.id,
 //              }))
 //
 //   engine — flat, readable props (mutated in place by tick()):
-//     world, player, guards (array), squad, vision, rng, zone — the wired
-//       instances/data above (zone === zoneData, the plain-object level data).
+//     world, player, guards (array), squad, vision, rng, soundEvents, zone —
+//       the wired instances/data above (zone === zoneData, the plain-object
+//       level data; soundEvents is the Game.createSoundEvents({world})
+//       instance — see src/soundEvents.js contract).
 //     DT        — 1/60 (constant fixed timestep, seconds). Every tick() call
 //                 advances the simulation by exactly this much regardless of
 //                 wall-clock time — the engine has NO notion of real time; the
@@ -1533,7 +1752,19 @@
 //                     tick (a NEW incident, per squad.broadcastAlert's
 //                     alertCount rule — see guardAI.js contract); x,y are
 //                     squad.lastKnown at the moment the alert fired.
-//                 More event types (item pickups, noise, damage, ...) will be
+//                   { type: "knock", x, y } — input.knock had a false->true
+//                     edge THIS tick AND the player was adjacent to a wall
+//                     (see KNOCK VERB below); x,y are the player's position
+//                     at the moment of the knock. Fires at most once per
+//                     edge, regardless of whether any guard heard it.
+//                   { type: "noiseHeard", guardId, x, y, strength } — one per
+//                     guard that heard ANY sound this tick (movement noise
+//                     and/or a knock), per soundEvents.emit/emitRadius's
+//                     return value (see src/soundEvents.js contract); x,y are
+//                     the sound's ORIGIN (not the guard's position), strength
+//                     is "faint" or "strong". If a guard hears more than one
+//                     sound in the same tick, one event is pushed per sound.
+//                 More event types (item pickups, damage, ...) will be
 //                 appended by later modules — treat `type` as an open set and
 //                 always branch on it, never assume this is the full list.
 //
@@ -1549,10 +1780,44 @@
 //          missing/omitted stance holds whatever the player was already in
 //          (player.update's own "retain stance if omitted" rule handles this
 //          once moveX/moveY/run are defaulted — see src/player.js contract).
-//       2. Each guard, in array order: guard.update(DT, { player: player }).
+//       2. NOISE STEP (new — soundEvents), AFTER player.update, BEFORE any
+//          guard updates, so a sound made THIS tick can already be reflected
+//          in guard.state by the time step 3's guard.update() runs (matching
+//          sim.js's existing "hearNoise() then update()" convention for
+//          guardAI — see guardAI.js's hearNoise contract):
+//            a. MOVEMENT NOISE: if player.noiseRadius() > 0 (i.e. the player
+//               is actually moving this tick — see src/player.js contract),
+//               call soundEvents.emitRadius(player.x, player.y,
+//               player.noiseRadius(), false, guards) every such tick. This is
+//               a SOFT ("faint") sound; guard.hearNoise("faint") only does
+//               anything from PATROL (-> SUSPICIOUS), so repeated faint hits
+//               while a guard is already SUSPICIOUS/INVESTIGATE/etc. are
+//               harmless no-ops (see guardAI.js's hearNoise contract) — no
+//               extra bookkeeping needed here to avoid "re-triggering."
+//            b. KNOCK VERB: input.knock (boolean) is EDGE-TRIGGERED — engine
+//               tracks the previous tick's input.knock internally (private
+//               closure state, not an engine prop) and only acts on a
+//               false->true transition, exactly once per press (holding
+//               input.knock true across many ticks fires nothing further
+//               until it goes false and back to true). On that edge: if
+//               world.isBlockedCircle(player.x, player.y,
+//               Game.SOUND.KNOCK_WALL_DIST) (the player is adjacent to a
+//               wall), call soundEvents.emit(player.x, player.y, "knock",
+//               guards) — a SHARP ("strong") sound — and push
+//               { type: "knock", x: player.x, y: player.y } onto
+//               engine.events. If the player is NOT adjacent to a wall on
+//               that edge, nothing is emitted and no event fires (knocking
+//               on thin air is silent).
+//            For every listener that heard EITHER sound this tick (per the
+//            `heard` flag in soundEvents' returned results — see
+//            src/soundEvents.js contract), push
+//            { type: "noiseHeard", guardId: guard.id, x, y, strength } onto
+//            engine.events (x,y are the SOUND's origin, i.e. the (x,y) passed
+//            to emit/emitRadius above, not the guard's own position).
+//       3. Each guard, in array order: guard.update(DT, { player: player }).
 //          VISION STAGGERING (deferred — see below): every guard currently
 //          computes sight EVERY tick; there is no per-guard skip.
-//       3. squad.tick(DT, anyLOS) exactly once, where
+//       4. squad.tick(DT, anyLOS) exactly once, where
 //          anyLOS = guards.some(function (g) { return g.hasLOS; }) — read
 //          directly off each guard's own guard.hasLOS (set every tick by
 //          guard.update's perception step, see guardAI.js contract: "guard.
@@ -1569,20 +1834,23 @@
 //          header and exercised by sim.js's "full alert ladder" scenario:
 //          update every guard first, THEN squad.tick with the OR of every
 //          guard's hasLOS.
-//       4. Event collection: engine.events is cleared at the TOP of tick(),
+//       5. Event collection: engine.events is cleared at the TOP of tick(),
 //          before step 1, and squad.phase/alertCount are snapshotted at that
 //          same moment (BEFORE step 2) — a guard's own broadcastAlert() call
 //          (fired from inside guard.update() the instant its meter confirms
 //          sight; see guardAI.js's SUSPICIOUS/INVESTIGATE/EVASION/CAUTION
 //          notes) can flip squad.phase/alertCount immediately, well before
-//          squad.tick() runs in step 3, so a snapshot taken any later would
-//          miss exactly that transition. After step 3, the snapshot is
+//          squad.tick() runs in step 4, so a snapshot taken any later would
+//          miss exactly that transition. After step 4, the snapshot is
 //          compared against the live squad.phase/alertCount: phaseChange
 //          when phase differs; alert when alertCount increased, using the
 //          NEW squad.lastKnown for x/y since an alertCount bump only happens
 //          alongside a broadcastAlert() call that just set lastKnown (see
-//          guardAI.js's squad contract).
-//       5. tickCount++ and time = tickCount * DT.
+//          guardAI.js's squad contract). The "knock"/"noiseHeard" events from
+//          step 2 are pushed directly at emission time (step 2), not diffed
+//          from a snapshot — they're edge-triggered facts about that step,
+//          not state to compare before/after.
+//       6. tickCount++ and time = tickCount * DT.
 //
 //   VISION STAGGERING — deferred: with N guards, the ideal perf optimization
 //   is for guard i to refresh its expensive computeSight only on ticks where
@@ -1626,6 +1894,11 @@
       moveY: input.moveY || 0,
       run: !!input.run,
       stance: input.stance !== undefined ? input.stance : player.stance,
+      // knock: NOT part of player.js's own input contract (player.update
+      // ignores unknown fields, see src/player.js) — carried here purely for
+      // the engine's own edge-triggered knock-verb handling (see tick()
+      // step 2b in the file header). Defaults to false, same as run.
+      knock: !!input.knock,
     };
   }
 
@@ -1641,9 +1914,15 @@
 
     var rng = Game.createRng(seed);
     var world = Game.createWorld(zone);
+    var soundEvents = Game.createSoundEvents({ world: world });
     var vision = Game.createVision({ world: world });
     var squad = Game.createSquad();
     var player = Game.createPlayer({ world: world });
+
+    // Edge-trigger state for the knock verb (see file header, tick() step
+    // 2b) — private to this engine instance, not exposed on `engine` since
+    // it's an implementation detail of the input, not simulation truth.
+    var prevKnock = false;
 
     var guards = guardConfigs.map(function (cfg) {
       return Game.createGuard({
@@ -1664,6 +1943,7 @@
       squad: squad,
       vision: vision,
       rng: rng,
+      soundEvents: soundEvents,
       zone: zone,
       DT: DT,
       tickCount: 0,
@@ -1686,6 +1966,47 @@
 
       var normalized = normalizeInput(input, player);
       player.update(normalized, DT);
+
+      // ---- NOISE STEP (see file header, tick() step 2) — AFTER
+      // player.update, BEFORE any guard.update, so a sound made this tick is
+      // already reflected in guard.state by the time guards update below.
+      var moveNoiseRadius = player.noiseRadius();
+      if (moveNoiseRadius > 0) {
+        var moveResults = soundEvents.emitRadius(player.x, player.y, moveNoiseRadius, false, guards);
+        for (var mi = 0; mi < moveResults.length; mi++) {
+          if (moveResults[mi].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: moveResults[mi].listenerId,
+              x: player.x,
+              y: player.y,
+              strength: moveResults[mi].strength,
+            });
+          }
+        }
+      }
+
+      // Knock verb: edge-triggered (false->true only), and only actually
+      // emits a sound when the player is adjacent to a wall (see file header
+      // and Game.SOUND.KNOCK_WALL_DIST in src/soundEvents.js).
+      var knockPressed = normalized.knock && !prevKnock;
+      prevKnock = normalized.knock;
+      if (knockPressed && world.isBlockedCircle(player.x, player.y, Game.SOUND.KNOCK_WALL_DIST)) {
+        engine.events.push({ type: "knock", x: player.x, y: player.y });
+        var knockResults = soundEvents.emit(player.x, player.y, "knock", guards);
+        for (var ki = 0; ki < knockResults.length; ki++) {
+          if (knockResults[ki].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: knockResults[ki].listenerId,
+              x: player.x,
+              y: player.y,
+              strength: knockResults[ki].strength,
+            });
+          }
+        }
+      }
+      // ---- END NOISE STEP ---------------------------------------------------
 
       for (var i = 0; i < guards.length; i++) {
         guards[i].update(DT, { player: player });
@@ -3172,6 +3493,269 @@ Game.selfTests.push({
         "waypoint " + w + " (" + zone.waypoints[w].x + "," + zone.waypoints[w].y + ") was never visited in 180s"
       );
     }
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/soundEvents.test.js ====
+(function (global) {
+// tests/soundEvents.test.js — headless assertions for src/soundEvents.js and
+// its engine.js integration (noise step + knock verb). Same registry pattern
+// as tests/world.test.js/tests/engine.test.js: push onto the shared
+// Game.selfTests list; test.js runs every entry headless, and boot.js runs
+// the SAME list in-browser before the title screen — so every test here must
+// be environment-portable (no Date.now/Math.random/node-only APIs).
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+var DT = 1 / 60;
+var zone = Game.ZONES.loadingDock;
+var world = Game.createWorld(zone);
+var soundEvents = Game.createSoundEvents({ world: world });
+
+// A spy "listener" satisfying the { x, y, hearNoise(x,y,strength), id? }
+// shape emit/emitRadius expect (see src/soundEvents.js contract) — records
+// every hearNoise() call so tests can assert on strength/args without a real
+// guard's FSM in the way.
+function spyListener(id, x, y) {
+  var calls = [];
+  return {
+    id: id,
+    x: x,
+    y: y,
+    hearNoise: function (nx, ny, strength) {
+      calls.push({ x: nx, y: ny, strength: strength });
+    },
+    calls: calls,
+  };
+}
+
+// ---- 1. wallsBetween: 0 in open floor; 1 across the guard hut; >=2 across
+// two obstacles. All three segments are real loadingDock geometry, verified
+// against the walls array in src/world.js's zone comment:
+//   - open floor: the south patrol corridor between waypoints SW (3,27) and
+//     SE (37,27) — y=27 is clear of every wall (perimeter bottom is y:29-30;
+//     every interior small-crate cluster sits at y:21-24 or above).
+//   - 1 wall: (7,5)->(17,5) crosses ONLY the guard hut ({x:9,y:3,w:6,h:5} =
+//     x:9-15,y:3-8); nothing else occupies y=5 in that x-range.
+//   - >=2 walls: (15,15)->(35,15) crosses the center crate stack
+//     ({x:17,y:13,w:6,h:5} = x:17-23,y:13-18) THEN the east container
+//     ({x:26,y:9,w:6,h:11} = x:26-32,y:9-20); both spans include y=15.
+Game.selfTests.push({
+  name: "soundEvents wallsBetween: 0 in open floor, 1 across guard hut, >=2 across two obstacles",
+  fn: function () {
+    assert(
+      soundEvents.wallsBetween(3, 27, 37, 27) === 0,
+      "expected 0 walls along the open south corridor"
+    );
+    assert(
+      soundEvents.wallsBetween(7, 5, 17, 5) === 1,
+      "expected exactly 1 wall (guard hut) crossing (7,5)->(17,5)"
+    );
+    var crossed = soundEvents.wallsBetween(15, 15, 35, 15);
+    assert(crossed >= 2, "expected >=2 walls crossing (15,15)->(35,15), got " + crossed);
+  },
+});
+
+// ---- 2. effectiveRadius: knock (10) through 1 wall = 5, through 2 walls =
+// 2.5. Uses a SYNTHETIC zone with two parallel vertical walls (for an EXACT,
+// hand-verifiable wall count) rather than loadingDock geometry.
+Game.selfTests.push({
+  name: "soundEvents effectiveRadius: knock through 1 wall = 5, through 2 walls = 2.5",
+  fn: function () {
+    var synthZone = {
+      id: "synthTest",
+      name: "synthetic parallel-walls test zone",
+      bounds: { w: 20, h: 20 },
+      walls: [
+        { x: 5, y: 0, w: 1, h: 20 }, // wall A: vertical strip at x:5-6
+        { x: 10, y: 0, w: 1, h: 20 }, // wall B: vertical strip at x:10-11
+      ],
+      playerSpawn: { x: 0, y: 0 },
+      exit: { x: 0, y: 0, w: 1, h: 1 },
+      waypoints: [],
+      darkZones: [],
+    };
+    var synthWorld = Game.createWorld(synthZone);
+    var synthSound = Game.createSoundEvents({ world: synthWorld });
+
+    // Source at x=0; listener at x=7 crosses only wall A (1 wall).
+    var oneWallRadius = synthSound.effectiveRadius("knock", 0, 10, 7, 10);
+    assert(
+      Math.abs(oneWallRadius - 5) < 1e-9,
+      "expected knock radius through 1 wall to be exactly 5, got " + oneWallRadius
+    );
+
+    // Listener at x=12 crosses both wall A and wall B (2 walls).
+    var twoWallRadius = synthSound.effectiveRadius("knock", 0, 10, 12, 10);
+    assert(
+      Math.abs(twoWallRadius - 2.5) < 1e-9,
+      "expected knock radius through 2 walls to be exactly 2.5, got " + twoWallRadius
+    );
+  },
+});
+
+// ---- 3. emit: guard at 7m in open, knock (10m, sharp) -> heard "strong".
+Game.selfTests.push({
+  name: "soundEvents emit: knock heard as strong at 7m in open floor",
+  fn: function () {
+    var listener = spyListener("spy-3", 17, 27); // south corridor, 7m from (10,27)
+    var results = soundEvents.emit(10, 27, "knock", [listener]);
+    assert(listener.calls.length === 1, "expected hearNoise to be called exactly once");
+    assert(listener.calls[0].strength === "strong", "expected 'strong', got " + listener.calls[0].strength);
+    assert(results[0].heard === true, "expected results[0].heard === true");
+    assert(Math.abs(results[0].dist - 7) < 1e-9, "expected dist ~7, got " + results[0].dist);
+  },
+});
+
+// ---- 4. emit: guard at 12m, knock -> not heard.
+Game.selfTests.push({
+  name: "soundEvents emit: knock at 12m in open floor is not heard",
+  fn: function () {
+    var listener = spyListener("spy-4", 22, 27); // south corridor, 12m from (10,27)
+    var results = soundEvents.emit(10, 27, "knock", [listener]);
+    assert(listener.calls.length === 0, "expected hearNoise NOT to be called at 12m (eff radius 10)");
+    assert(results[0].heard === false, "expected results[0].heard === false");
+  },
+});
+
+// ---- 5. emit: guard at 6m behind 1 wall (eff 5) -> not heard; same
+// geometry knock moved closer (4m) -> heard. Geometry: SW small crate
+// ({x:4,y:21,w:3,h:3} = x:4-7,y:21-24) sits between both pairs of points
+// (all sampled at y=22.5, the crate's midline; all endpoints verified open
+// floor).
+Game.selfTests.push({
+  name: "soundEvents emit: knock at 6m behind 1 wall not heard, same wall at 4m heard",
+  fn: function () {
+    var farListener = spyListener("spy-5-far", 7.5, 22.5);
+    var farResults = soundEvents.emit(1.5, 22.5, "knock", [farListener]);
+    assert(
+      soundEvents.wallsBetween(1.5, 22.5, 7.5, 22.5) === 1,
+      "setup: expected exactly 1 wall between the far pair"
+    );
+    assert(farListener.calls.length === 0, "expected knock at 6m behind 1 wall (eff 5) NOT to be heard");
+    assert(Math.abs(farResults[0].effRadius - 5) < 1e-9, "expected effRadius 5, got " + farResults[0].effRadius);
+
+    var nearListener = spyListener("spy-5-near", 7.5, 22.5);
+    var nearResults = soundEvents.emit(3.5, 22.5, "knock", [nearListener]);
+    assert(
+      soundEvents.wallsBetween(3.5, 22.5, 7.5, 22.5) === 1,
+      "setup: expected exactly 1 wall between the near pair (same wall, closer source)"
+    );
+    assert(nearListener.calls.length === 1, "expected knock at 4m behind 1 wall (eff 5) to be heard");
+    assert(nearListener.calls[0].strength === "strong", "expected 'strong', got " + nearListener.calls[0].strength);
+    assert(nearResults[0].heard === true, "expected results[0].heard === true");
+  },
+});
+
+// ---- 6. soft sound: radius 8 (run) at 6m in open -> "faint".
+Game.selfTests.push({
+  name: "soundEvents emit: run noise (radius 8) at 6m in open floor is heard as faint",
+  fn: function () {
+    var listener = spyListener("spy-6", 16, 27); // south corridor, 6m from (10,27)
+    var results = soundEvents.emit(10, 27, "run", [listener]);
+    assert(listener.calls.length === 1, "expected hearNoise to be called exactly once");
+    assert(listener.calls[0].strength === "faint", "expected 'faint', got " + listener.calls[0].strength);
+    assert(results[0].heard === true, "expected results[0].heard === true");
+  },
+});
+
+// ---- 7. Full-stack engine noise pipeline: a running player ~6m ahead of a
+// stationary PATROL guard, in open floor, escalates the guard out of PATROL
+// (faint noise -> SUSPICIOUS) within a few ticks.
+Game.selfTests.push({
+  name: "engine noise pipeline: running player 6m from a guard in open floor triggers SUSPICIOUS",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "noise-g1", spawn: { x: 25, y: 27 }, waypoints: [{ x: 25, y: 27 }] }],
+    });
+    engine.player.x = 19; // 6m west of the guard, same open south corridor
+    engine.player.y = 27;
+
+    var leftPatrol = false;
+    for (var tick = 0; tick < 30 && !leftPatrol; tick++) {
+      engine.tick({ moveX: 1, moveY: 0, run: true, stance: "stand" });
+      if (engine.guards[0].state !== "PATROL") leftPatrol = true;
+    }
+
+    assert(leftPatrol, "expected guard to leave PATROL within 30 ticks of a running player 6m away");
+    assert(
+      engine.guards[0].state === "SUSPICIOUS",
+      "expected guard state SUSPICIOUS (faint noise from PATROL), got " + engine.guards[0].state
+    );
+  },
+});
+
+// ---- 8. Engine knock verb: player adjacent to the west container, one
+// input.knock=true tick emits exactly one "knock" event and a nearby guard
+// hears it as "strong"; holding input.knock=true for 10 more ticks fires NO
+// further "knock" events (edge-triggered, not level-triggered).
+Game.selfTests.push({
+  name: "engine knock verb: edge-triggered, emits once, heard strong, no repeat while held",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "knock-g1", spawn: { x: 18, y: 20 }, waypoints: [{ x: 18, y: 20 }] }],
+    });
+    // (14.6, 15) is 0.6m from the west container's east edge (x=14) — well
+    // within Game.SOUND.KNOCK_WALL_DIST (1.2), verified adjacent below.
+    engine.player.x = 14.6;
+    engine.player.y = 15;
+    assert(
+      engine.world.isBlockedCircle(engine.player.x, engine.player.y, Game.SOUND.KNOCK_WALL_DIST),
+      "setup: expected player position to be adjacent to a wall"
+    );
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch", knock: true });
+
+    var knockEvents = engine.events.filter(function (e) {
+      return e.type === "knock";
+    });
+    var noiseHeardEvents = engine.events.filter(function (e) {
+      return e.type === "noiseHeard" && e.guardId === "knock-g1";
+    });
+    assert(knockEvents.length === 1, "expected exactly one knock event, got " + knockEvents.length);
+    assert(
+      noiseHeardEvents.length === 1 && noiseHeardEvents[0].strength === "strong",
+      "expected the guard to hear the knock as strong"
+    );
+
+    var repeatKnockEvents = 0;
+    for (var tick = 0; tick < 10; tick++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "crouch", knock: true });
+      repeatKnockEvents += engine.events.filter(function (e) {
+        return e.type === "knock";
+      }).length;
+    }
+    assert(
+      repeatKnockEvents === 0,
+      "expected NO further knock events while input.knock is held true, got " + repeatKnockEvents
+    );
+  },
+});
+
+// ---- 9. Knock away from any wall (open center floor) fires no knock event.
+Game.selfTests.push({
+  name: "engine knock verb: knocking away from any wall fires no knock event",
+  fn: function () {
+    var engine = Game.createEngine({
+      guardConfigs: [{ id: "noknock-g1", spawn: { x: 20, y: 10 }, waypoints: [{ x: 20, y: 10 }] }],
+    });
+    engine.player.x = 20; // open center floor, verified >1.2m from every wall
+    engine.player.y = 10;
+    assert(
+      !engine.world.isBlockedCircle(engine.player.x, engine.player.y, Game.SOUND.KNOCK_WALL_DIST),
+      "setup: expected player position to NOT be adjacent to any wall"
+    );
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", knock: true });
+
+    var knockEvents = engine.events.filter(function (e) {
+      return e.type === "knock";
+    });
+    assert(knockEvents.length === 0, "expected no knock event when not adjacent to a wall, got " + knockEvents.length);
   },
 });
 
