@@ -1,5 +1,35 @@
 # TESTLOG.md
 
+## Cycle 4 (guardAI part A: PATROL/SUSPICIOUS/INVESTIGATE)
+
+`node build.js && node test.js` 36/36; `node sim.js` 4/4 (first 3 real
+behavior scenarios). 8 new guardAI tests.
+
+Playtest (sim-backed this time — knock scenario, lost-contact scenario, 120s
+mixed run all pass against the real FSM):
+
+**3 problems:**
+1. **REAL BUG FOUND (by build subagent): loadingDock waypoint leg NW(4,5)→
+   NE(36,5) passes through the guard-hut wall (9,3,6x5).** A no-pathfinding
+   guard wedges at x≈8.6 forever. Zone sanity test checks waypoints are in
+   open floor but NOT that consecutive legs are raycast-clear. → TOP of
+   backlog (bugfix, cycle 5): fix waypoint route + strengthen sanity test +
+   regression test.
+2. ALERT is a placeholder (stand still, meter pinned, no exit) — fine mid-
+   bootstrap, but the game is unlosable and unwinnable until part B. → next
+   feature cycle.
+3. Guard walks the SUSPICIOUS stare with zero body movement — stopping dead is
+   readable but a small step toward the stimulus (MGS lean) would sell it.
+   → polish backlog.
+
+**3 delights:**
+1. The knock scenario works end to end: hearNoise("strong") at t=1s →
+   INVESTIGATE by t≤3s → arrival at the knock point. The core MGS loop exists.
+2. Determinism test: two identically-seeded guards trace identical (x,y,state)
+   over 600 ticks — replay debugging is real from day one.
+3. MAX_STATE_S enforced by a thrown Error inside update() — a stuck guard can
+   never ship silently; the 120s mixed run leans on it as a live invariant.
+
 ## Cycle 3 (vision: cone, LOS, detect meter)
 
 `node build.js && node test.js` 28/28; `node sim.js` 1/1. 9 new vision tests.

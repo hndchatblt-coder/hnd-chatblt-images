@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.3 (cycle 3 — vision)
+**Version:** v0.4 (cycle 4 — guardAI part A)
 
 ## Module status
 
@@ -11,7 +11,7 @@
 | world          | v1          | Loading Dock data; isBlocked/raycast/moveCircle |
 | player         | v1          | stances/speeds/facing; visionProfile+noiseRadius |
 | vision         | v1          | stateless cone/LOS/meter; thresholds for FSM |
-| guardAI        | not started | full FSM                                 |
+| guardAI        | v1 (part A) | PATROL/SUSPICIOUS/INVESTIGATE + hearNoise; ALERT placeholder |
 | soundEvents    | not started | emit radii, wall attenuation             |
 | items          | not started | box, tranq, CQC, lockers, chaff          |
 | director       | not started | reinforcements, radio check-ins          |
@@ -24,11 +24,16 @@
 
 ## Known issues
 
+- **loadingDock waypoint leg NW→NE crosses the guard-hut wall** — guard wedges
+  without pathfinding. Fix scheduled cycle 5 (route + stronger sanity test).
+- ALERT is a placeholder: stand-still, no exit. Part B (cycle 6) replaces it.
 - moveCircle has no substep guard: a >1m single-tick displacement could tunnel a
   1m wall. Unreachable at 60Hz today; must fix before dash/throw physics.
 
 ## Changelog (last 5)
 
+- cycle 4: guardAI part A — PATROL/SUSPICIOUS/INVESTIGATE FSM, hearNoise API,
+  head-sweep, determinism test, 3 sim scenarios (36/36, 4/4)
 - cycle 3: vision — 70°/14m cone, exact LOS, fill meter (0.8s confirm at 2m),
   stance/darkness/extraMult modifiers, 9 tests (28/28)
 - cycle 2: player — walk/run/crouch/crawl (6/3/1.6/0.8 m/s), facing, collision
