@@ -119,7 +119,10 @@ const buildQuestion = () => {
   }
   const q = def.gen(level, UA.S);
   q.stage = def; q.level = level;
-  q.say = UA.frameFor(def.id, def.zone).replace('%Q', q.core || q.say || '');
+  // a story frame sets the scene when a round OPENS; mid-round questions stay
+  // snappy (frame-every-question made rounds feel slow and repetitive)
+  const frame = (E.roundQ === 0 || UA.rand(3) === 0) ? UA.frameFor(def.id, def.zone) : '%Q';
+  q.say = frame.replace('%Q', q.core || q.say || '');
   return q;
 };
 

@@ -97,11 +97,13 @@ def({ id: 'R4', zone: 'word-garden', name: 'Sound it out', skill: 'CVC blending'
   gen (l) {
     const bank = l < 3 ? UA.CVC.filter(c => c.cont) : UA.CVC;
     const nOpts = l < 5 ? 3 : 4;
-    let picks = UA.shuffle(bank).slice(0, 1);
-    const target = picks[0].w;
-    // distractors: at high levels prefer same-vowel rhymes to make her listen closely
-    const others = UA.shuffle(UA.CVC.filter(c => c.w !== target &&
-      (l < 5 || c.w[1] === target[1] ? true : UA.rand(2) === 0))).slice(0, nOpts - 1);
+    const target = UA.pick(bank).w;
+    // distractors share the vowel when possible — a curated set she must
+    // actually listen to, not random asset filler
+    const pool = UA.CVC.filter(c => c.w !== target);
+    const sameVowel = pool.filter(c => c.w[1] === target[1]);
+    const source = (l >= 4 && sameVowel.length >= nOpts - 1) ? sameVowel : pool;
+    const others = UA.shuffle(source).slice(0, nOpts - 1);
     const options = UA.shuffle([spriteOpt(target), ...others.map(o => spriteOpt(o.w))]);
     return {
       core: `Listen! ${blendSay(target)} Tap the ${target}!`,

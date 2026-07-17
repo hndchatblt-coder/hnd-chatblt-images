@@ -53,4 +53,9 @@ document.addEventListener('touchend', () => { if (started) UA.audio.init(); }, {
 document.addEventListener('click', () => { if (started) UA.audio.init(); });
 
 UA.ui.updateHUD();
+// returning players see their save is safe BEFORE tapping anything
+if (UA.S.created) {
+  const sub = document.getElementById('start-sub');
+  if (sub) sub.textContent = 'Welcome back' + (UA.S.name ? ', ' + UA.S.name : '') + '! Tap to keep playing!';
+}
 })();
