@@ -59,6 +59,7 @@ UA.go = (id, opts = {}) => {
   }));
 };
 UA.currentScreen = () => current;
+UA.registerScreen = (id, elm) => { SCREENS[id] = elm; };
 
 /* ---------- particles: one reusable DOM particle system ---------- */
 UA.fx.burst = (pt, kind, n = 10) => {
@@ -379,6 +380,7 @@ const buildMap = () => {
     UA.fx.burst({ x: e.clientX, y: e.clientY }, UA.rand(2) ? 'spark' : 'heart', 7);
   });
   stage.appendChild(uni);
+  if (UA.world) UA.world.decorateMap(stage);
 };
 
 /* beacon: trot toward + sparkle-point at the recommended zone; dismissable */
@@ -727,7 +729,10 @@ $('#home-btn').addEventListener('pointerdown', (e) => {
   celebrate.classList.remove('show'); celebrate.innerHTML = '';
   enterMap({ x: e.clientX, y: e.clientY });
 });
-$('#hear-btn').addEventListener('pointerdown', () => UA.engine.repeat());
+$('#hear-btn').addEventListener('pointerdown', () => {
+  if (UA.engine.active && UA.engine.q) UA.engine.repeat();
+  else if (UA.placeSay) UA.audio.speak(UA.placeSay);
+});
 
 /* dev panel — hidden unless ?dev=1 */
 UA.dev = null;

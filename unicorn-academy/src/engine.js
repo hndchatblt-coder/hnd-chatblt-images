@@ -304,6 +304,7 @@ const roundEnd = () => {
   S.stickers[zid].push({ stage: id, rare });
   UA.save();                                    // rewards hit storage before celebration
   E.roundQ = 0; E.roundFirstTry = 0;
+  if (UA.world && UA.world.roundHook(id)) return;   // coronation takes over the flow
   UA.ui.roundCelebration({ gems, perfect, rare, onDone: () => {
     if (!E.active) return;
     UA.reward.gems(gems);

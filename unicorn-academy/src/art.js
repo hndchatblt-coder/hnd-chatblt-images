@@ -139,15 +139,20 @@ UA.unicornSVG = (opts = {}) => {
   const cos = (opts.cosmetics || []).map(id => UA.COSMETICS[id] ? UA.COSMETICS[id]() : '').join('');
   const wear = (anchor) => (opts.cosmetics || []).filter(id => (UA.BOUTIQUE.find(b => b.id === id) || {}).anchor === anchor)
     .map(id => UA.COSMETICS[id]()).join('');
-  const leg = (x, cls) => G({ class: 'rig-' + cls, transform: `translate(${x},170) scale(1,${legS})` },
-    `<rect x="-8.5" y="0" width="17" height="50" rx="8.5" fill="${body}" ${OL}/>
-     <path d="M-8.5 38 A8.5 10 0 0 0 8.5 38 V42 A8.5 8.5 0 0 1 -8.5 42Z" fill="${bodyD}" stroke="none"/>`);
+  // CSS animations must never share an element with an SVG transform attribute
+  // (keyframe transforms replace the attribute mid-interpolation) — so attribute
+  // transforms sit on an outer group and animation classes on an inner one.
+  const leg = (x, cls) => G({ transform: `translate(${x},170) scale(1,${legS})` },
+    G({ class: 'rig-' + cls },
+      `<rect x="-8.5" y="0" width="17" height="50" rx="8.5" fill="${body}" ${OL}/>
+       <path d="M-8.5 38 A8.5 10 0 0 0 8.5 38 V42 A8.5 8.5 0 0 1 -8.5 42Z" fill="${bodyD}" stroke="none"/>`));
   return `<svg class="uni-rig ${opts.cls || ''}" viewBox="0 0 240 250" aria-hidden="true">
   ${G({ class: 'rig-body-group' }, `
-    ${G({ class: 'rig-tail', transform: 'translate(62,150)' }, `
+    ${G({ transform: `translate(${62 + (1 - bodyS) * 58},150) scale(${.85 + .15 * bodyS})` },
+      G({ class: 'rig-tail' }, `
       <path d="M2 -8 Q-26 -22 -34 -2 Q-40 14 -26 24 Q-38 30 -22 38 Q-4 44 2 24 Q6 8 2 -8Z" fill="${mane}" ${OL}/>
       <path d="M-8 -6 Q-24 2 -20 18 M-6 14 Q-18 20 -12 30" fill="none" stroke="${m2}" stroke-width="4.5" stroke-linecap="round"/>
-      ${wear('tail')}`)}
+      ${wear('tail')}`))}
     ${leg(88, 'leg-bl')} ${leg(148, 'leg-br')}
     <ellipse cx="118" cy="152" rx="60" ry="44" fill="${body}" ${OL} transform="scale(${bodyS})" transform-origin="118 152"/>
     <path d="M72 166 Q118 184 164 164" fill="none" stroke="${bodyD}" stroke-width="4" stroke-linecap="round" opacity=".45"/>
@@ -157,7 +162,7 @@ UA.unicornSVG = (opts = {}) => {
     <path d="M138 128 Q150 96 170 82 L196 106 Q186 128 158 138Z" fill="${body}" ${OL}/>
     ${wear('back')} ${wear('feet')}
   `)}
-  ${G({ class: 'rig-head-group', transform: `translate(182,84) scale(${headS}) translate(-182,-84)` }, `
+  ${G({ transform: `translate(182,84) scale(${headS}) translate(-182,-84)` }, G({ class: 'rig-head-group' }, `
     ${G({ class: 'rig-mane-back' }, `<path d="M164 34 Q136 44 132 78 Q130 108 118 126 Q142 128 152 104 Q160 82 166 66 Q172 48 164 34Z" fill="${m3}" ${OL}/>`)}
     <circle cx="182" cy="84" r="35" fill="${body}" ${OL}/>
     <ellipse cx="207" cy="97" rx="17" ry="13" fill="${UA.shade(body, 14)}" ${OL}/>
@@ -171,7 +176,7 @@ UA.unicornSVG = (opts = {}) => {
     ${G({ class: 'rig-blink' }, `<circle cx="192" cy="76" r="6" fill="${O}"/><circle cx="194.3" cy="73.6" r="2.3" fill="#fff"/>`)}
     <ellipse cx="201" cy="86" rx="6.5" ry="4.2" fill="#FF9EC7" opacity="${.5 + .3 * t}"/>
     ${wear('neck')} ${wear('horn')} ${wear('head')}
-  `)}
+  `))}
   ${opts.extra || ''}
 </svg>`;
 };

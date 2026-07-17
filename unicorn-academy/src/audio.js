@@ -193,6 +193,13 @@ function playToneInto(bus, freq, time, dur, type, peak) {
   osc.onended = () => { try { osc.disconnect(); env.disconnect(); } catch (e) {} };
   return osc;
 }
+/* public single note (music meadow flowers, recorded-tune replay) */
+UA.audio.note = (semitone, dur = 1.4, type = 'triangle') => {
+  if (!ctx || !toggles.sfx) return;
+  const freq = 262 * Math.pow(2, semitone / 12);
+  playToneInto(sfxGain, freq, ctx.currentTime, dur, type, 0.16);
+};
+
 function scheduleSession(s) {
   const lookahead = ctx.currentTime + 0.6;
   while (s.nextMelody < lookahead) {
