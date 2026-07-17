@@ -78,10 +78,13 @@ UA.audio.init = function () {
   }
   if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
   try {
-    if (window.speechSynthesis) {
+    // unlock TTS inside this gesture — but never queue behind live speech
+    // (init is re-called from a safety net on every touch release)
+    const synth = window.speechSynthesis;
+    if (synth && !synth.speaking && !synth.pending) {
       const u = new SpeechSynthesisUtterance(' ');
       u.volume = 0;
-      window.speechSynthesis.speak(u); // fires inside this gesture to unlock TTS on iOS
+      synth.speak(u);
     }
   } catch (e) {}
 };

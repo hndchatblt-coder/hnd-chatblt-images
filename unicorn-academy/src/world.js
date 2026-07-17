@@ -20,13 +20,19 @@ const FACILITIES = [
 
 UA.world.decorateMap = (stage) => {
   const S = UA.S;
+  const phone = innerWidth < 700;
+  // phones get a tidy dock (scattered 11vw spots collapse below touch size there)
+  const dock = phone ? el('<div class="fac-dock"></div>') : null;
   FACILITIES.forEach(f => {
-    const b = el(`<button class="zone-spot fac-spot" data-testid="${f.id}"
-      style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
-      ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
+    const b = el(phone
+      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`
+      : `<button class="zone-spot fac-spot" data-testid="${f.id}"
+          style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
+          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
     b.addEventListener('pointerdown', (e) => f.open({ x: e.clientX, y: e.clientY }));
-    stage.appendChild(b);
+    (dock || stage).appendChild(b);
   });
+  if (dock) stage.appendChild(dock);
   // quiet "for grown-ups" link: deliberately boring, never spoken or hinted
   const pa = el(`<button id="parents-link" aria-label="For grown-ups">For grown-ups</button>`);
   pa.addEventListener('pointerdown', () => UA.openParents());

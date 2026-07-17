@@ -144,36 +144,40 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 
 /* soft readability panel between the drawn zone scene and the question */
 .stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);
-  top:calc(96px + var(--sat));bottom:calc(14px + var(--sab));
+  top:calc(clamp(56px,12vmin,96px) + var(--sat));bottom:calc(clamp(8px,1.6vh,14px) + var(--sab));
   background:rgba(255,249,245,.66);border-radius:38px;box-shadow:0 10px 40px rgba(92,74,102,.18)}
 
 /* ---------- shared chrome ---------- */
-.big-btn{border:none;border-radius:32px;padding:20px 34px;font-size:30px;font-weight:800;
+.big-btn{border:none;border-radius:clamp(18px,3.6vmin,32px);padding:clamp(12px,2.4vmin,20px) clamp(18px,3.8vmin,34px);
+  font-size:clamp(19px,3.6vmin,30px);font-weight:800;
   background:var(--cream);box-shadow:0 8px 0 var(--shadow),0 14px 30px var(--shadow);cursor:pointer;
   min-width:88px;min-height:88px;transition:transform .12s ease}
 .big-btn:active{transform:translateY(4px) scale(.97)}
-.round-btn{border:none;border-radius:50%;width:88px;height:88px;display:flex;align-items:center;
-  justify-content:center;background:var(--cream);box-shadow:0 6px 0 var(--shadow),0 12px 26px var(--shadow);
-  cursor:pointer;transition:transform .12s ease}
+.round-btn{border:none;border-radius:50%;width:clamp(64px,10vmin,88px);height:clamp(64px,10vmin,88px);
+  display:flex;align-items:center;justify-content:center;background:var(--cream);
+  box-shadow:0 6px 0 var(--shadow),0 12px 26px var(--shadow);cursor:pointer;transition:transform .12s ease}
 .round-btn:active{transform:translateY(3px) scale(.95)}
 .round-btn svg{width:56%;height:56%}
-#home-btn{position:fixed;left:calc(24px + var(--sal));top:calc(24px + var(--sat));z-index:40;display:none}
+#home-btn{position:fixed;left:calc(clamp(10px,2.5vw,24px) + var(--sal));top:calc(clamp(10px,2vh,24px) + var(--sat));z-index:40;display:none}
 #home-btn.show{display:flex}
-#hear-btn{position:fixed;right:calc(24px + var(--sar));top:calc(24px + var(--sat));z-index:40;display:none}
+#hear-btn{position:fixed;right:calc(clamp(10px,2.5vw,24px) + var(--sar));top:calc(clamp(10px,2vh,24px) + var(--sat));z-index:40;display:none}
 #hear-btn.show{display:flex}
 .chrome-quiet{transform:scale(.82);opacity:.55;filter:saturate(.55)}
 .chrome-quiet.round-btn:active{transform:scale(.78)}
 
-#hud{position:fixed;top:calc(20px + var(--sat));left:50%;transform:translateX(-50%);z-index:38;
-  display:none;align-items:center;gap:18px;pointer-events:none}
+#hud{position:fixed;top:calc(clamp(8px,1.6vh,20px) + var(--sat));left:50%;transform:translateX(-50%);z-index:38;
+  display:none;align-items:center;gap:clamp(8px,1.6vw,18px);pointer-events:none;
+  max-width:calc(100vw - 2*clamp(88px,14vmin,140px))}
 #hud.show{display:flex}
-#gem-counter{display:flex;align-items:center;gap:8px;background:var(--cream);border-radius:999px;
-  padding:8px 20px 8px 12px;font-size:26px;font-weight:800;color:var(--plum);
+@media (max-width:640px){ #hud.show{flex-direction:column;gap:4px} }
+#gem-counter{display:flex;align-items:center;gap:6px;background:var(--cream);border-radius:999px;
+  padding:clamp(4px,1vmin,8px) clamp(12px,2.4vmin,20px) clamp(4px,1vmin,8px) clamp(8px,1.6vmin,12px);
+  font-size:clamp(17px,3vmin,26px);font-weight:800;color:var(--plum);
   box-shadow:0 5px 0 var(--shadow);transition:transform .15s ease,opacity .3s ease,filter .3s ease}
-#gem-counter svg{width:34px;height:34px}
+#gem-counter svg{width:clamp(22px,4vmin,34px);height:clamp(22px,4vmin,34px)}
 #gem-counter.pop{animation:gem-pop .4s ease}
 @keyframes gem-pop{40%{transform:scale(1.25)}}
-#rainbow-meter{width:190px;height:30px;background:var(--cream);border-radius:999px;
+#rainbow-meter{width:clamp(92px,22vmin,190px);height:clamp(18px,3.4vmin,30px);background:var(--cream);border-radius:999px;
   box-shadow:0 5px 0 var(--shadow),inset 0 3px 8px rgba(92,74,102,.15);overflow:hidden;
   transition:transform .15s ease,opacity .3s ease,filter .3s ease}
 #rainbow-meter>div{height:100%;width:0%;border-radius:999px;transition:width .5s cubic-bezier(.34,1.56,.64,1);
@@ -181,21 +185,26 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 
 /* ---------- activity layout ---------- */
 .activity-wrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-  padding:calc(120px + var(--sat)) calc(28px + var(--sar)) calc(28px + var(--sab)) calc(28px + var(--sal))}
-.prompt-area{display:flex;align-items:center;justify-content:center;gap:20px;min-height:150px;flex:0 0 auto}
-.prompt-card{background:var(--cream);border-radius:36px;padding:16px 34px;box-shadow:0 8px 0 var(--shadow);
-  display:flex;align-items:center;gap:16px;font-size:52px;font-weight:900;color:var(--plum)}
-.prompt-card svg{width:110px;height:110px}
+  padding:calc(clamp(64px,14vmin,120px) + var(--sat)) calc(clamp(10px,3vw,28px) + var(--sar))
+          calc(clamp(10px,2vh,28px) + var(--sab)) calc(clamp(10px,3vw,28px) + var(--sal));
+  overflow-y:auto;overflow-x:hidden}  /* safety net: better a rare scroll than a clipped answer */
+.prompt-area:empty{display:none}
+.prompt-area{display:flex;align-items:center;justify-content:center;gap:clamp(8px,2vmin,20px);
+  min-height:clamp(76px,16vmin,150px);flex:0 0 auto;flex-wrap:wrap}
+.prompt-card{background:var(--cream);border-radius:clamp(18px,4vmin,36px);padding:clamp(8px,1.8vmin,16px) clamp(14px,3.6vmin,34px);
+  box-shadow:0 8px 0 var(--shadow);display:flex;align-items:center;gap:clamp(8px,1.8vmin,16px);
+  font-size:clamp(26px,6vmin,52px);font-weight:900;color:var(--plum)}
+.prompt-card svg{width:clamp(56px,13vmin,110px);height:clamp(56px,13vmin,110px)}
 .options-grid{flex:1;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
-  gap:min(4vw,34px);width:100%;max-width:1050px;align-content:center}
-.option-card{border:none;background:var(--cream);border-radius:38px;cursor:pointer;
+  gap:clamp(10px,3vmin,34px);width:100%;max-width:1050px;align-content:center}
+.option-card{border:none;background:var(--cream);border-radius:clamp(18px,4.4vmin,38px);cursor:pointer;
   box-shadow:0 9px 0 var(--shadow),0 16px 34px var(--shadow);
   width:var(--card-size,200px);height:var(--card-size,200px);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
   font-size:calc(var(--card-size,200px)*.44);font-weight:900;color:var(--plum);
   transition:transform .16s cubic-bezier(.34,1.56,.64,1),opacity .3s ease,box-shadow .16s ease;position:relative}
 .option-card svg{width:72%;height:72%;pointer-events:none}
-.option-card .cap{font-size:24px;font-weight:800;pointer-events:none}
+.option-card .cap{font-size:clamp(14px,3vmin,24px);font-weight:800;pointer-events:none}
 .option-card:active{transform:scale(.94)}
 .option-card.quiet{opacity:.45;transform:scale(.96)}
 .option-card.live{animation:opt-pop .35s cubic-bezier(.34,1.56,.64,1) backwards}
@@ -228,7 +237,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 
 /* flip cards */
 .flip-card{perspective:900px;border:none;background:none;cursor:pointer;padding:0;
-  width:var(--card-size,170px);height:var(--card-size,170px)}
+  width:var(--card-size,170px);height:var(--card-size,170px);min-width:70px;min-height:70px}
 .flip-inner{width:100%;height:100%;position:relative;transform-style:preserve-3d;
   transition:transform .45s cubic-bezier(.34,1.3,.64,1)}
 .flip-card.flipped .flip-inner{transform:rotateY(180deg)}
@@ -263,21 +272,22 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   gap:26px;padding:calc(24px + var(--sat)) 24px calc(24px + var(--sab))}
 .fr-title-art{width:min(30vh,240px);height:min(30vh,240px)}
 .swatch-row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;max-width:800px}
-.swatch{width:110px;height:110px;border-radius:50%;border:6px solid var(--cream);cursor:pointer;
+.swatch{width:clamp(64px,15vmin,110px);height:clamp(64px,15vmin,110px);border-radius:50%;border:6px solid var(--cream);cursor:pointer;
   box-shadow:0 7px 0 var(--shadow),0 12px 26px var(--shadow);transition:transform .15s cubic-bezier(.34,1.56,.64,1)}
 .swatch:active{transform:scale(.92)}
 .swatch.picked{transform:scale(1.15);border-color:var(--gold);box-shadow:0 0 0 6px var(--yellow),0 7px 0 var(--shadow)}
 .name-row{display:flex;flex-wrap:wrap;gap:22px;justify-content:center}
-.kbd{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:940px}
-.kbd button{width:84px;height:84px;border:none;border-radius:22px;background:var(--cream);
-  font-size:42px;font-weight:900;color:var(--plum);box-shadow:0 6px 0 var(--shadow);cursor:pointer;
-  transition:transform .1s ease}
+.kbd{display:flex;flex-wrap:wrap;gap:clamp(6px,1.4vmin,12px);justify-content:center;max-width:940px}
+.kbd button{width:clamp(46px,9vmin,84px);height:clamp(46px,9vmin,84px);border:none;border-radius:clamp(12px,2.4vmin,22px);
+  background:var(--cream);font-size:clamp(22px,4.6vmin,42px);font-weight:900;color:var(--plum);
+  box-shadow:0 6px 0 var(--shadow);cursor:pointer;transition:transform .1s ease}
 .kbd button:active{transform:translateY(3px) scale(.94)}
-.kbd button.wide{width:150px;background:var(--peach)}
+.kbd button.wide{width:clamp(84px,17vmin,150px);background:var(--peach)}
 .kbd button.go{background:var(--mint)}
-.name-display{min-height:84px;background:var(--cream);border-radius:26px;padding:12px 34px;font-size:54px;
-  font-weight:900;color:var(--plum);letter-spacing:6px;box-shadow:inset 0 4px 12px rgba(92,74,102,.18);
-  min-width:320px;text-align:center}
+.name-display{min-height:clamp(52px,9vmin,84px);background:var(--cream);border-radius:26px;
+  padding:clamp(6px,1.4vmin,12px) clamp(16px,3.6vmin,34px);font-size:clamp(30px,6vmin,54px);
+  font-weight:900;color:var(--plum);letter-spacing:4px;box-shadow:inset 0 4px 12px rgba(92,74,102,.18);
+  min-width:min(320px,84vw);text-align:center}
 
 /* ---------- story ---------- */
 #screen-story .story-stage{position:absolute;inset:0}
@@ -287,6 +297,13 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 #screen-map .map-stage{position:absolute;inset:0}
 .zone-spot{position:absolute;border:none;background:none;cursor:pointer;padding:0;
   transition:transform .2s cubic-bezier(.34,1.56,.64,1);transform:translate(-50%,-50%)}
+.fac-dock{position:absolute;left:50%;bottom:calc(30px + var(--sab));transform:translateX(-50%);
+  display:flex;flex-wrap:wrap;justify-content:center;gap:10px;width:min(96vw,420px);z-index:13}
+.fac-dock button{position:static;transform:none;width:30%;min-width:64px;height:76px;
+  border:none;background:rgba(255,249,245,.85);border-radius:18px;cursor:pointer;
+  box-shadow:0 5px 0 var(--shadow);padding:4px}
+.fac-dock button:active{transform:scale(.94)}
+.fac-dock .zone-art{width:100%;height:100%}
 .zone-spot:active{transform:translate(-50%,-50%) scale(.93)}
 .zone-spot .zone-art{width:100%;height:100%;pointer-events:none}
 .zone-spot .zone-bounce{animation:zone-bob 2.6s ease-in-out infinite}
@@ -344,20 +361,21 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   flex-direction:column;gap:20px}
 #celebrate-layer.show{display:flex}
 .ceremony-card{position:relative;z-index:49;  /* must beat the sibling .veil (z-48) or its buttons are untappable */
-  background:var(--cream);border-radius:48px;padding:40px 60px;box-shadow:0 16px 0 var(--shadow),0 30px 80px var(--shadow);
-  display:flex;flex-direction:column;align-items:center;gap:18px;max-width:86vw;
+  background:var(--cream);border-radius:clamp(24px,5vmin,48px);padding:clamp(16px,4vmin,40px) clamp(20px,6vmin,60px);
+  box-shadow:0 16px 0 var(--shadow),0 30px 80px var(--shadow);
+  display:flex;flex-direction:column;align-items:center;gap:clamp(10px,2vmin,18px);max-width:92vw;max-height:88dvh;overflow-y:auto;
   animation:ceremony-in .6s cubic-bezier(.34,1.56,.64,1)}
 @keyframes ceremony-in{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
-.ceremony-title{font-size:56px;font-weight:900;color:var(--plum);text-align:center;text-shadow:0 3px 0 var(--yellow)}
+.ceremony-title{font-size:clamp(28px,7vmin,56px);font-weight:900;color:var(--plum);text-align:center;text-shadow:0 3px 0 var(--yellow)}
 
 /* generic full-screen soft veil behind modals/ceremonies */
 .veil{position:fixed;inset:0;background:rgba(92,74,102,.35);backdrop-filter:blur(2px);z-index:48}
 
 /* ---------- places (boutique, toy corners, book, parents) ---------- */
-.place-title{position:fixed;top:calc(84px + var(--sat));left:50%;transform:translateX(-50%);z-index:4;
-  font-size:30px;font-weight:900;color:var(--plum);background:var(--cream);border-radius:999px;
-  padding:10px 30px;box-shadow:0 6px 0 var(--shadow);pointer-events:none;white-space:nowrap}
-.place-body{position:absolute;inset:0;padding:calc(160px + var(--sat)) 24px calc(24px + var(--sab));
+.place-title{position:fixed;top:calc(clamp(58px,13vmin,84px) + var(--sat));left:50%;transform:translateX(-50%);z-index:4;
+  font-size:clamp(18px,4vmin,30px);font-weight:900;color:var(--plum);background:var(--cream);border-radius:999px;
+  padding:clamp(6px,1.2vmin,10px) clamp(16px,3.4vmin,30px);box-shadow:0 6px 0 var(--shadow);pointer-events:none;white-space:nowrap}
+.place-body{position:absolute;inset:0;padding:calc(clamp(104px,22vmin,160px) + var(--sat)) clamp(10px,2.6vw,24px) calc(clamp(12px,2.4vh,24px) + var(--sab));
   display:flex;flex-direction:column;align-items:center;gap:20px;overflow-y:auto;overflow-x:hidden}
 .fac-spot .zone-art{filter:drop-shadow(0 5px 8px var(--shadow))}
 #parents-link{position:fixed;left:calc(10px + var(--sal));bottom:calc(6px + var(--sab));z-index:6;
@@ -369,7 +387,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 .btq-tier h3{color:var(--plum);font-size:24px;margin:8px 4px}
 .btq-tier.btq-locked{opacity:.5;filter:saturate(.4)}
 .btq-row{display:flex;flex-wrap:wrap;gap:16px}
-.btq-item{border:none;border-radius:24px;background:var(--cream);width:132px;height:150px;cursor:pointer;
+.btq-item{border:none;border-radius:24px;background:var(--cream);width:clamp(96px,22vmin,132px);height:clamp(110px,25vmin,150px);cursor:pointer;
   box-shadow:0 6px 0 var(--shadow);display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:4px;transition:transform .14s cubic-bezier(.34,1.56,.64,1)}
 .btq-item:active{transform:scale(.93)}
@@ -438,9 +456,12 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 #dash label{display:inline-flex;gap:6px;align-items:center;margin-right:18px;font-size:16px}
 #dash h4{margin:18px 0 6px}
 
-/* ---------- responsive scale (below ~375px, proportional shrink) ---------- */
-@media (max-width:374px){
-  #app{transform:scale(.85);transform-origin:top left;width:118%;height:118%}
+/* tiny screens: fluid clamp() sizing above handles proportions down to ~320px */
+/* very short screens (landscape phones): name-entry flows and scrolls instead of absolute centring */
+@media (max-height:479px){
+  #kid-kbd{position:static !important;transform:none !important;width:100% !important}
+  #kidname-done{position:static !important;transform:none !important;margin:6px auto !important}
+  .fr-wrap{overflow-y:auto;justify-content:flex-start !important}
 }
 
 </style>
@@ -1401,10 +1422,13 @@ UA.audio.init = function () {
   }
   if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
   try {
-    if (window.speechSynthesis) {
+    // unlock TTS inside this gesture — but never queue behind live speech
+    // (init is re-called from a safety net on every touch release)
+    const synth = window.speechSynthesis;
+    if (synth && !synth.speaking && !synth.pending) {
       const u = new SpeechSynthesisUtterance(' ');
       u.volume = 0;
-      window.speechSynthesis.speak(u); // fires inside this gesture to unlock TTS on iOS
+      synth.speak(u);
     }
   } catch (e) {}
 };
@@ -2239,7 +2263,7 @@ const optBtn = (o, size) => {
   b.className = 'option-card answer';
   b.dataset.testid = 'answer-option';
   b.dataset.opt = o.id;
-  if (size) b.style.setProperty('--card-size', size + 'px');
+  if (size) b.style.setProperty('--card-size', `min(${size}px, 26vmin)`);   // fluid on phones
   b.innerHTML = o.html + (o.cap ? `<span class="cap">${o.cap}</span>` : '');
   return b;
 };
@@ -2323,11 +2347,13 @@ UA.widgets.tapEach = {
 UA.widgets.dragToSlot = {
   demo: 'drag',
   render (q, area) {
-    const field = el('<div class="drag-field" style="position:relative;width:100%;height:100%;min-height:380px"></div>');
+    const field = el('<div class="drag-field" style="position:relative;width:100%;height:100%;min-height:min(380px,46dvh)"></div>');
     area.appendChild(field);
     const W = field.clientWidth || area.clientWidth || 800;
-    const H = Math.max(field.clientHeight, 380);
-    const slotW = q.slotSize || 120, gap = 18;
+    const H = Math.max(field.clientHeight, Math.min(380, innerHeight * 0.46));
+    const gap = Math.min(18, W * 0.02);
+    // slots must fit the row on any screen
+    const slotW = Math.min(q.slotSize || 120, Math.floor((W * 0.94 - gap * (q.slots.length - 1)) / q.slots.length));
     const slots = [];
     const totalW = q.slots.length * (slotW + gap) - gap;
     q.slots.forEach((s, i) => {
@@ -2338,7 +2364,7 @@ UA.widgets.dragToSlot = {
     });
     let remaining = q.pieces.filter(p => !!p.slot).length;
     const shuffled = UA.shuffle(q.pieces);
-    const pw = q.pieceSize || 108;
+    const pw = Math.min(q.pieceSize || 108, Math.floor((W - 30) / Math.min(shuffled.length, 4)) - 16, slotW);
     shuffled.forEach((p, i) => {
       const cols = Math.min(shuffled.length, Math.floor((W - 40) / (pw + 16)) || 1);
       const rowY = H * 0.55 + Math.floor(i / cols) * (pw + 18);
@@ -2563,9 +2589,11 @@ UA.widgets.jigsaw = {
   demo: 'jigsaw',
   render (q, area) {
     // q.scene (svg string), q.cols, q.rows
-    const wrap = el(`<div style="display:flex;gap:36px;align-items:center;justify-content:center;flex-wrap:wrap;width:100%"></div>`);
+    const wrap = el(`<div style="display:flex;gap:clamp(14px,3vmin,36px);align-items:center;justify-content:center;flex-wrap:wrap;width:100%"></div>`);
     area.appendChild(wrap);
-    const W = 360, H = 300;
+    const W = Math.max(220, Math.min(360, (area.clientWidth || innerWidth) - 32, innerWidth * 0.92,
+      (innerHeight - 260) * 360 / 300));         // board also fits short screens
+    const H = W * 300 / 360;
     const cols = q.cols, rows = q.rows, n = cols * rows;
     const board = el(`<div style="position:relative;width:${W}px;height:${H}px;background:rgba(255,255,255,.5);
       border-radius:18px;box-shadow:inset 0 0 0 4px rgba(92,74,102,.25)"></div>`);
@@ -3565,6 +3593,7 @@ const enterMap = (fromPt) => {
     $('#home-btn').classList.remove('show');
     $('#hear-btn').classList.remove('show');
     $('#hud').classList.add('show');
+    $('#rainbow-meter').style.display = '';
     UA.ui.updateHUD();
     mapWelcome();
     armMapIdle();
@@ -3580,7 +3609,7 @@ const buildMap = () => {
   UA.ZONES.forEach(z => {
     const unlocked = UA.zoneUnlocked(z.id);
     const spot = el(`<button class="zone-spot ${unlocked ? '' : 'locked'}" data-testid="zone-${z.id}"
-      style="left:${z.x}%;top:${z.y}%;width:min(17vw,150px);height:min(17vw,150px)" aria-label="${z.name}">
+      style="left:${z.x}%;top:${z.y}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
       ${UA.landmark(z.icon, z.col, z.col2)}
       ${unlocked ? zoneStarsRow(z) : `<svg class="zone-mist" viewBox="0 0 120 120">
         ${UA.gen.cloud(40, 70, .9, '#E9DDFF', .8)}${UA.gen.cloud(80, 50, .8, '#F3EBFF', .75)}
@@ -3603,8 +3632,9 @@ const buildMap = () => {
     stage.appendChild(spot);
   });
   // the unicorn herself, pettable, trots to the recommended zone (beacon)
+  const phoneMap = innerWidth < 700;   // keep her clear of the facilities dock
   const uni = el(`<button class="map-uni" id="map-uni" aria-label="${S.uni.name}"
-    style="left:44%;top:78%;width:min(20vw,170px);border:none;background:none">
+    style="left:${phoneMap ? 56 : 44}%;top:${phoneMap ? 58 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
     ${UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane], cosmetics: S.equipped })}</button>`);
   let lastPet = 0;
   uni.addEventListener('pointerdown', (e) => {
@@ -3708,6 +3738,7 @@ UA.ui.showActivity = (zone, stage) => {
   $('#home-btn').classList.add('show');
   $('#hear-btn').classList.add('show');
   $('#hud').classList.add('show');
+  $('#rainbow-meter').style.display = '';
   if (current !== 'activity') {
     // enforce exclusive visibility even when reached outside UA.go (dev jump,
     // error recovery) — two .show screens means invisible dead taps
@@ -4171,6 +4202,8 @@ const openPlace = (id, colour, pt, build, sayLine) => {
     $('#home-btn').classList.add('show');
     $('#hear-btn').classList.add('show');
     $('#hud').classList.add('show');
+    const meter = $('#rainbow-meter');
+    if (meter) meter.style.display = 'none';   // the meter is a question-time thing
     UA.placeSay = sayLine;                       // hear-again on places repeats the welcome
     UA.audio.speak(sayLine);
   } });
@@ -4707,13 +4740,19 @@ const FACILITIES = [
 
 UA.world.decorateMap = (stage) => {
   const S = UA.S;
+  const phone = innerWidth < 700;
+  // phones get a tidy dock (scattered 11vw spots collapse below touch size there)
+  const dock = phone ? el('<div class="fac-dock"></div>') : null;
   FACILITIES.forEach(f => {
-    const b = el(`<button class="zone-spot fac-spot" data-testid="${f.id}"
-      style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
-      ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
+    const b = el(phone
+      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`
+      : `<button class="zone-spot fac-spot" data-testid="${f.id}"
+          style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
+          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
     b.addEventListener('pointerdown', (e) => f.open({ x: e.clientX, y: e.clientY }));
-    stage.appendChild(b);
+    (dock || stage).appendChild(b);
   });
+  if (dock) stage.appendChild(dock);
   // quiet "for grown-ups" link: deliberately boring, never spoken or hinted
   const pa = el(`<button id="parents-link" aria-label="For grown-ups">For grown-ups</button>`);
   pa.addEventListener('pointerdown', () => UA.openParents());
@@ -4995,10 +5034,15 @@ UA.audio.onReturn(() => {
   if (UA.engine.active && UA.engine.q) UA.engine.repeat();
 });
 
-/* the giant start button: audio unlock + entry */
+/* The giant start button: audio unlock + entry.
+   iOS grants audio/speech activation on touch RELEASE, never on pointerdown —
+   so the unlock and the first utterance must run from `click` (which fires
+   after touchend with real user activation). pointerdown gives instant visual
+   feedback only. */
 const startBtn = document.getElementById('start-btn');
 let started = false;
-startBtn.addEventListener('pointerdown', () => {
+startBtn.addEventListener('pointerdown', () => { startBtn.style.transform = 'scale(.95)'; });
+startBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
   UA.audio.init();
@@ -5007,6 +5051,10 @@ startBtn.addEventListener('pointerdown', () => {
   UA.audio.speak(UA.S.created ? `Welcome back!` : `Welcome to Unicorn Academy!`);
   UA.ui.begin();
 });
+/* safety net: if the context is still locked (or iOS re-suspends it), any
+   touch release re-attempts the unlock until it sticks */
+document.addEventListener('touchend', () => { if (started) UA.audio.init(); }, { passive: true });
+document.addEventListener('click', () => { if (started) UA.audio.init(); });
 
 UA.ui.updateHUD();
 })();

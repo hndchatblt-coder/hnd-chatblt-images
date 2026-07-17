@@ -55,3 +55,13 @@ _One line per judgment call: decision + why. Maintained by the build session._
 - Rotation mid-question re-renders the live question (engine state kept, layout recomputed).
 - Grown-ups' corner gained a copy/paste backup-and-restore code — iOS may purge localStorage.
 - Pages workflow now also publishes unicorn-academy/game.html as /academy.html for URL testing.
+- iPhone round: audio unlock moved to click/touchend — iOS grants user activation on touch RELEASE,
+  never pointerdown, which is why the phone had no sound at all; a safety net re-tries unlock on
+  every touch release until the context runs.
+- Full fluid-layout pass: all fixed px sizes became clamp()/vmin scales (cards, HUD, keyboard,
+  prompts, ceremonies, drag slots/pieces, jigsaw board); activity area scrolls as a last resort
+  rather than ever clipping an answer.
+- Phone map: facilities collapse into a 2x3 bottom dock (scattered spots fell under touch size);
+  the unicorn stands above it; the rainbow meter hides in places (it is a question-time thing).
+- New tools/phone-audit.cjs harness: three iPhone viewports, screenshots + programmatic checks
+  for clipped answers, viewport overflow, sub-60px map targets and chrome collisions.

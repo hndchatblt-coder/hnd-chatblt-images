@@ -13,7 +13,7 @@ const optBtn = (o, size) => {
   b.className = 'option-card answer';
   b.dataset.testid = 'answer-option';
   b.dataset.opt = o.id;
-  if (size) b.style.setProperty('--card-size', size + 'px');
+  if (size) b.style.setProperty('--card-size', `min(${size}px, 26vmin)`);   // fluid on phones
   b.innerHTML = o.html + (o.cap ? `<span class="cap">${o.cap}</span>` : '');
   return b;
 };
@@ -97,11 +97,13 @@ UA.widgets.tapEach = {
 UA.widgets.dragToSlot = {
   demo: 'drag',
   render (q, area) {
-    const field = el('<div class="drag-field" style="position:relative;width:100%;height:100%;min-height:380px"></div>');
+    const field = el('<div class="drag-field" style="position:relative;width:100%;height:100%;min-height:min(380px,46dvh)"></div>');
     area.appendChild(field);
     const W = field.clientWidth || area.clientWidth || 800;
-    const H = Math.max(field.clientHeight, 380);
-    const slotW = q.slotSize || 120, gap = 18;
+    const H = Math.max(field.clientHeight, Math.min(380, innerHeight * 0.46));
+    const gap = Math.min(18, W * 0.02);
+    // slots must fit the row on any screen
+    const slotW = Math.min(q.slotSize || 120, Math.floor((W * 0.94 - gap * (q.slots.length - 1)) / q.slots.length));
     const slots = [];
     const totalW = q.slots.length * (slotW + gap) - gap;
     q.slots.forEach((s, i) => {
@@ -112,7 +114,7 @@ UA.widgets.dragToSlot = {
     });
     let remaining = q.pieces.filter(p => !!p.slot).length;
     const shuffled = UA.shuffle(q.pieces);
-    const pw = q.pieceSize || 108;
+    const pw = Math.min(q.pieceSize || 108, Math.floor((W - 30) / Math.min(shuffled.length, 4)) - 16, slotW);
     shuffled.forEach((p, i) => {
       const cols = Math.min(shuffled.length, Math.floor((W - 40) / (pw + 16)) || 1);
       const rowY = H * 0.55 + Math.floor(i / cols) * (pw + 18);
@@ -337,9 +339,11 @@ UA.widgets.jigsaw = {
   demo: 'jigsaw',
   render (q, area) {
     // q.scene (svg string), q.cols, q.rows
-    const wrap = el(`<div style="display:flex;gap:36px;align-items:center;justify-content:center;flex-wrap:wrap;width:100%"></div>`);
+    const wrap = el(`<div style="display:flex;gap:clamp(14px,3vmin,36px);align-items:center;justify-content:center;flex-wrap:wrap;width:100%"></div>`);
     area.appendChild(wrap);
-    const W = 360, H = 300;
+    const W = Math.max(220, Math.min(360, (area.clientWidth || innerWidth) - 32, innerWidth * 0.92,
+      (innerHeight - 260) * 360 / 300));         // board also fits short screens
+    const H = W * 300 / 360;
     const cols = q.cols, rows = q.rows, n = cols * rows;
     const board = el(`<div style="position:relative;width:${W}px;height:${H}px;background:rgba(255,255,255,.5);
       border-radius:18px;box-shadow:inset 0 0 0 4px rgba(92,74,102,.25)"></div>`);

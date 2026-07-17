@@ -26,6 +26,8 @@ const openPlace = (id, colour, pt, build, sayLine) => {
     $('#home-btn').classList.add('show');
     $('#hear-btn').classList.add('show');
     $('#hud').classList.add('show');
+    const meter = $('#rainbow-meter');
+    if (meter) meter.style.display = 'none';   // the meter is a question-time thing
     UA.placeSay = sayLine;                       // hear-again on places repeats the welcome
     UA.audio.speak(sayLine);
   } });

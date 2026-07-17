@@ -30,10 +30,15 @@ UA.audio.onReturn(() => {
   if (UA.engine.active && UA.engine.q) UA.engine.repeat();
 });
 
-/* the giant start button: audio unlock + entry */
+/* The giant start button: audio unlock + entry.
+   iOS grants audio/speech activation on touch RELEASE, never on pointerdown —
+   so the unlock and the first utterance must run from `click` (which fires
+   after touchend with real user activation). pointerdown gives instant visual
+   feedback only. */
 const startBtn = document.getElementById('start-btn');
 let started = false;
-startBtn.addEventListener('pointerdown', () => {
+startBtn.addEventListener('pointerdown', () => { startBtn.style.transform = 'scale(.95)'; });
+startBtn.addEventListener('click', () => {
   if (started) return;
   started = true;
   UA.audio.init();
@@ -42,6 +47,10 @@ startBtn.addEventListener('pointerdown', () => {
   UA.audio.speak(UA.S.created ? `Welcome back!` : `Welcome to Unicorn Academy!`);
   UA.ui.begin();
 });
+/* safety net: if the context is still locked (or iOS re-suspends it), any
+   touch release re-attempts the unlock until it sticks */
+document.addEventListener('touchend', () => { if (started) UA.audio.init(); }, { passive: true });
+document.addEventListener('click', () => { if (started) UA.audio.init(); });
 
 UA.ui.updateHUD();
 })();

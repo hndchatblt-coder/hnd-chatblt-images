@@ -320,6 +320,7 @@ const enterMap = (fromPt) => {
     $('#home-btn').classList.remove('show');
     $('#hear-btn').classList.remove('show');
     $('#hud').classList.add('show');
+    $('#rainbow-meter').style.display = '';
     UA.ui.updateHUD();
     mapWelcome();
     armMapIdle();
@@ -335,7 +336,7 @@ const buildMap = () => {
   UA.ZONES.forEach(z => {
     const unlocked = UA.zoneUnlocked(z.id);
     const spot = el(`<button class="zone-spot ${unlocked ? '' : 'locked'}" data-testid="zone-${z.id}"
-      style="left:${z.x}%;top:${z.y}%;width:min(17vw,150px);height:min(17vw,150px)" aria-label="${z.name}">
+      style="left:${z.x}%;top:${z.y}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
       ${UA.landmark(z.icon, z.col, z.col2)}
       ${unlocked ? zoneStarsRow(z) : `<svg class="zone-mist" viewBox="0 0 120 120">
         ${UA.gen.cloud(40, 70, .9, '#E9DDFF', .8)}${UA.gen.cloud(80, 50, .8, '#F3EBFF', .75)}
@@ -358,8 +359,9 @@ const buildMap = () => {
     stage.appendChild(spot);
   });
   // the unicorn herself, pettable, trots to the recommended zone (beacon)
+  const phoneMap = innerWidth < 700;   // keep her clear of the facilities dock
   const uni = el(`<button class="map-uni" id="map-uni" aria-label="${S.uni.name}"
-    style="left:44%;top:78%;width:min(20vw,170px);border:none;background:none">
+    style="left:${phoneMap ? 56 : 44}%;top:${phoneMap ? 58 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
     ${UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane], cosmetics: S.equipped })}</button>`);
   let lastPet = 0;
   uni.addEventListener('pointerdown', (e) => {
@@ -463,6 +465,7 @@ UA.ui.showActivity = (zone, stage) => {
   $('#home-btn').classList.add('show');
   $('#hear-btn').classList.add('show');
   $('#hud').classList.add('show');
+  $('#rainbow-meter').style.display = '';
   if (current !== 'activity') {
     // enforce exclusive visibility even when reached outside UA.go (dev jump,
     // error recovery) — two .show screens means invisible dead taps
