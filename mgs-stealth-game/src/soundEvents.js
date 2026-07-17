@@ -13,13 +13,21 @@
 //     }
 //
 //   Game.createSoundEvents({ world }) -> soundEvents, where `world` is a
-//   Game.createWorld(...) instance (src/world.js). Only world.zone.walls (the
-//   plain AABB array) is consumed — see wallsBetween below for why this module
-//   does NOT call world.raycast.
+//   Game.createWorld(...) instance (src/world.js). Consumes world.zone.walls
+//   (the plain AABB array, static) PLUS world.closedDoorRects() (the currently
+//   -CLOSED doors, dynamic — see world.js's own DOORS / DYNAMIC BLOCKERS
+//   contract) — see wallsBetween below for why this module does NOT call
+//   world.raycast, and for how doors are folded in.
 //
 //     wallsBetween(x1, y1, x2, y2) -> integer
-//       Number of DISTINCT wall AABBs the straight segment (x1,y1)->(x2,y2)
-//       crosses strictly between its two endpoints.
+//       Number of DISTINCT wall AABBs, PLUS currently-CLOSED door AABBs, the
+//       straight segment (x1,y1)->(x2,y2) crosses strictly between its two
+//       endpoints. Closed doors count exactly like walls (same unclamped-
+//       entry-t test below); an OPEN door contributes nothing, same as if its
+//       AABB were absent from the zone entirely. world.closedDoorRects() is
+//       called FRESH on every wallsBetween call (never cached) since doors
+//       change state between calls and a stale snapshot would silently
+//       under/over-count — see DOOR ACOUSTICS note below.
 //       IMPLEMENTATION NOTE (why not world.raycast in a marching loop): the
 //       obvious approach — cast, step an epsilon past the hit, cast again,
 //       repeat — is a trap here. world.js's segmentVsRect (the slab method)
@@ -33,10 +41,23 @@
 //       against the INFINITE line through it, so "segment starts inside/past
 //       this wall" (t <= 0) is distinguishable from "segment actually enters
 //       this wall somewhere in the middle" (0 < t < 1). wallsBetween then just
-//       iterates world.zone.walls ONCE and counts entries with 0 < t < 1 — no
-//       marching, no epsilon stepping, no iteration cap needed, and each wall
-//       is counted at most once (its single entry crossing), which is exactly
-//       "how many distinct walls does this line cross".
+//       iterates world.zone.walls concat world.closedDoorRects() ONCE and
+//       counts entries with 0 < t < 1 — no marching, no epsilon stepping, no
+//       iteration cap needed, and each wall/door is counted at most once (its
+//       single entry crossing), which is exactly "how many distinct
+//       walls-or-closed-doors does this line cross".
+//
+//     DOOR ACOUSTICS (fixed — was an HONEST GAP, see world.js's own DOORS /
+//     DYNAMIC BLOCKERS note and BACKLOG.md): a closed door now attenuates a
+//     knock/gunshot/footstep exactly like a wall (50% effective-radius
+//     multiplier per WALL_ATTENUATION, same as any other crossing); an open
+//     door attenuates nothing, matching how it already drops out of
+//     world.js's own movement/LOS blockers list the instant it opens. Because
+//     door state can change between one emit and the next (engine.js's DOORS
+//     step opens/closes them at runtime), this module never caches door
+//     geometry at createSoundEvents() construction time — every
+//     wallsBetween/effectiveRadius/emit call re-reads world.closedDoorRects()
+//     live.
 //
 //     effectiveRadius(kind, x1, y1, x2, y2) -> number
 //       RADII[kind] * WALL_ATTENUATION ^ wallsBetween(x1, y1, x2, y2). Throws
@@ -69,8 +90,9 @@
 //       (same rule as effectiveRadius).
 //
 // Pure JS, deterministic, no THREE/DOM/Math.random/Date. Local helpers only —
-// runs headless in node. Consumes world only via world.zone.walls (read-only);
-// does not modify world/player/vision/guardAI/rng.
+// runs headless in node. Consumes world only via world.zone.walls (read-only,
+// static) and world.closedDoorRects() (read-only, re-read live every call —
+// see DOOR ACOUSTICS above); does not modify world/player/vision/guardAI/rng.
 (function (Game) {
   // ---- local math helpers (no dependency on other modules) -----------------
 
@@ -145,7 +167,7 @@
 
   function createSoundEvents(deps) {
     var world = deps.world;
-    var walls = world.zone.walls;
+    var walls = world.zone.walls; // static — safe to capture once at construction
 
     function wallsBetween(x1, y1, x2, y2) {
       if (x1 === x2 && y1 === y2) return 0; // degenerate: same point, nothing "between"
@@ -153,6 +175,17 @@
       for (var i = 0; i < walls.length; i++) {
         var t = wallEntryT(x1, y1, x2, y2, walls[i]);
         if (t !== null && t > 0 && t < 1) count++;
+      }
+      // Closed doors (see DOOR ACOUSTICS above) — a LIVE read every call,
+      // never cached, since doors open/close at runtime and a stale count
+      // would silently mis-attenuate. world.closedDoorRects() already
+      // excludes open doors, so no open/closed branching is needed here: a
+      // door counts exactly like any other wall AABB the instant it's shut,
+      // and simply isn't in the list at all once it's open.
+      var closedDoors = world.closedDoorRects();
+      for (var j = 0; j < closedDoors.length; j++) {
+        var dt = wallEntryT(x1, y1, x2, y2, closedDoors[j]);
+        if (dt !== null && dt > 0 && dt < 1) count++;
       }
       return count;
     }

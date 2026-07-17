@@ -1,5 +1,13 @@
 # TESTLOG.md
 
+## Cycle 39 (bugfix: door acoustics)
+
+252/252; 25/25; 5/5 shots. Closed doors attenuate 50% per crossing exactly
+like walls (live closedDoorRects accessor, no caching, same slab math);
+"acoustically transparent" honest-gap note replaced with the real rule.
+Full-stack test: guard beyond closed L1 ignores a lobby knock, INVESTIGATEs
+it once the door opens. Sound, sight, and movement now agree about doors.
+
 ## Cycle 38 (polish: radar states + camera meter ramp + legend)
 
 247/247; 25/25; 5/5 shots + warehouse evidence shot verified (near camera

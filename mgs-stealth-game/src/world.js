@@ -148,21 +148,20 @@
 //   contract); world.js only owns the mechanical "is this rect currently a
 //   blocker" question.
 //
-//   HONEST GAP — DOORS DO NOT ATTENUATE SOUND THIS VERSION: src/soundEvents.js
-//   computes wall-crossing attenuation (wallsBetween/effectiveRadius) by
-//   iterating `world.zone.walls` DIRECTLY (see its own file header's
-//   IMPLEMENTATION NOTE for why it can't reuse world.raycast in a marching
-//   loop) — it has no notion of `world`'s dynamic blockers list, only the
-//   static zone data. soundEvents.js is out of scope for this cycle's task
-//   packet, so rather than reach into it, a closed door in this version is
-//   ACOUSTICALLY TRANSPARENT: a knock/gunshot/footstep on one side of a
-//   closed Laboratory door attenuates as if the door weren't there at all
-//   (it still fully blocks LINE OF SIGHT and MOVEMENT via world.js's own
-//   blockers list above — only the SOUND radius math misses it). This is a
-//   deliberate, documented gap, not a silent one — see BACKLOG.md for the
-//   follow-up ("soundEvents: attenuate through closed doors, not just
-//   walls") that would thread a door-aware wallsBetween through soundEvents.js
-//   in a future cycle where that file is back in scope.
+//   CLOSED DOORS NOW ATTENUATE SOUND (fixed this cycle — was an HONEST GAP):
+//   src/soundEvents.js's wallsBetween/effectiveRadius still iterate
+//   `world.zone.walls` directly (see its own file header's IMPLEMENTATION
+//   NOTE for why it can't reuse world.raycast in a marching loop), but they
+//   now ALSO count every currently-CLOSED door as a crossing, via
+//   world.closedDoorRects() below — a live view of the dynamic blockers list
+//   above, doors only (walls are static and already covered by zone.walls).
+//   soundEvents.js calls it fresh on every wallsBetween/emit (doors change
+//   state; a cached snapshot would go stale the instant a door opens), so a
+//   knock/gunshot/footstep on one side of a closed door attenuates exactly
+//   like it would through an ordinary wall (50% per WALL_ATTENUATION), while
+//   an OPEN door contributes nothing — same "drops out entirely" rule the
+//   movement/LOS blockers list already followed. See src/soundEvents.js's own
+//   contract for the consuming half of this fix.
 //   Game.createWorld(zoneData) -> {
 //     isBlocked(x, y): boolean,
 //       // true iff (x,y) lies inside (or exactly on the edge of) any wall AABB.
@@ -184,6 +183,13 @@
 //     inRegion(x, y, region): boolean,
 //       // point-in-{x,y,w,h} test (closed containment), used for exit/darkZone
 //       // checks.
+//     setDoorOpen(id, open) / isDoorOpen(id): mutate/read a door's open flag
+//       (see DOORS / DYNAMIC BLOCKERS above).
+//     closedDoorRects(): { x, y, w, h }[],
+//       // NEW (soundEvents door-acoustics fix) — every currently-CLOSED door
+//       // as a plain AABB (id/lock stripped), recomputed fresh each call. See
+//       // DOORS / DYNAMIC BLOCKERS above; consumed by src/soundEvents.js's
+//       // wallsBetween so closed doors attenuate sound like walls.
 //     zone: the zoneData object this world was created from.
 //   }
 // Pure data + geometry. No THREE, no DOM, no browser APIs — runs headless in
@@ -335,6 +341,24 @@
       return !!doorOpen[id];
     }
 
+    // closedDoorRects() (NEW — soundEvents door-acoustics fix): a live view of
+    // just the currently-CLOSED doors, as plain {x,y,w,h} AABBs (the `lock`/
+    // `id` fields are stripped — callers outside world.js have no business
+    // with door identity, only geometry). Recomputed fresh on every call, same
+    // "doors are few, no caching complexity" posture as blockers() above — so
+    // a caller like soundEvents.js can call this once per emit/wallsBetween
+    // and always see the true current door state, never a stale snapshot.
+    // Returns [] for any zone with no doors (no-op cost, same as blockers()).
+    function closedDoorRects() {
+      var list = [];
+      for (var i = 0; i < doors.length; i++) {
+        if (!doorOpen[doors[i].id]) {
+          list.push({ x: doors[i].x, y: doors[i].y, w: doors[i].w, h: doors[i].h });
+        }
+      }
+      return list;
+    }
+
     // getState()/setState() (NEW — save/restore cycle, additive only, no
     // behavior change). This world instance's ONLY mutable state is the
     // per-door open/closed flag map (doorOpen) — everything else
@@ -361,6 +385,7 @@
       inRegion: inRegion,
       setDoorOpen: setDoorOpen,
       isDoorOpen: isDoorOpen,
+      closedDoorRects: closedDoorRects,
       getState: getState,
       setState: setState,
       zone: zoneData,
