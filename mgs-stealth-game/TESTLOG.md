@@ -1,5 +1,23 @@
 # TESTLOG.md
 
+## Cycle 44 (graphics G1: humanoid silhouettes)
+
+263/263; 25/25; 5/5 shots inspected + crouch/crawl/sleep/stun evidence
+verified by the builder. Primitive-composed figures (legs/arms on swing
+pivots, tapered torso, visor-banded head) replace boxes; walk cycle driven
+by distance traveled (not wall clock — determinism-safe by construction);
+prone pose shared between crawl and sleeping; facing reads from body
+orientation, wedge retired.
+
+**Notes:** (1) figures are small at the locked camera distance — G5 (peek
+rotation) should evaluate a modest zoom-in. (2) hit-flash tints the whole
+alert screenshot — correct behavior, mildly confusing in stills; no action.
+(3) walk-cycle phase is per-actor render state, untouched by save/restore —
+correct (cosmetic state, resets harmlessly).
+
+**Delight:** boxes → people is the single largest jump in perceived quality
+of any cycle so far, for ~200 lines of render-only change.
+
 ## Cycle 43 (polish: B10 codec deferral)
 
 263/263; 25/25; 5/5 shots. firstBody/lowDarts queue during ALERT/EVASION and

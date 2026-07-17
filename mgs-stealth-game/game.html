@@ -5445,7 +5445,26 @@
     var STAND_H = 1.7;
     var CROUCH_H = 1.0;
     var CRAWL_H = 0.5;
-    var BODY_W = 0.8; // box footprint, x and z
+    var BODY_W = 0.8; // box-disguise footprint, x and z (unrelated to the humanoid figure's own width)
+
+    var HEAD_R = 0.17;
+    var NECK_GAP = 0.03;
+    var TORSO_W = 0.42; // shoulder-to-shoulder (local Z, the character's side axis)
+    var TORSO_D = 0.24; // front-to-back (local X, the character's forward axis)
+    var HIP_W = 0.38; // hip width (Z) — narrower than the shoulders
+    var LEG_W = 0.17; // each leg box, X/Z
+    var ARM_W = 0.13; // each arm box, X/Z
+    var LEG_FRAC = 0.46; // fraction of totalH that is leg length (also sets hip height)
+    var TORSO_FRAC = 0.34; // fraction of totalH that is hip-to-shoulder torso length
+    var CROUCH_TILT = 0.32; // radians, forward torso lean while crouched
+    var VISOR_FWD = 0.6; // fraction of HEAD_R the facing-visor sits forward of head center
+
+    var WALK_PHASE_PER_METER = 5.5;
+    var WALK_SWING_RAD = (25 * Math.PI) / 180;
+    var ARM_SWING_RATIO = 0.85; // arm amplitude relative to the leg amplitude
+    var RUN_SWING_MULT = 1.6;
+    var STILL_EPS = 1e-5; // world units of frame-to-frame displacement below which a figure is "not moving"
+    var PRONE_SWING_RAD = (14 * Math.PI) / 180; // subtle crawl-stroke leg/arm wag
 
     var PERIMETER_H = 2.2;
     var INTERIOR_H = 1.6;
@@ -5461,7 +5480,8 @@
     var BOX_COLOR = 0x8b5a2b;
     var BOX_HEIGHT = 1.0; // world units — a fixed crate height, stance-independent
     var BOX_FOOTPRINT_SCALE = 1.45; // "slightly larger than the player" (BODY_W * this)
-    var NOSE_COLOR = 0xf2f2f2;
+    var GUARD_VISOR_COLOR = 0x2f3a24;
+    var PLAYER_VISOR_COLOR = 0x24313d;
     var BG_COLOR = 0x05070a;
 
     var CONE_SEGMENTS = 24;
@@ -5509,9 +5529,8 @@
     var METER_MAX_W = 2.0;
     var METER_H = 0.32;
 
-    var SLEEP_LENGTH = STAND_H; // lying "length" ~= a standing guard's height
-    var SLEEP_THICKNESS = 0.4; // low profile, floor-hugging
-    var SLEEP_Y = SLEEP_THICKNESS / 2;
+    var PRONE_LIFT = 0.16; // world units the whole prone figureGroup is raised so it doesn't clip the floor
+    var PRONE_ARM_ROTATION = Math.PI; // arm pivot rest angle for "arms forward" (crawl) instead of hanging down
 
     var TRACER_DURATION_S = 0.25;
     var TRACER_Y = 0.6; // roughly muzzle height
@@ -5785,52 +5804,184 @@
       staticObjects = [];
     }
 
-    function makeNose(color) {
-      var geo = new THREE.ConeGeometry(0.16, 0.5, 8);
-      geo.rotateZ(-Math.PI / 2); // point along local +X
-      var mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: color }));
-      return mesh;
-    }
-
-    function makeActor(bodyColor, noseColor) {
+    function makeActor(bodyColor, visorColor) {
       var group = new THREE.Group();
-      var bodyGeo = new THREE.BoxGeometry(BODY_W, 1, BODY_W);
-      var body = new THREE.Mesh(bodyGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
-      group.add(body);
-      var nose = makeNose(noseColor);
-      group.add(nose);
+      var figureGroup = new THREE.Group();
+      group.add(figureGroup);
+
+      var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+      var visorMat = new THREE.MeshLambertMaterial({ color: visorColor });
+
+      var torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO_D, 1, TORSO_W), bodyMat);
+      var head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_R, 10, 8), bodyMat);
+      var visor = new THREE.Mesh(
+        new THREE.BoxGeometry(HEAD_R * 0.9, HEAD_R * 0.55, HEAD_R * 1.25),
+        visorMat
+      );
+      figureGroup.add(torso, head, visor);
+
+      function makeLimb(w) {
+        var pivot = new THREE.Group();
+        var mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 1, w), bodyMat);
+        pivot.add(mesh);
+        figureGroup.add(pivot);
+        return { pivot: pivot, mesh: mesh };
+      }
+      var leftLeg = makeLimb(LEG_W);
+      var rightLeg = makeLimb(LEG_W);
+      var leftArm = makeLimb(ARM_W);
+      var rightArm = makeLimb(ARM_W);
+
       scene.add(group);
-      return { group: group, body: body, nose: nose };
+
+      return {
+        group: group,
+        figureGroup: figureGroup,
+        bodyMat: bodyMat,
+        visorMat: visorMat,
+        torso: torso,
+        head: head,
+        visor: visor,
+        leftLeg: leftLeg,
+        rightLeg: rightLeg,
+        leftArm: leftArm,
+        rightArm: rightArm,
+        parts: [torso, head, visor, leftLeg.mesh, rightLeg.mesh, leftArm.mesh, rightArm.mesh],
+        lastX: null,
+        lastY: null,
+        phase: 0,
+        boxMesh: null,
+      };
     }
 
-    function placeActor(actor, x, y, facing, height) {
+    function updateWalkCycle(actor, x, y, baseSwingRad, running) {
+      var dx = actor.lastX === null ? 0 : x - actor.lastX;
+      var dy = actor.lastY === null ? 0 : y - actor.lastY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      actor.lastX = x;
+      actor.lastY = y;
+      if (dist <= STILL_EPS) return 0;
+      actor.phase += dist * WALK_PHASE_PER_METER;
+      return baseSwingRad * (running ? RUN_SWING_MULT : 1);
+    }
+
+    function poseUpright(actor, x, y, facing, totalH, tilt, phase, swingRad) {
       actor.group.position.set(x, 0, y);
       actor.group.rotation.y = -facing;
-      actor.body.scale.set(1, height, 1);
-      actor.body.rotation.set(0, 0, 0);
-      actor.body.position.set(0, height / 2, 0);
-      actor.nose.visible = true;
-      actor.nose.position.set(BODY_W / 2 + 0.1, height * 0.55, 0);
+      actor.figureGroup.position.set(0, 0, 0);
+      actor.figureGroup.rotation.set(0, 0, 0);
+      actor.figureGroup.visible = true;
+
+      var legLen = totalH * LEG_FRAC;
+      var torsoH = totalH * TORSO_FRAC;
+      var hipY = legLen;
+      var shoulderY = hipY + torsoH;
+      var headY = shoulderY + NECK_GAP + HEAD_R;
+
+      actor.torso.scale.set(1, torsoH, 1);
+      actor.torso.position.set(0, hipY + torsoH / 2, 0);
+      actor.torso.rotation.set(0, 0, tilt);
+
+      actor.head.position.set(Math.sin(tilt) * torsoH * 0.6, headY, 0);
+      actor.visor.position.set(
+        actor.head.position.x + HEAD_R * VISOR_FWD,
+        actor.head.position.y - HEAD_R * 0.05,
+        actor.head.position.z
+      );
+      actor.visor.rotation.set(0, 0, 0);
+      actor.visor.visible = true;
+
+      var legSwing = Math.sin(phase) * swingRad;
+      var armSwing = Math.sin(phase) * swingRad * ARM_SWING_RATIO;
+
+      actor.leftLeg.pivot.position.set(0, hipY, HIP_W / 2);
+      actor.leftLeg.pivot.rotation.set(0, 0, legSwing);
+      actor.leftLeg.mesh.scale.set(1, legLen, 1);
+      actor.leftLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.leftLeg.pivot.visible = true;
+
+      actor.rightLeg.pivot.position.set(0, hipY, -HIP_W / 2);
+      actor.rightLeg.pivot.rotation.set(0, 0, -legSwing);
+      actor.rightLeg.mesh.scale.set(1, legLen, 1);
+      actor.rightLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.rightLeg.pivot.visible = true;
+
+      var armLen = legLen * 0.92;
+      actor.leftArm.pivot.position.set(0, shoulderY, TORSO_W / 2 + ARM_W * 0.6);
+      actor.leftArm.pivot.rotation.set(0, 0, -armSwing);
+      actor.leftArm.mesh.scale.set(1, armLen, 1);
+      actor.leftArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.leftArm.pivot.visible = true;
+
+      actor.rightArm.pivot.position.set(0, shoulderY, -(TORSO_W / 2 + ARM_W * 0.6));
+      actor.rightArm.pivot.rotation.set(0, 0, armSwing);
+      actor.rightArm.mesh.scale.set(1, armLen, 1);
+      actor.rightArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.rightArm.pivot.visible = true;
     }
 
-    function placeSleepingActor(actor, guard) {
-      actor.group.position.set(guard.x, 0, guard.y);
-      actor.group.rotation.y = -guard.facing;
-      actor.body.scale.set(SLEEP_LENGTH / BODY_W, SLEEP_THICKNESS, 1);
-      actor.body.rotation.set(0, 0, 0);
-      actor.body.position.set(0, SLEEP_Y, 0);
-      actor.nose.visible = false;
+    function poseProne(actor, x, y, facing, phase, swingRad, armsForward) {
+      actor.group.position.set(x, 0, y);
+      actor.group.rotation.y = -facing;
+
+      var totalH = STAND_H;
+      var legLen = totalH * LEG_FRAC;
+      var torsoH = totalH * TORSO_FRAC;
+      var hipY = legLen - totalH / 2; // shifted so hip sits relative to the figure's own mid-height
+      var shoulderY = hipY + torsoH;
+      var headY = shoulderY + NECK_GAP + HEAD_R;
+
+      actor.torso.scale.set(1, torsoH, 1);
+      actor.torso.position.set(0, hipY + torsoH / 2, 0);
+      actor.torso.rotation.set(0, 0, 0);
+
+      actor.head.position.set(0, headY, 0);
+      actor.visor.position.set(HEAD_R * VISOR_FWD, headY - HEAD_R * 0.05, 0);
+      actor.visor.rotation.set(0, 0, 0);
+      actor.visor.visible = true;
+
+      var legSwing = Math.sin(phase) * swingRad;
+      actor.leftLeg.pivot.position.set(0, hipY, HIP_W / 2);
+      actor.leftLeg.pivot.rotation.set(0, 0, legSwing);
+      actor.leftLeg.mesh.scale.set(1, legLen, 1);
+      actor.leftLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.leftLeg.pivot.visible = true;
+
+      actor.rightLeg.pivot.position.set(0, hipY, -HIP_W / 2);
+      actor.rightLeg.pivot.rotation.set(0, 0, -legSwing);
+      actor.rightLeg.mesh.scale.set(1, legLen, 1);
+      actor.rightLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.rightLeg.pivot.visible = true;
+
+      var armLen = legLen * 0.92;
+      var armRest = armsForward ? PRONE_ARM_ROTATION : 0;
+      var armSwing = armsForward ? legSwing * 0.5 : 0;
+      actor.leftArm.pivot.position.set(0, shoulderY, TORSO_W / 2 + ARM_W * 0.6);
+      actor.leftArm.pivot.rotation.set(0, 0, armRest - armSwing);
+      actor.leftArm.mesh.scale.set(1, armLen, 1);
+      actor.leftArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.leftArm.pivot.visible = true;
+
+      actor.rightArm.pivot.position.set(0, shoulderY, -(TORSO_W / 2 + ARM_W * 0.6));
+      actor.rightArm.pivot.rotation.set(0, 0, armRest + armSwing);
+      actor.rightArm.mesh.scale.set(1, armLen, 1);
+      actor.rightArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.rightArm.pivot.visible = true;
+
+      actor.figureGroup.position.set(0, PRONE_LIFT, 0);
+      actor.figureGroup.rotation.set(0, 0, -Math.PI / 2);
+      actor.figureGroup.visible = true;
     }
 
     var playerActor = null;
 
-    var guardActors = {}; // id -> { group, body, nose, marker (Sprite), cone (Mesh) }
+    var guardActors = {}; // id -> { group, figureGroup, bodyMat, ..., marker (Sprite), cone (Mesh) }
 
     function ensureGuardActor(guard) {
       var existing = guardActors[guard.id];
       if (existing) return existing;
 
-      var base = makeActor(GUARD_COLOR, NOSE_COLOR);
+      var actor = makeActor(GUARD_COLOR, GUARD_VISOR_COLOR);
 
       var marker = new THREE.Sprite(MARKER_MATERIALS.SUSPICIOUS);
       marker.scale.set(1.8, 1.8, 1);
@@ -5853,16 +6004,11 @@
       dizzy.visible = false;
       scene.add(dizzy);
 
-      var actor = {
-        group: base.group,
-        body: base.body,
-        nose: base.nose,
-        marker: marker,
-        cone: coneMesh,
-        coneEdge: coneEdge,
-        zzz: zzz,
-        dizzy: dizzy,
-      };
+      actor.marker = marker;
+      actor.cone = coneMesh;
+      actor.coneEdge = coneEdge;
+      actor.zzz = zzz;
+      actor.dizzy = dizzy;
       guardActors[guard.id] = actor;
       return actor;
     }
@@ -5871,10 +6017,11 @@
       Object.keys(guardActors).forEach(function (id) {
         var actor = guardActors[id];
         scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge, actor.zzz, actor.dizzy);
-        actor.body.geometry.dispose();
-        actor.body.material.dispose();
-        actor.nose.geometry.dispose();
-        actor.nose.material.dispose();
+        actor.parts.forEach(function (part) {
+          part.geometry.dispose();
+        });
+        actor.bodyMat.dispose();
+        actor.visorMat.dispose();
         actor.cone.geometry.dispose();
         actor.coneEdge.geometry.dispose();
       });
@@ -6404,6 +6551,10 @@
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
         clearRipples(); // same reasoning — see file header RIPPLES note
+        if (playerActor) {
+          playerActor.lastX = null;
+          playerActor.lastY = null;
+        }
         zone = engine.zone;
         zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
         camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
@@ -6418,53 +6569,73 @@
       }
 
       if (!playerActor) {
-        playerActor = makeActor(PLAYER_COLOR, NOSE_COLOR);
-        playerActor.body.material.transparent = true;
-        playerActor.nose.material.transparent = true;
+        playerActor = makeActor(PLAYER_COLOR, PLAYER_VISOR_COLOR);
+        playerActor.bodyMat.transparent = true;
+        playerActor.visorMat.transparent = true;
+        playerActor.boxMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(BODY_W, 1, BODY_W),
+          new THREE.MeshLambertMaterial({ color: BOX_COLOR, transparent: true })
+        );
+        playerActor.boxMesh.visible = false;
+        playerActor.group.add(playerActor.boxMesh);
       }
       var player = engine.player;
-      placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
+      if (player.stance === "crawl") {
+        var proneSwing = updateWalkCycle(playerActor, player.x, player.y, PRONE_SWING_RAD, player.running);
+        poseProne(playerActor, player.x, player.y, player.facing, playerActor.phase, proneSwing, true);
+      } else {
+        var totalH = stanceHeight(player.stance);
+        var tilt = player.stance === "crouch" ? CROUCH_TILT : 0;
+        var swingRad = updateWalkCycle(playerActor, player.x, player.y, WALK_SWING_RAD, player.running);
+        poseUpright(playerActor, player.x, player.y, player.facing, totalH, tilt, playerActor.phase, swingRad);
+      }
 
       var hitFlashAlpha = computeHitFlashAlpha(engine);
 
       var boxOn = !!(engine.inventory && engine.inventory.boxOn);
       if (boxOn) {
-        playerActor.body.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
-        playerActor.body.position.set(0, BOX_HEIGHT / 2, 0);
-        playerActor.body.material.color.setHex(BOX_COLOR);
-        playerActor.nose.visible = false; // a box gives no external facing hint
+        playerActor.figureGroup.visible = false;
+        playerActor.boxMesh.visible = true;
+        playerActor.boxMesh.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
+        playerActor.boxMesh.position.set(0, BOX_HEIGHT / 2, 0);
+        playerActor.boxMesh.material.color.setHex(BOX_COLOR);
       } else {
-        playerActor.body.material.color.setHex(PLAYER_COLOR);
+        playerActor.boxMesh.visible = false;
+        playerActor.bodyMat.color.setHex(PLAYER_COLOR);
       }
 
       if (hitFlashAlpha > 0) {
         var tintT = hitFlashAlpha / HIT_FLASH_ALPHA_MAX;
-        playerActor.body.material.color.setHex(
-          lerpHexColor(playerActor.body.material.color.getHex(), PLAYER_HIT_TINT_COLOR, tintT)
-        );
+        var tintMat = boxOn ? playerActor.boxMesh.material : playerActor.bodyMat;
+        tintMat.color.setHex(lerpHexColor(tintMat.color.getHex(), PLAYER_HIT_TINT_COLOR, tintT));
       }
 
       var playerOpacity = engine.playerHidden
         ? 0.42 + 0.18 * Math.sin(engine.time * HIDDEN_BLINK_HZ * TWO_PI_R)
         : 1;
-      playerActor.body.material.opacity = playerOpacity;
-      playerActor.nose.material.opacity = playerOpacity;
+      playerActor.bodyMat.opacity = playerOpacity;
+      playerActor.visorMat.opacity = playerOpacity;
+      playerActor.boxMesh.material.opacity = playerOpacity;
 
       for (var i = 0; i < engine.guards.length; i++) {
         var guard = engine.guards[i];
         var actor = ensureGuardActor(guard);
         if (guard.state === "SLEEPING") {
-          placeSleepingActor(actor, guard);
+          actor.lastX = guard.x;
+          actor.lastY = guard.y;
+          poseProne(actor, guard.x, guard.y, guard.facing, actor.phase, 0, false);
           actor.cone.visible = false;
           actor.coneEdge.visible = false;
           actor.marker.visible = false;
           actor.zzz.visible = true;
           actor.dizzy.visible = false;
           var bob = Math.sin(engine.time * 2.2) * 0.12;
-          actor.zzz.position.set(guard.x, SLEEP_Y + 1.1 + bob, guard.y);
+          actor.zzz.position.set(guard.x, PRONE_LIFT + 1.2 + bob, guard.y);
         } else if (guard.state === "STUNNED") {
-          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
-          actor.body.rotation.z = STUN_WOBBLE_AMPLITUDE * Math.sin(engine.time * STUN_WOBBLE_HZ * TWO_PI_R);
+          actor.lastX = guard.x;
+          actor.lastY = guard.y;
+          poseUpright(actor, guard.x, guard.y, guard.facing, STAND_H, 0, actor.phase, 0);
+          actor.figureGroup.rotation.z = STUN_WOBBLE_AMPLITUDE * Math.sin(engine.time * STUN_WOBBLE_HZ * TWO_PI_R);
           actor.cone.visible = false;
           actor.coneEdge.visible = false;
           actor.marker.visible = false;
@@ -6473,7 +6644,8 @@
           var dizzyBob = Math.sin(engine.time * STUN_DIZZY_BOB_HZ * TWO_PI_R) * STUN_DIZZY_BOB_AMPLITUDE;
           actor.dizzy.position.set(guard.x, STAND_H + STUN_DIZZY_Y_OFFSET + dizzyBob, guard.y);
         } else {
-          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
+          var guardSwing = updateWalkCycle(actor, guard.x, guard.y, WALK_SWING_RAD, false);
+          poseUpright(actor, guard.x, guard.y, guard.facing, STAND_H, 0, actor.phase, guardSwing);
           actor.cone.visible = true;
           actor.coneEdge.visible = true;
           actor.zzz.visible = false;

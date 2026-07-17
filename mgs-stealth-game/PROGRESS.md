@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.43 (cycle 43 — codec deferral)
+**Version:** v0.44 (cycle 44 — humanoid silhouettes)
 
 ## Module status
 
@@ -36,6 +36,8 @@
 
 ## Changelog (last 5)
 
+- cycle 44: graphics G1 — humanoid silhouettes (distance-driven walk cycle,
+  stance poses, prone crawl/sleep, body-orientation facing) (263/263, 25/25)
 - cycle 43: polish — codec firstBody/lowDarts defer during ALERT/EVASION
   (263/263, 25/25)
 - cycle 42: polish — build strips comment-only lines: game.html 1.19MB →

@@ -271,7 +271,50 @@
     var STAND_H = 1.7;
     var CROUCH_H = 1.0;
     var CRAWL_H = 0.5;
-    var BODY_W = 0.8; // box footprint, x and z
+    var BODY_W = 0.8; // box-disguise footprint, x and z (unrelated to the humanoid figure's own width)
+
+    // HUMANOID BODY PLAN (new — box-to-silhouette upgrade): every character
+    // (player + guard) is a small THREE.Group of primitives — two legs, a
+    // torso, a head, two arms — instead of a single scaled box. Proportions
+    // are fractions of a target total height (STAND_H normally, CROUCH_H
+    // when crouched) so the SAME layout math produces a shorter, bent-legged
+    // figure for crouch "for free" (see poseUpright below) — only the
+    // forward torso tilt is a stance-specific extra. Prone (CRAWL_H, and a
+    // SLEEPING guard) is NOT built from these fractions at a squashed
+    // height — see poseProne below, which lays a full STAND_H-proportioned
+    // figure down on its side by rotating the whole figureGroup, so a prone
+    // body reads as "a full-height person lying down" (correct anatomy —
+    // lying length ~= standing height) rather than a shrunken doll.
+    // Sized a bit bolder than strict human proportion (wider hip spread,
+    // thicker limbs) — at gameplay zoom (the whole ~40x30m zone visible at
+    // once, so roughly 1 world meter =~ 20px) true-to-life limb thickness
+    // anti-aliases into a single blob; these values were tuned by rendering
+    // and visually checking shots/02-ingame-patrol.png + evidence screenshots
+    // until legs/head/arms read as separate shapes at that zoom.
+    var HEAD_R = 0.17;
+    var NECK_GAP = 0.03;
+    var TORSO_W = 0.42; // shoulder-to-shoulder (local Z, the character's side axis)
+    var TORSO_D = 0.24; // front-to-back (local X, the character's forward axis)
+    var HIP_W = 0.38; // hip width (Z) — narrower than the shoulders
+    var LEG_W = 0.17; // each leg box, X/Z
+    var ARM_W = 0.13; // each arm box, X/Z
+    var LEG_FRAC = 0.46; // fraction of totalH that is leg length (also sets hip height)
+    var TORSO_FRAC = 0.34; // fraction of totalH that is hip-to-shoulder torso length
+    var CROUCH_TILT = 0.32; // radians, forward torso lean while crouched
+    var VISOR_FWD = 0.6; // fraction of HEAD_R the facing-visor sits forward of head center
+
+    // WALK / RUN ANIMATION (new): leg/arm swing is a sine of a per-actor
+    // PHASE accumulated from distance traveled (engine.time-free, per file
+    // header's "no wall clock" rule elsewhere) — see updateWalkCycle below.
+    // Running only widens the swing (player.running); the swing already
+    // cycles faster on its own the more ground is covered per frame, since
+    // phase accumulates by distance, not by time.
+    var WALK_PHASE_PER_METER = 5.5;
+    var WALK_SWING_RAD = (25 * Math.PI) / 180;
+    var ARM_SWING_RATIO = 0.85; // arm amplitude relative to the leg amplitude
+    var RUN_SWING_MULT = 1.6;
+    var STILL_EPS = 1e-5; // world units of frame-to-frame displacement below which a figure is "not moving"
+    var PRONE_SWING_RAD = (14 * Math.PI) / 180; // subtle crawl-stroke leg/arm wag
 
     var PERIMETER_H = 2.2;
     var INTERIOR_H = 1.6;
@@ -290,7 +333,12 @@
     var BOX_COLOR = 0x8b5a2b;
     var BOX_HEIGHT = 1.0; // world units — a fixed crate height, stance-independent
     var BOX_FOOTPRINT_SCALE = 1.45; // "slightly larger than the player" (BODY_W * this)
-    var NOSE_COLOR = 0xf2f2f2;
+    // VISOR (new — replaces the old free-standing "nose" cone as the facing
+    // readout): a small dark band on the front of the head, one shade darker
+    // than that character's own body color, same "reads at a glance without
+    // extra UI" spirit the nose cone had, just built into the silhouette.
+    var GUARD_VISOR_COLOR = 0x2f3a24;
+    var PLAYER_VISOR_COLOR = 0x24313d;
     var BG_COLOR = 0x05070a;
 
     var CONE_SEGMENTS = 24;
@@ -360,15 +408,19 @@
     var METER_MAX_W = 2.0;
     var METER_H = 0.32;
 
-    // SLEEPING pose (scale trick — see file header): the standing body mesh
-    // (BoxGeometry(BODY_W, 1, BODY_W), normally scaled to (1, height, 1) and
-    // sat at y = height/2 by placeActor) is instead scaled to lie flat along
-    // local +X (the direction the group's rotation.y already points it, so a
-    // sleeping body reads as lying in the direction it was facing when it
-    // went down) at a low, floor-hugging profile.
-    var SLEEP_LENGTH = STAND_H; // lying "length" ~= a standing guard's height
-    var SLEEP_THICKNESS = 0.4; // low profile, floor-hugging
-    var SLEEP_Y = SLEEP_THICKNESS / 2;
+    // PRONE pose (new — replaces the old single-box scale trick; see
+    // poseProne below and the file header SLEEPING GUARDS / new CRAWL
+    // notes): a full STAND_H-proportioned figure is laid out exactly like
+    // poseUpright, then the whole figureGroup is rotated -90 degrees about
+    // local Z around its own origin (which sits at the character's
+    // mid-height center, not the feet — see poseProne's own comment) so
+    // "up" becomes "forward": the head/torso end up ahead of the anchor
+    // point, the legs trail behind it, and the figure's vertical profile
+    // collapses from STAND_H down to roughly a torso's depth — a low,
+    // floor-hugging silhouette with zero extra geometry, same "no new
+    // mesh, just a transform" spirit the old scale trick had.
+    var PRONE_LIFT = 0.16; // world units the whole prone figureGroup is raised so it doesn't clip the floor
+    var PRONE_ARM_ROTATION = Math.PI; // arm pivot rest angle for "arms forward" (crawl) instead of hanging down
 
     var TRACER_DURATION_S = 0.25;
     var TRACER_Y = 0.6; // roughly muzzle height
@@ -691,60 +743,250 @@
 
     // ---- dynamic actors (player, guards) ---------------------------------------
 
-    function makeNose(color) {
-      var geo = new THREE.ConeGeometry(0.16, 0.5, 8);
-      geo.rotateZ(-Math.PI / 2); // point along local +X
-      var mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: color }));
-      return mesh;
-    }
-
-    function makeActor(bodyColor, noseColor) {
+    // Builds one small humanoid rig: a THREE.Group ("group", world position +
+    // facing) containing a "figureGroup" (torso/head/visor + 4 limb pivots)
+    // whose OWN local transform is what poseUpright/poseProne below rewrite
+    // every frame to express stance, walk-cycle, and prone poses — keeping
+    // the split so BOX DISGUISE (see file header, below) can hide the
+    // entire figure with one visibility flag while a separate crate mesh
+    // (player only) takes its place. Every mesh's geometry is exclusively
+    // owned by this actor (fresh THREE.Geometry per makeActor() call,
+    // exactly like the old single-box actor); ALL body-colored parts share
+    // ONE material (bodyMat) so a color/opacity write (box-disguise recolor,
+    // hit-flash tint, playerHidden blink) touches every part in one write
+    // instead of one per mesh. The visor gets its own material (visorMat)
+    // so it stays a fixed dark accent rather than following those same
+    // recolors (a boxed player's crate has no visor at all — see BOX
+    // DISGUISE below).
+    function makeActor(bodyColor, visorColor) {
       var group = new THREE.Group();
-      var bodyGeo = new THREE.BoxGeometry(BODY_W, 1, BODY_W);
-      var body = new THREE.Mesh(bodyGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
-      group.add(body);
-      var nose = makeNose(noseColor);
-      group.add(nose);
+      var figureGroup = new THREE.Group();
+      group.add(figureGroup);
+
+      var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+      var visorMat = new THREE.MeshLambertMaterial({ color: visorColor });
+
+      var torso = new THREE.Mesh(new THREE.BoxGeometry(TORSO_D, 1, TORSO_W), bodyMat);
+      var head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_R, 10, 8), bodyMat);
+      var visor = new THREE.Mesh(
+        new THREE.BoxGeometry(HEAD_R * 0.9, HEAD_R * 0.55, HEAD_R * 1.25),
+        visorMat
+      );
+      figureGroup.add(torso, head, visor);
+
+      // A limb is a pivot Group (rotated for stance/walk-swing) holding a
+      // unit-length box mesh offset half its scaled length below the pivot
+      // — the same "unit BoxGeometry(w,1,w) scaled to (1, length, 1)" trick
+      // the old single-body actor used for its whole torso, just per-limb.
+      function makeLimb(w) {
+        var pivot = new THREE.Group();
+        var mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 1, w), bodyMat);
+        pivot.add(mesh);
+        figureGroup.add(pivot);
+        return { pivot: pivot, mesh: mesh };
+      }
+      var leftLeg = makeLimb(LEG_W);
+      var rightLeg = makeLimb(LEG_W);
+      var leftArm = makeLimb(ARM_W);
+      var rightArm = makeLimb(ARM_W);
+
       scene.add(group);
-      return { group: group, body: body, nose: nose };
+
+      return {
+        group: group,
+        figureGroup: figureGroup,
+        bodyMat: bodyMat,
+        visorMat: visorMat,
+        torso: torso,
+        head: head,
+        visor: visor,
+        leftLeg: leftLeg,
+        rightLeg: rightLeg,
+        leftArm: leftArm,
+        rightArm: rightArm,
+        // Every geometry this actor owns (for disposeGuardActors below) —
+        // torso/head/visor plus each limb's mesh; pivots are bare Groups,
+        // no geometry of their own.
+        parts: [torso, head, visor, leftLeg.mesh, rightLeg.mesh, leftArm.mesh, rightArm.mesh],
+        // Walk-cycle bookkeeping (see updateWalkCycle below) — per-actor,
+        // persists frame to frame; null lastX/Y means "no previous frame
+        // yet" (first sync, or just rebuilt after a zone change), so that
+        // frame contributes no displacement/phase.
+        lastX: null,
+        lastY: null,
+        phase: 0,
+        // Player only — a separate crate mesh swapped in for BOX DISGUISE
+        // (see file header + syncScene below); left null for guards.
+        boxMesh: null,
+      };
     }
 
-    function placeActor(actor, x, y, facing, height) {
+    // Advances actor.phase by however far (x, y) moved since the last call
+    // (0 on the first call — lastX/Y start null) and returns this frame's
+    // swing amplitude in radians: 0 while not moving ("Standing still =
+    // neutral pose"), otherwise baseSwingRad, widened by RUN_SWING_MULT
+    // when `running` is true (player.running — guards have no equivalent
+    // flag and always pass false, so their swing only ever "speeds up" via
+    // phase accumulating faster the more ground they cover per frame, never
+    // widens). engine.time is deliberately NOT used here — animation speed
+    // is driven by distance traveled, matching how fast the character is
+    // actually moving, per the file header's "no wall clock" rule.
+    function updateWalkCycle(actor, x, y, baseSwingRad, running) {
+      var dx = actor.lastX === null ? 0 : x - actor.lastX;
+      var dy = actor.lastY === null ? 0 : y - actor.lastY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      actor.lastX = x;
+      actor.lastY = y;
+      if (dist <= STILL_EPS) return 0;
+      actor.phase += dist * WALK_PHASE_PER_METER;
+      return baseSwingRad * (running ? RUN_SWING_MULT : 1);
+    }
+
+    // Poses a STANDING or CROUCHED figure (guards only ever call this with
+    // tilt=0 — they have no stance). `totalH` is the target total height
+    // (STAND_H or CROUCH_H); the same fractional layout (LEG_FRAC/
+    // TORSO_FRAC) is reused for both, so crouch's shorter legs fall out of
+    // the math automatically — only the forward `tilt` (crouch's lean) is
+    // stance-specific. `swingRad` is this frame's leg-swing amplitude (0 =
+    // neutral, from updateWalkCycle); legs/arms swing in the usual
+    // contra-lateral gait (left leg forward pairs with right arm forward).
+    function poseUpright(actor, x, y, facing, totalH, tilt, phase, swingRad) {
       actor.group.position.set(x, 0, y);
       actor.group.rotation.y = -facing;
-      // Explicit full reset (not just scale.y) so an actor that was posed
-      // SLEEPING (see placeSleepingActor below) on a previous frame doesn't
-      // carry over its lying-flat scale/rotation once it's awake again.
-      actor.body.scale.set(1, height, 1);
-      actor.body.rotation.set(0, 0, 0);
-      actor.body.position.set(0, height / 2, 0);
-      actor.nose.visible = true;
-      actor.nose.position.set(BODY_W / 2 + 0.1, height * 0.55, 0);
+      actor.figureGroup.position.set(0, 0, 0);
+      actor.figureGroup.rotation.set(0, 0, 0);
+      actor.figureGroup.visible = true;
+
+      var legLen = totalH * LEG_FRAC;
+      var torsoH = totalH * TORSO_FRAC;
+      var hipY = legLen;
+      var shoulderY = hipY + torsoH;
+      var headY = shoulderY + NECK_GAP + HEAD_R;
+
+      actor.torso.scale.set(1, torsoH, 1);
+      actor.torso.position.set(0, hipY + torsoH / 2, 0);
+      actor.torso.rotation.set(0, 0, tilt);
+
+      // Rides forward a hair with the torso's own lean so a crouched
+      // figure's head doesn't look pinned straight above its hips.
+      actor.head.position.set(Math.sin(tilt) * torsoH * 0.6, headY, 0);
+      actor.visor.position.set(
+        actor.head.position.x + HEAD_R * VISOR_FWD,
+        actor.head.position.y - HEAD_R * 0.05,
+        actor.head.position.z
+      );
+      actor.visor.rotation.set(0, 0, 0);
+      actor.visor.visible = true;
+
+      var legSwing = Math.sin(phase) * swingRad;
+      var armSwing = Math.sin(phase) * swingRad * ARM_SWING_RATIO;
+
+      actor.leftLeg.pivot.position.set(0, hipY, HIP_W / 2);
+      actor.leftLeg.pivot.rotation.set(0, 0, legSwing);
+      actor.leftLeg.mesh.scale.set(1, legLen, 1);
+      actor.leftLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.leftLeg.pivot.visible = true;
+
+      actor.rightLeg.pivot.position.set(0, hipY, -HIP_W / 2);
+      actor.rightLeg.pivot.rotation.set(0, 0, -legSwing);
+      actor.rightLeg.mesh.scale.set(1, legLen, 1);
+      actor.rightLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.rightLeg.pivot.visible = true;
+
+      var armLen = legLen * 0.92;
+      actor.leftArm.pivot.position.set(0, shoulderY, TORSO_W / 2 + ARM_W * 0.6);
+      actor.leftArm.pivot.rotation.set(0, 0, -armSwing);
+      actor.leftArm.mesh.scale.set(1, armLen, 1);
+      actor.leftArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.leftArm.pivot.visible = true;
+
+      actor.rightArm.pivot.position.set(0, shoulderY, -(TORSO_W / 2 + ARM_W * 0.6));
+      actor.rightArm.pivot.rotation.set(0, 0, armSwing);
+      actor.rightArm.mesh.scale.set(1, armLen, 1);
+      actor.rightArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.rightArm.pivot.visible = true;
     }
 
-    // SLEEPING pose (see file header) — guards only, never the player. Lies
-    // the body mesh flat along local +X via a scale trick (no rotation
-    // needed): the mesh's own local X axis already points the direction the
-    // group's rotation.y turns it, so a sleeping body reads as lying in the
-    // direction it was facing when it went down.
-    function placeSleepingActor(actor, guard) {
-      actor.group.position.set(guard.x, 0, guard.y);
-      actor.group.rotation.y = -guard.facing;
-      actor.body.scale.set(SLEEP_LENGTH / BODY_W, SLEEP_THICKNESS, 1);
-      actor.body.rotation.set(0, 0, 0);
-      actor.body.position.set(0, SLEEP_Y, 0);
-      actor.nose.visible = false;
+    // Poses a PRONE figure — SLEEPING guards, and the player's CRAWL stance
+    // (see file header SLEEPING GUARDS note + new CRAWL note). Builds the
+    // exact same STAND_H-proportioned layout poseUpright does (so a prone
+    // body is a full-height person lying down, not a shrunken one), just
+    // shifted so the figure's mid-height sits at figureGroup's own origin
+    // (feet at local Y=-totalH/2, head at local Y=+totalH/2, instead of
+    // poseUpright's feet-at-0/head-at-totalH), THEN rotates the whole
+    // figureGroup -90 degrees about local Z. That single rotation maps
+    // "up" (local +Y) to "forward" (local +X): the head/torso swing out
+    // ahead of the anchor point and the legs swing out behind it (a mirror
+    // of updateVisionCone's own convention of local +X = the direction the
+    // group's rotation.y already points), while the small local-X extent of
+    // a standing figure's parts (torso depth, mostly) becomes the prone
+    // body's new, naturally low vertical profile — no separate "thickness"
+    // constant to hand-tune. `armsForward` (crawl only — a sleeping guard's
+    // arms stay at its sides) points the arm pivots up (+Y) instead of down
+    // before the flip, so after it they end up reaching forward past the
+    // head rather than trailing back alongside the legs.
+    function poseProne(actor, x, y, facing, phase, swingRad, armsForward) {
+      actor.group.position.set(x, 0, y);
+      actor.group.rotation.y = -facing;
+
+      var totalH = STAND_H;
+      var legLen = totalH * LEG_FRAC;
+      var torsoH = totalH * TORSO_FRAC;
+      var hipY = legLen - totalH / 2; // shifted so hip sits relative to the figure's own mid-height
+      var shoulderY = hipY + torsoH;
+      var headY = shoulderY + NECK_GAP + HEAD_R;
+
+      actor.torso.scale.set(1, torsoH, 1);
+      actor.torso.position.set(0, hipY + torsoH / 2, 0);
+      actor.torso.rotation.set(0, 0, 0);
+
+      actor.head.position.set(0, headY, 0);
+      actor.visor.position.set(HEAD_R * VISOR_FWD, headY - HEAD_R * 0.05, 0);
+      actor.visor.rotation.set(0, 0, 0);
+      actor.visor.visible = true;
+
+      var legSwing = Math.sin(phase) * swingRad;
+      actor.leftLeg.pivot.position.set(0, hipY, HIP_W / 2);
+      actor.leftLeg.pivot.rotation.set(0, 0, legSwing);
+      actor.leftLeg.mesh.scale.set(1, legLen, 1);
+      actor.leftLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.leftLeg.pivot.visible = true;
+
+      actor.rightLeg.pivot.position.set(0, hipY, -HIP_W / 2);
+      actor.rightLeg.pivot.rotation.set(0, 0, -legSwing);
+      actor.rightLeg.mesh.scale.set(1, legLen, 1);
+      actor.rightLeg.mesh.position.set(0, -legLen / 2, 0);
+      actor.rightLeg.pivot.visible = true;
+
+      var armLen = legLen * 0.92;
+      var armRest = armsForward ? PRONE_ARM_ROTATION : 0;
+      var armSwing = armsForward ? legSwing * 0.5 : 0;
+      actor.leftArm.pivot.position.set(0, shoulderY, TORSO_W / 2 + ARM_W * 0.6);
+      actor.leftArm.pivot.rotation.set(0, 0, armRest - armSwing);
+      actor.leftArm.mesh.scale.set(1, armLen, 1);
+      actor.leftArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.leftArm.pivot.visible = true;
+
+      actor.rightArm.pivot.position.set(0, shoulderY, -(TORSO_W / 2 + ARM_W * 0.6));
+      actor.rightArm.pivot.rotation.set(0, 0, armRest + armSwing);
+      actor.rightArm.mesh.scale.set(1, armLen, 1);
+      actor.rightArm.mesh.position.set(0, -armLen / 2, 0);
+      actor.rightArm.pivot.visible = true;
+
+      actor.figureGroup.position.set(0, PRONE_LIFT, 0);
+      actor.figureGroup.rotation.set(0, 0, -Math.PI / 2);
+      actor.figureGroup.visible = true;
     }
 
     var playerActor = null;
 
-    var guardActors = {}; // id -> { group, body, nose, marker (Sprite), cone (Mesh) }
+    var guardActors = {}; // id -> { group, figureGroup, bodyMat, ..., marker (Sprite), cone (Mesh) }
 
     function ensureGuardActor(guard) {
       var existing = guardActors[guard.id];
       if (existing) return existing;
 
-      var base = makeActor(GUARD_COLOR, NOSE_COLOR);
+      var actor = makeActor(GUARD_COLOR, GUARD_VISOR_COLOR);
 
       var marker = new THREE.Sprite(MARKER_MATERIALS.SUSPICIOUS);
       // Roughly doubled from the original 0.85 world-units so state glyphs
@@ -771,16 +1013,11 @@
       dizzy.visible = false;
       scene.add(dizzy);
 
-      var actor = {
-        group: base.group,
-        body: base.body,
-        nose: base.nose,
-        marker: marker,
-        cone: coneMesh,
-        coneEdge: coneEdge,
-        zzz: zzz,
-        dizzy: dizzy,
-      };
+      actor.marker = marker;
+      actor.cone = coneMesh;
+      actor.coneEdge = coneEdge;
+      actor.zzz = zzz;
+      actor.dizzy = dizzy;
       guardActors[guard.id] = actor;
       return actor;
     }
@@ -791,21 +1028,25 @@
     // actors would otherwise sit around invisible-but-never-freed forever).
     // body/nose geometry+material and cone/coneEdge geometry are each owned
     // exclusively by their actor (fresh THREE.Material/Geometry per
-    // makeActor()/updateVisionCone() call) and are disposed here; cone/
-    // coneEdge MATERIALS and the marker's material come from the shared
-    // CONE_MATERIALS/EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard
-    // state, reused across every guard and every zone) and must NOT be
-    // disposed, or the next zone's guards would render with dead materials.
-    // zzz/dizzy likewise share ZZZ_MATERIAL/DIZZY_MATERIAL (see file header)
-    // — only removed from the scene here, never disposed.
+    // makeActor()/updateVisionCone() call) and are disposed here — every
+    // humanoid part (torso/head/visor/4 limb meshes, see actor.parts from
+    // makeActor) plus the two materials all its body-colored parts share
+    // (bodyMat) and the visor's own (visorMat); cone/coneEdge MATERIALS and
+    // the marker's material come from the shared CONE_MATERIALS/
+    // EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard state, reused
+    // across every guard and every zone) and must NOT be disposed, or the
+    // next zone's guards would render with dead materials. zzz/dizzy
+    // likewise share ZZZ_MATERIAL/DIZZY_MATERIAL (see file header) — only
+    // removed from the scene here, never disposed.
     function disposeGuardActors() {
       Object.keys(guardActors).forEach(function (id) {
         var actor = guardActors[id];
         scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge, actor.zzz, actor.dizzy);
-        actor.body.geometry.dispose();
-        actor.body.material.dispose();
-        actor.nose.geometry.dispose();
-        actor.nose.material.dispose();
+        actor.parts.forEach(function (part) {
+          part.geometry.dispose();
+        });
+        actor.bodyMat.dispose();
+        actor.visorMat.dispose();
         actor.cone.geometry.dispose();
         actor.coneEdge.geometry.dispose();
       });
@@ -1445,6 +1686,18 @@
         }
         clearTracers(); // old zone's coordinates are meaningless in the new one
         clearRipples(); // same reasoning — see file header RIPPLES note
+        // The player actor itself is NOT rebuilt on a zone change (see file
+        // header ZONE CHANGES note — its mesh isn't zone-specific), but its
+        // walk-cycle lastX/Y ARE last zone's coordinates — without this
+        // reset, the very next frame would see one huge bogus displacement
+        // (old-zone x/y -> new-zone spawn x/y) and briefly flash a
+        // full-amplitude leg/arm swing on the very first frame of the new
+        // zone. null contributes zero displacement on that first frame,
+        // same as a freshly-created actor.
+        if (playerActor) {
+          playerActor.lastX = null;
+          playerActor.lastY = null;
+        }
         zone = engine.zone;
         zoneCenter = { x: zone.bounds.w / 2, y: zone.bounds.h / 2 };
         camera.position.set(zoneCenter.x, 26, zoneCenter.y + 14);
@@ -1459,15 +1712,33 @@
       }
 
       if (!playerActor) {
-        playerActor = makeActor(PLAYER_COLOR, NOSE_COLOR);
+        playerActor = makeActor(PLAYER_COLOR, PLAYER_VISOR_COLOR);
         // Marked transparent up front (see file header PLAYER HIDDEN note)
         // so the per-frame opacity write below never has to toggle
         // .transparent itself — a one-time cost, not per-frame churn.
-        playerActor.body.material.transparent = true;
-        playerActor.nose.material.transparent = true;
+        playerActor.bodyMat.transparent = true;
+        playerActor.visorMat.transparent = true;
+        // BOX DISGUISE crate (see file header) — a separate mesh, own
+        // geometry/material, added as a child of the SAME group so it
+        // inherits the player's position/facing for free; hidden until
+        // boxOn first goes true (see the box-disguise block below).
+        playerActor.boxMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(BODY_W, 1, BODY_W),
+          new THREE.MeshLambertMaterial({ color: BOX_COLOR, transparent: true })
+        );
+        playerActor.boxMesh.visible = false;
+        playerActor.group.add(playerActor.boxMesh);
       }
       var player = engine.player;
-      placeActor(playerActor, player.x, player.y, player.facing, stanceHeight(player.stance));
+      if (player.stance === "crawl") {
+        var proneSwing = updateWalkCycle(playerActor, player.x, player.y, PRONE_SWING_RAD, player.running);
+        poseProne(playerActor, player.x, player.y, player.facing, playerActor.phase, proneSwing, true);
+      } else {
+        var totalH = stanceHeight(player.stance);
+        var tilt = player.stance === "crouch" ? CROUCH_TILT : 0;
+        var swingRad = updateWalkCycle(playerActor, player.x, player.y, WALK_SWING_RAD, player.running);
+        poseUpright(playerActor, player.x, player.y, player.facing, totalH, tilt, playerActor.phase, swingRad);
+      }
 
       // HIT FLASH (see file header) — computed once here (before the
       // box-disguise recolor below) so both the full-viewport overlay
@@ -1475,62 +1746,80 @@
       // the player-mesh tint immediately below read the same frame's alpha.
       var hitFlashAlpha = computeHitFlashAlpha(engine);
 
-      // BOX DISGUISE (see file header) — re-skins the SAME body/nose meshes
-      // placeActor just posed above; runs every frame so taking the box off
-      // reliably reverts to the normal color/scale/nose-visible, not just a
-      // one-time swap when boxOn first flips true.
+      // BOX DISGUISE (see file header) — swaps in the crate mesh built
+      // above and hides the ENTIRE humanoid figureGroup (torso/head/visor/
+      // all four limbs in one visibility flag, see makeActor) rather than
+      // re-skinning a single body mesh the old scale trick relied on; runs
+      // every frame so taking the box off reliably reverts to the normal
+      // figure, not just a one-time swap when boxOn first flips true.
       var boxOn = !!(engine.inventory && engine.inventory.boxOn);
       if (boxOn) {
-        // BOX_FOOTPRINT_SCALE scales BODY_W directly (the body mesh's own
-        // scale is relative to its unscaled BODY_W x 1 x BODY_W geometry,
-        // same convention placeActor's `1` X/Z scale already relies on).
-        playerActor.body.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
-        playerActor.body.position.set(0, BOX_HEIGHT / 2, 0);
-        playerActor.body.material.color.setHex(BOX_COLOR);
-        playerActor.nose.visible = false; // a box gives no external facing hint
+        playerActor.figureGroup.visible = false;
+        playerActor.boxMesh.visible = true;
+        // BOX_FOOTPRINT_SCALE scales BODY_W directly (the crate's own
+        // scale is relative to its unscaled BODY_W x 1 x BODY_W geometry).
+        playerActor.boxMesh.scale.set(BOX_FOOTPRINT_SCALE, BOX_HEIGHT, BOX_FOOTPRINT_SCALE);
+        playerActor.boxMesh.position.set(0, BOX_HEIGHT / 2, 0);
+        playerActor.boxMesh.material.color.setHex(BOX_COLOR);
       } else {
-        playerActor.body.material.color.setHex(PLAYER_COLOR);
+        playerActor.boxMesh.visible = false;
+        playerActor.bodyMat.color.setHex(PLAYER_COLOR);
       }
 
-      // HIT FLASH player-mesh tint (see file header) — lerps whichever base
-      // color the box-disguise block just set (BOX_COLOR or PLAYER_COLOR)
-      // toward PLAYER_HIT_TINT_COLOR by the flash's own normalized alpha, so
-      // a boxed player still visibly flinches red on a hit. No-op (leaves
-      // the base color alone) once the flash has fully decayed.
+      // HIT FLASH player-mesh tint (see file header) — lerps whichever
+      // object is actually visible right now (the crate, or the figure's
+      // shared bodyMat) toward PLAYER_HIT_TINT_COLOR by the flash's own
+      // normalized alpha, so a boxed player still visibly flinches red on a
+      // hit. No-op (leaves the base color alone) once the flash has fully
+      // decayed.
       if (hitFlashAlpha > 0) {
         var tintT = hitFlashAlpha / HIT_FLASH_ALPHA_MAX;
-        playerActor.body.material.color.setHex(
-          lerpHexColor(playerActor.body.material.color.getHex(), PLAYER_HIT_TINT_COLOR, tintT)
-        );
+        var tintMat = boxOn ? playerActor.boxMesh.material : playerActor.bodyMat;
+        tintMat.color.setHex(lerpHexColor(tintMat.color.getHex(), PLAYER_HIT_TINT_COLOR, tintT));
       }
 
       // PLAYER HIDDEN dim/blink (see file header) — deterministic sine of
       // engine.time, never Date.now. Full opacity (1) whenever not hidden.
+      // Written to all three materials (figure body, visor, crate) — cheap,
+      // and means whichever one is currently visible is always correct
+      // without needing to branch on boxOn here too.
       var playerOpacity = engine.playerHidden
         ? 0.42 + 0.18 * Math.sin(engine.time * HIDDEN_BLINK_HZ * TWO_PI_R)
         : 1;
-      playerActor.body.material.opacity = playerOpacity;
-      playerActor.nose.material.opacity = playerOpacity;
+      playerActor.bodyMat.opacity = playerOpacity;
+      playerActor.visorMat.opacity = playerOpacity;
+      playerActor.boxMesh.material.opacity = playerOpacity;
 
       for (var i = 0; i < engine.guards.length; i++) {
         var guard = engine.guards[i];
         var actor = ensureGuardActor(guard);
         if (guard.state === "SLEEPING") {
-          placeSleepingActor(actor, guard);
+          // No walk-cycle animation while unconscious (matches the original
+          // static sleeping pose) — but lastX/Y still tracks guard.x/y (a
+          // dragged sleeping guard's position changes every tick, see file
+          // header) so a subsequent wake-and-walk doesn't see one giant
+          // bogus displacement on its first animated frame.
+          actor.lastX = guard.x;
+          actor.lastY = guard.y;
+          poseProne(actor, guard.x, guard.y, guard.facing, actor.phase, 0, false);
           actor.cone.visible = false;
           actor.coneEdge.visible = false;
           actor.marker.visible = false;
           actor.zzz.visible = true;
           actor.dizzy.visible = false;
           var bob = Math.sin(engine.time * 2.2) * 0.12;
-          actor.zzz.position.set(guard.x, SLEEP_Y + 1.1 + bob, guard.y);
+          actor.zzz.position.set(guard.x, PRONE_LIFT + 1.2 + bob, guard.y);
         } else if (guard.state === "STUNNED") {
           // STUNNED (see file header) — still upright (STAND_H pose, unlike
-          // SLEEPING's lying-flat trick), just swaying: placeActor's own
-          // body.rotation.set(0,0,0) reset runs first, then this overrides
-          // rotation.z with the wobble.
-          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
-          actor.body.rotation.z = STUN_WOBBLE_AMPLITUDE * Math.sin(engine.time * STUN_WOBBLE_HZ * TWO_PI_R);
+          // SLEEPING's lying-flat prone pose), no walk-cycle (dazed, not
+          // walking), just swaying: poseUpright's own figureGroup.rotation
+          // reset runs first, then this overrides rotation.z with the
+          // wobble (rotating the whole figure as one rigid body about its
+          // own floor-level origin, near where its feet plant).
+          actor.lastX = guard.x;
+          actor.lastY = guard.y;
+          poseUpright(actor, guard.x, guard.y, guard.facing, STAND_H, 0, actor.phase, 0);
+          actor.figureGroup.rotation.z = STUN_WOBBLE_AMPLITUDE * Math.sin(engine.time * STUN_WOBBLE_HZ * TWO_PI_R);
           actor.cone.visible = false;
           actor.coneEdge.visible = false;
           actor.marker.visible = false;
@@ -1539,7 +1828,8 @@
           var dizzyBob = Math.sin(engine.time * STUN_DIZZY_BOB_HZ * TWO_PI_R) * STUN_DIZZY_BOB_AMPLITUDE;
           actor.dizzy.position.set(guard.x, STAND_H + STUN_DIZZY_Y_OFFSET + dizzyBob, guard.y);
         } else {
-          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
+          var guardSwing = updateWalkCycle(actor, guard.x, guard.y, WALK_SWING_RAD, false);
+          poseUpright(actor, guard.x, guard.y, guard.facing, STAND_H, 0, actor.phase, guardSwing);
           actor.cone.visible = true;
           actor.coneEdge.visible = true;
           actor.zzz.visible = false;
