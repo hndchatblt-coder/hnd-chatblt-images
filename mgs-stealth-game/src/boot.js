@@ -104,6 +104,35 @@
 //     accounts for every PRIOR load a save blob carries forward; it never
 //     double-counts a load that happened before this save was captured.
 //
+// Q HOLD/TAP DETECTION (new — CQC THROW cycle, see src/engine.js's CQC /
+// THROW: Q TAP vs Q HOLD contract for the engine-side half of this): a single
+// physical Q key now drives two different one-shot engine verbs
+// (input.cqc — the original choke — and input.cqcThrow — the new THROW),
+// disambiguated HERE, in the browser, by how long the key was held before it
+// came back up:
+//   - qDownAt (performance.now(), ms) is stamped on a fresh KeyQ keydown edge
+//     (not a repeat) and cleared (null) once resolved, one way or the other.
+//   - onKeyUp's KeyQ branch is where the decision is actually made, on
+//     RELEASE, per the design's "fire-on-release" choice (recommended over
+//     "auto-fire at 0.6s held" — see engine.js contract — because it lets a
+//     player who taps-then-immediately-reconsiders still bail into nothing by
+//     just... not letting go early, whereas a fixed auto-fire threshold would
+//     commit the throw the instant it's crossed, mid-hold, with no way back):
+//     held < Q_TAP_MAX_MS (350ms) -> pendingCqc = true (a tap: choke);
+//     held >= that -> pendingCqcThrow = true (a hold: throw). Exactly one of
+//     the two is ever set for a given press.
+//   - Q_THROW_SAFETY_CAP_MS (1500ms): a per-frame check in frame() below (NOT
+//     onKeyUp, which might never fire — e.g. the window loses focus mid-hold
+//     and the browser never delivers a keyup at all) force-resolves a HELD-TOO-
+//     LONG Q press into a throw on its own, so a stuck/lost key edge can never
+//     strand the player unable to act. qThrowSafetyFired latches so the
+//     eventual (or already-missing) keyup can't ALSO fire a second edge for
+//     the same physical press.
+// This is pure browser/timing glue — engine.js has no notion of "how long a
+// key was held," it only ever sees one clean one-shot edge on whichever of
+// input.cqc/input.cqcThrow this resolves to, indistinguishable from any other
+// verb's edge.
+//
 // LOCALSTORAGE ISOLATION (project mandate, see CLAUDE.md's "audio exempt...
 // can never crash the game" precedent, applied here to storage): every
 // localStorage.getItem/setItem call in this file goes through
@@ -286,7 +315,11 @@
     // src/engine.js's CQC VERB / DRAG VERB contract), so holding Q/G down
     // only ever registers as a single press either way — this is just the
     // DOM-keydown-repeat guard, same as every other verb here.
-    var pendingCqc = false; // set true on a Q keydown edge, consumed once
+    var pendingCqc = false; // set true on a Q TAP release, consumed once
+    // pendingCqcThrow: NEW (CQC THROW cycle) — the hold-side counterpart to
+    // pendingCqc above (see file header Q HOLD/TAP DETECTION). Exactly one of
+    // pendingCqc/pendingCqcThrow is ever set for a given Q press.
+    var pendingCqcThrow = false; // set true on a Q HOLD release (or safety cap), consumed once
     var pendingDrag = false; // set true on a G keydown edge, consumed once
     // pendingBox/pendingRation/pendingChaff: NEW (box/chaff/ration cycle) —
     // same one-shot-per-keydown-edge shape as pendingCqc/pendingDrag above;
@@ -296,6 +329,17 @@
     var pendingBox = false; // set true on a B keydown edge, consumed once
     var pendingRation = false; // set true on an R keydown edge, consumed once
     var pendingChaff = false; // set true on an X keydown edge, consumed once
+
+    // Q HOLD/TAP DETECTION (new — CQC THROW cycle, see file header) — real
+    // wall-clock (performance.now(), ms) timing, NOT sim time: qDownAt is the
+    // timestamp of the current Q press's keydown edge, or null while Q isn't
+    // (or is no longer meaningfully) down. qThrowSafetyFired latches once the
+    // 1.5s safety cap has force-fired a throw for the CURRENT press, so a
+    // late (or entirely missing) keyup can never also fire a second edge.
+    var Q_TAP_MAX_MS = 350; // held < this on release -> tap (choke)
+    var Q_THROW_SAFETY_CAP_MS = 1500; // held this long WITHOUT a release -> auto-fire the throw
+    var qDownAt = null;
+    var qThrowSafetyFired = false;
 
     function onKeyDown(e) {
       // CODEC (new — see src/codec.js's FROZEN INPUT / PAUSE note): while a
@@ -325,7 +369,11 @@
       } else if (e.code === "KeyF") {
         pendingFire = true;
       } else if (e.code === "KeyQ") {
-        pendingCqc = true;
+        // Q HOLD/TAP DETECTION (see file header) — the tap-vs-throw decision
+        // is made on RELEASE (onKeyUp) or the safety-cap check in frame()
+        // below, NOT here; a fresh keydown edge just starts the clock.
+        qDownAt = performance.now();
+        qThrowSafetyFired = false;
       } else if (e.code === "KeyG") {
         pendingDrag = true;
       } else if (e.code === "KeyB") {
@@ -348,6 +396,26 @@
     function onKeyUp(e) {
       if (GAME_KEYS[e.code]) e.preventDefault();
       held[e.code] = false;
+      // Q HOLD/TAP DETECTION (see file header) — the release IS the decision
+      // point for a normal press: held < Q_TAP_MAX_MS -> tap (choke), else a
+      // hold (throw). If the 1.5s safety cap already force-fired the throw
+      // for this same press (qDownAt already cleared), this release is a
+      // no-op — the edge already happened, don't fire a second one.
+      if (e.code === "KeyQ" && qDownAt !== null) {
+        var heldMs = performance.now() - qDownAt;
+        qDownAt = null;
+        // CODEC (see onKeyDown's own note above): if a call opened mid-hold,
+        // this release must not queue up a surprise verb for the instant the
+        // call dismisses — same swallow-it posture as every other verb's
+        // onKeyDown gate, applied here since Q resolves on release instead.
+        if (!codec.isOpen()) {
+          if (heldMs < Q_TAP_MAX_MS) {
+            pendingCqc = true;
+          } else {
+            pendingCqcThrow = true;
+          }
+        }
+      }
     }
 
     function onResize() {
@@ -427,6 +495,7 @@
         knock: pendingKnock,
         fire: pendingFire,
         cqc: pendingCqc,
+        cqcThrow: pendingCqcThrow,
         drag: pendingDrag,
         box: pendingBox,
         ration: pendingRation,
@@ -460,6 +529,18 @@
       if (codec.isOpen()) {
         acc = 0;
       } else {
+        // Q HOLD SAFETY CAP (see file header Q HOLD/TAP DETECTION) — a Q
+        // press held past Q_THROW_SAFETY_CAP_MS with no keyup delivered yet
+        // (e.g. the window/tab lost focus mid-hold, which can swallow the
+        // eventual keyup entirely) force-fires the throw here instead,
+        // rather than stranding the player unable to act. qThrowSafetyFired
+        // latches so the keyup, if it ever does arrive, can't also fire a
+        // second edge for this same physical press (see onKeyUp above).
+        if (qDownAt !== null && !qThrowSafetyFired && now - qDownAt >= Q_THROW_SAFETY_CAP_MS) {
+          qThrowSafetyFired = true;
+          pendingCqcThrow = true;
+        }
+
         acc += frameDt;
         if (acc > MAX_ACC) acc = MAX_ACC;
 
@@ -468,6 +549,7 @@
           pendingKnock = false; // consumed — only true for the tick right after the edge
           pendingFire = false; // consumed — only true for the tick right after the edge
           pendingCqc = false; // consumed — only true for the tick right after the edge
+          pendingCqcThrow = false; // consumed — only true for the tick right after the edge
           pendingDrag = false; // consumed — only true for the tick right after the edge
           pendingBox = false; // consumed — only true for the tick right after the edge
           pendingRation = false; // consumed — only true for the tick right after the edge
@@ -679,7 +761,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q cqc &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q tap choke / hold throw &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

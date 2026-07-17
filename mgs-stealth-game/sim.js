@@ -2663,6 +2663,98 @@ scenarios.push({
   },
 });
 
+// ---- CQC THROW playtest scenario -------------------------------------------
+// "throw to breach": toss the doorway guard, sprint the gap, vanish before he
+// wakes. Uses the warehouse's row-1 shelving gap (a genuine chokepoint: a 1.5m
+// corridor cut through the row-1 wall at y:14-16, x:8-9.5, bridging the far-
+// west aisle to the row1/row2 aisle -- NOT a zone.exits[] trigger, so this
+// stays entirely inside one zone) as the "doorway." A sentry holds the gap,
+// facing away (west) into the far-west aisle; the player creeps up behind it
+// from the row1/row2 aisle side, THROWS it (displacing it 2m further west,
+// physically clearing the gap), sprints straight through, then vanishes
+// before the 5s STUNNED window expires. Asserts the wake goes SUSPICIOUS
+// (own position -- the guard never actually saw the player) rather than
+// ALERT, no squad ALERT at any point in the whole sequence, and the engine
+// never throws (no FSM invariant violation across the full run).
+scenarios.push({
+  name: "throw to breach: toss the doorway guard, sprint the gap, vanish before he wakes",
+  seed: 20260716070,
+  run: function (G) {
+    const warehouse = G.ZONES.warehouse;
+    const engine = G.createEngine({
+      seed: this.seed,
+      zoneData: warehouse,
+      // Single-point waypoint far west of spawn: gives a deterministic
+      // due-WEST initial facing (atan2 toward the far waypoint) with zero
+      // ticks elapsed, same "walks a heading that never arrives" technique
+      // used throughout this file, and holds the sentry's post-throw facing
+      // steady for the rest of the scenario (STUNNED freezes it anyway).
+      guardConfigs: [{ id: "doorguard", spawn: { x: 8.75, y: 15 }, waypoints: [{ x: -1000, y: 15 }] }],
+    });
+    const guard = engine.guards[0];
+    if (Math.abs(guard.facing - Math.PI) > 1e-6) {
+      throw new Error("setup failed: expected doorguard to face due west (PI), got " + guard.facing);
+    }
+
+    // Creep up 1.3m EAST of the sentry -- directly behind its west-facing
+    // back, well inside CQC_RANGE (1.4m) -- and throw.
+    engine.player.x = 10.05;
+    engine.player.y = 15;
+    engine.player.facing = guard.facing;
+
+    engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand", cqcThrow: true });
+
+    const throwEvents = engine.events.filter((e) => e.type === "cqcThrow");
+    if (throwEvents.length !== 1 || throwEvents[0].guardId !== "doorguard") {
+      throw new Error("setup failed: expected exactly one cqcThrow event for doorguard, got " + JSON.stringify(engine.events));
+    }
+    if (guard.state !== "STUNNED") {
+      throw new Error("expected doorguard STUNNED immediately after the throw, got " + guard.state);
+    }
+    // Thrown ~2m further west, physically clear of the x:8-9.5 gap column.
+    if (guard.x > 7.5) {
+      throw new Error("expected the throw to displace the guard clear of the x:8-9.5 doorway gap, guard at x=" + guard.x.toFixed(2));
+    }
+
+    // Release the Q edge (a real player lifts the key) before sprinting --
+    // input.cqcThrow is edge-triggered exactly like cqc/knock/fire.
+    engine.tick({ moveX: -1, moveY: 0, run: true, stance: "stand" });
+
+    // Sprint west through the now-guardless gap for a second or so...
+    const SPRINT_TICKS = Math.round(1.0 / DT);
+    for (let i = 0; i < SPRINT_TICKS; i++) {
+      engine.tick({ moveX: -1, moveY: 0, run: true, stance: "stand" });
+    }
+
+    // ...then vanish -- well outside any guard's vision range -- for the
+    // remainder of the 5s STUN window plus a margin.
+    engine.player.x = -1000;
+    engine.player.y = -1000;
+
+    let prevState = guard.state;
+    let wokeState = null;
+    const REMAIN_S = G.GUARD.STUN_S + 3;
+    for (let i = 0; i < Math.round(REMAIN_S / DT); i++) {
+      engine.tick({ moveX: 0, moveY: 0, run: false, stance: "stand" });
+      if (engine.squad.phase === "ALERT") {
+        throw new Error("throw to breach: squad went ALERT at t=" + (i * DT).toFixed(2) + "s despite the player being unseen -- guard=" + guard.state);
+      }
+      if (prevState === "STUNNED" && guard.state !== "STUNNED") {
+        wokeState = guard.state;
+        break; // capture the wake tick exactly -- don't let it evolve further
+      }
+      prevState = guard.state;
+    }
+
+    if (wokeState !== "SUSPICIOUS") {
+      throw new Error("expected the stunned guard to wake into SUSPICIOUS (unseen, own position) -- not ALERT, not a stale sighting -- got " + wokeState);
+    }
+    if (engine.squad.phase === "ALERT" || engine.squad.alertCount !== 0) {
+      throw new Error("throw to breach: expected zero alerts from the whole throw-and-vanish sequence, got phase=" + engine.squad.phase + " alertCount=" + engine.squad.alertCount);
+    }
+  },
+});
+
 let pass = 0;
 let fail = 0;
 for (const s of scenarios) {

@@ -24,6 +24,22 @@
 //   it — the bob is driven by engine.time (deterministic, no Date.now, same
 //   rule as every other animation in this file).
 //
+//   STUNNED GUARDS (new — CQC THROW cycle, see src/guardAI.js's STUNNED
+//   contract): UNLIKE a SLEEPING guard, a STUNNED one is still upright on its
+//   feet — dazed, not unconscious — so it keeps the normal standing body pose
+//   (placeActor, STAND_H) rather than SLEEPING's lying-flat scale trick, just
+//   with a small side-to-side rotation.z WOBBLE (a deterministic sine of
+//   engine.time, same "no Date.now" rule as every other animation here) so it
+//   visibly reads as swaying on its feet. Vision cone/cone-edge and the usual
+//   "?"/"!" state marker are hidden (a stunned guard perceives nothing, same
+//   as SLEEPING — nothing to draw), replaced by a bobbing yellow "dizzy dots"
+//   sprite (a CanvasTexture glyph, same technique as the ZZZ sprite above)
+//   floating above its head. The actual displacement/collision-sliding that
+//   put the guard here is entirely engine-side (src/engine.js's THROW VERB,
+//   world.moveCircle) — this module only ever reads guard.x/guard.y/
+//   guard.state and draws whatever it finds, exactly like every other guard
+//   pose in this file.
+//
 //   DART TRACER (new — see src/items.js/src/engine.js's fire-verb contract):
 //   a thin bright line from the player's muzzle to the dart's impact point,
 //   fading out over TRACER_DURATION_S (~0.25s). CONTRACT NOTE: this is
@@ -347,6 +363,15 @@
     var TRACER_DURATION_S = 0.25;
     var TRACER_Y = 0.6; // roughly muzzle height
 
+    // STUNNED wobble / dizzy-dots bob (new — CQC THROW cycle, see file
+    // header STUNNED GUARDS note) — a deterministic sine of engine.time,
+    // same "no Date.now" rule as every other animation in this file.
+    var STUN_WOBBLE_AMPLITUDE = 0.14; // radians, +/- rotation.z sway
+    var STUN_WOBBLE_HZ = 1.1;
+    var STUN_DIZZY_Y_OFFSET = 1.5; // world units above STAND_H, before the bob
+    var STUN_DIZZY_BOB_HZ = 3.0;
+    var STUN_DIZZY_BOB_AMPLITUDE = 0.1;
+
     // PLAYER HIDDEN dim/blink (see file header) — cycles/sec-ish for the
     // opacity sine while engine.playerHidden is true.
     var HIDDEN_BLINK_HZ = 1.4;
@@ -481,6 +506,41 @@
     var ZZZ_TEXTURE = makeGlyphTexture("Zzz", "#9fd8ff");
     var ZZZ_MATERIAL = new THREE.SpriteMaterial({
       map: ZZZ_TEXTURE,
+      transparent: true,
+      depthTest: false,
+    });
+
+    // "Dizzy dots" sprite for STUNNED guards (new — CQC THROW cycle, see file
+    // header) — a small ring of yellow dots (a classic "seeing stars" glyph),
+    // same CanvasTexture technique/sharing posture as ZZZ_MATERIAL above.
+    function makeDizzyTexture(color) {
+      var size = 128;
+      var canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      var ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = color;
+      var cx = size / 2;
+      var cy = size / 2;
+      var ringR = size * 0.32;
+      var dotR = size * 0.1;
+      var dots = 5;
+      for (var i = 0; i < dots; i++) {
+        var angle = (i / dots) * Math.PI * 2;
+        var dx = cx + Math.cos(angle) * ringR;
+        var dy = cy + Math.sin(angle) * ringR;
+        ctx.beginPath();
+        ctx.arc(dx, dy, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      var tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      return tex;
+    }
+    var DIZZY_TEXTURE = makeDizzyTexture("#ffd54f");
+    var DIZZY_MATERIAL = new THREE.SpriteMaterial({
+      map: DIZZY_TEXTURE,
       transparent: true,
       depthTest: false,
     });
@@ -686,6 +746,13 @@
       zzz.visible = false;
       scene.add(zzz);
 
+      // "Dizzy dots" sprite for STUNNED guards (new — CQC THROW cycle, see
+      // file header) — same shared-material posture as zzz above.
+      var dizzy = new THREE.Sprite(DIZZY_MATERIAL);
+      dizzy.scale.set(1.4, 1.4, 1);
+      dizzy.visible = false;
+      scene.add(dizzy);
+
       var actor = {
         group: base.group,
         body: base.body,
@@ -694,6 +761,7 @@
         cone: coneMesh,
         coneEdge: coneEdge,
         zzz: zzz,
+        dizzy: dizzy,
       };
       guardActors[guard.id] = actor;
       return actor;
@@ -710,12 +778,12 @@
     // CONE_MATERIALS/EDGE_MATERIALS/MARKER_MATERIALS maps (keyed by guard
     // state, reused across every guard and every zone) and must NOT be
     // disposed, or the next zone's guards would render with dead materials.
-    // zzz likewise shares ZZZ_MATERIAL (see file header) — only removed from
-    // the scene here, never disposed.
+    // zzz/dizzy likewise share ZZZ_MATERIAL/DIZZY_MATERIAL (see file header)
+    // — only removed from the scene here, never disposed.
     function disposeGuardActors() {
       Object.keys(guardActors).forEach(function (id) {
         var actor = guardActors[id];
-        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge, actor.zzz);
+        scene.remove(actor.group, actor.marker, actor.cone, actor.coneEdge, actor.zzz, actor.dizzy);
         actor.body.geometry.dispose();
         actor.body.material.dispose();
         actor.nose.geometry.dispose();
@@ -1424,13 +1492,29 @@
           actor.coneEdge.visible = false;
           actor.marker.visible = false;
           actor.zzz.visible = true;
+          actor.dizzy.visible = false;
           var bob = Math.sin(engine.time * 2.2) * 0.12;
           actor.zzz.position.set(guard.x, SLEEP_Y + 1.1 + bob, guard.y);
+        } else if (guard.state === "STUNNED") {
+          // STUNNED (see file header) — still upright (STAND_H pose, unlike
+          // SLEEPING's lying-flat trick), just swaying: placeActor's own
+          // body.rotation.set(0,0,0) reset runs first, then this overrides
+          // rotation.z with the wobble.
+          placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
+          actor.body.rotation.z = STUN_WOBBLE_AMPLITUDE * Math.sin(engine.time * STUN_WOBBLE_HZ * TWO_PI_R);
+          actor.cone.visible = false;
+          actor.coneEdge.visible = false;
+          actor.marker.visible = false;
+          actor.zzz.visible = false;
+          actor.dizzy.visible = true;
+          var dizzyBob = Math.sin(engine.time * STUN_DIZZY_BOB_HZ * TWO_PI_R) * STUN_DIZZY_BOB_AMPLITUDE;
+          actor.dizzy.position.set(guard.x, STAND_H + STUN_DIZZY_Y_OFFSET + dizzyBob, guard.y);
         } else {
           placeActor(actor, guard.x, guard.y, guard.facing, STAND_H);
           actor.cone.visible = true;
           actor.coneEdge.visible = true;
           actor.zzz.visible = false;
+          actor.dizzy.visible = false;
           updateVisionCone(actor, guard, engine.world, engine.squad);
           updateGuardMarker(actor, guard);
         }

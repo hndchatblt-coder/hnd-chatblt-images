@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.36 (cycle 36 — audit A2 closed; all audit-20 actionables done)
+**Version:** v0.37 (cycle 37 — CQC throw variant)
 
 ## Module status
 
@@ -38,6 +38,9 @@
 
 ## Changelog (last 5)
 
+- cycle 37: CQC throw — Q hold: 2m wall-safe toss, 5s STUNNED (wakes
+  SUSPICIOUS), thud noise; stunned chokeable/not re-throwable (242/242,
+  25/25)
 - cycle 36: bugfix — A2 verb gating (ration always; chaff blocked in locker)
   (232/232, 24/24). Audit-20 actionables complete.
 - cycle 35: EVASION locker checks — near-lastKnown lockers get checked

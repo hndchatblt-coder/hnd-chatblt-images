@@ -1,5 +1,25 @@
 # TESTLOG.md
 
+## Cycle 37 (CQC throw variant)
+
+242/242; 25/25; 5/5 shots + stun-visual evidence checked. Q tap = silent
+choke (unchanged, regression-pinned); Q hold ≥0.35s (fire-on-release, 1.5s
+safety cap) = throw: 2m displacement through moveCircle, 5s STUNNED (wakes
+SUSPICIOUS at own position — knows something happened, unlike tranq),
+bodyDrop thud pulls bystanders. Stunned guards chokeable (finisher), not
+re-throwable, not draggable. Save/restore round-trips stun state.
+
+**Problems:** (1) no HUD hint for the tap/hold distinction — controls legend
+says "Q CQC" only; update title legend next boot touch. (2) throw while
+facing a wall wastes the verb (guard slides 0m but still stuns) — arguably
+fine (you did slam him into a wall); watch playtests. (3) stun wobble +
+dizzy dots verified via throwaway shot but no permanent scene covers
+STUNNED — consider extending a scene at next render touch.
+
+**Delight:** the throw-to-breach scenario — toss the chokepoint guard,
+sprint the gap, vanish before the 5s wake, squad never alerts — is a
+genuinely new tactical verb proven headless.
+
 ## Cycle 36 (bugfix: audit A2 — verb gating semantics)
 
 232/232; 24/24; 5/5 shots. Ration explicitly always-allowed (documented);

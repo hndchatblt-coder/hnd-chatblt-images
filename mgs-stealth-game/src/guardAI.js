@@ -39,7 +39,7 @@
 //                                 // starts, rather than an instant shot the
 //                                 // moment the meter tips over ALERT_AT.
 //       MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity,
-//                      SLEEPING: SLEEP_S + 5 }
+//                      SLEEPING: SLEEP_S + 5, STUNNED: STUN_S + 5 }
 //         // hard invariants: a guard's stateTime in SUSPICIOUS/INVESTIGATE must
 //         // NEVER exceed these (INVESTIGATE includes travel time to the
 //         // stimulus). Enforced by a thrown Error in update() — a guard stuck
@@ -56,7 +56,9 @@
 //         // and not absent) because unlike EVASION/CAUTION it has NO other
 //         // timer driving it out — a bug in the wake-up check (see SLEEPING
 //         // below) would otherwise strand a guard asleep forever with nothing
-//         // to catch it.
+//         // to catch it. STUNNED (new — CQC THROW cycle) gets the exact same
+//         // treatment for the exact same reason, just with STUN_S in place of
+//         // SLEEP_S — see STUNNED below.
 //       SLEEP_S: 60,             // s a headshot/staggered guard stays SLEEPING
 //                                // before waking into INVESTIGATE
 //       STAGGER_SLEEP_S: 3,      // s a NON-headshot dart hit (squad already
@@ -82,6 +84,8 @@
 //       LOCKER_CHECK_PAUSE: 1.2, // s a guard holds, facing the locker it
 //                                // walked to, before asking the engine
 //                                // what's inside (see ctx.checkLocker below)
+//       STUN_S: 5,               // s a CQC-THROWN guard stays STUNNED before
+//                                // waking into SUSPICIOUS (see STUNNED below)
 //     }
 //
 //   WEDGE GIVE-UP (cycle 32 — see GUARD.WEDGE_WINDOW_S/WEDGE_MIN_PROGRESS
@@ -256,7 +260,8 @@
 //                                same as player.facing / vision viewer.facing)
 //     radius                  — GUARD.RADIUS (constant)
 //     state                   — "PATROL" | "SUSPICIOUS" | "INVESTIGATE" |
-//                                "ALERT" | "EVASION" | "CAUTION" | "SLEEPING"
+//                                "ALERT" | "EVASION" | "CAUTION" | "SLEEPING" |
+//                                "STUNNED" (new — CQC THROW cycle, see below)
 //     meter                   — 0..1 detection meter (vision.tickMeter
 //                                output); pinned at 1 while state is ALERT
 //                                (perception's fill/drain math is skipped
@@ -345,16 +350,18 @@
 //   test/sim call) is silently fine: no list means nothing to spot, a no-op.
 //   Call once per tick (engine uses dt = 1/60). Per tick:
 //     0. stateTime += dt, up front (unchanged from part A).
-//     0.5. SLEEPING SHORT-CIRCUIT (new — see SLEEPING below): if guard.state
-//        is "SLEEPING", none of steps 1-5 below run at all this tick — no
+//     0.5. SLEEPING / STUNNED SHORT-CIRCUIT (SLEEPING original; STUNNED new —
+//        CQC THROW cycle, see STUNNED below): if guard.state is "SLEEPING" OR
+//        "STUNNED", none of steps 1-5 below run at all this tick — no
 //        radio-call sync, no perception, no FSM dispatch, no colleague
-//        discovery, no combat. Only the SLEEPING per-state behavior (sleep
-//        timer + wake check) and this guard's own SLEEPING MAX_STATE_S
-//        invariant run, then (for a lone-squad guard) squad.tick(dt, false)
-//        exactly as step 5 would, and update() returns. A radio call
-//        (squad.phase flipping to ALERT/EVASION/CAUTION) does NOT wake a
-//        sleeping guard early — they are unconscious, not merely distracted —
-//        so this short-circuit runs BEFORE step 1's sync, not after it.
+//        discovery, no combat. Only that state's own per-tick behavior (sleep/
+//        stun timer + wake check) and this guard's own MAX_STATE_S invariant
+//        run, then (for a lone-squad guard) squad.tick(dt, false) exactly as
+//        step 5 would, and update() returns. A radio call (squad.phase
+//        flipping to ALERT/EVASION/CAUTION) does NOT wake a sleeping OR
+//        stunned guard early — they are unconscious/dazed, not merely
+//        distracted — so this short-circuit runs BEFORE step 1's sync, not
+//        after it.
 //     1. RADIO CALL / SQUAD-PHASE SYNC (new in part B, runs before
 //        perception): if squad.phase is ALERT/EVASION/CAUTION and this
 //        guard's own state doesn't already match (subject to the CAUTION/
@@ -663,6 +670,46 @@
 //       A guard that was merely SLEEPING in the open (never stuffed —
 //       guard.hidden already false) wakes exactly as before, no stepping.
 //
+//     STUNNED (new — CQC THROW cycle) — entered ONLY via guard.cqcThrow() (see
+//       below), never through the normal FSM dispatch/radio-call sync — same
+//       short-circuit posture as SLEEPING (see update() step 0.5): no
+//       perception/movement/firing, guard.meter pinned at 0, guard.hasLOS
+//       forced false. Unlike SLEEPING, the ENGINE (not this module) is the one
+//       that repositions the guard — the CQC THROW VERB (see src/engine.js's
+//       own contract) displaces the guard 2.0m along the PLAYER's facing
+//       through world.moveCircle (slides/stops on a wall, never clips through
+//       one) BEFORE calling guard.cqcThrow(), so by the time this guard reads
+//       STUNNED it is already sitting at its final, physically-resolved
+//       position — this module only owns the FSM/timer side of the effect.
+//       A private stun clock advances by dt every tick; once it reaches
+//       GUARD.STUN_S (5s, deliberately much shorter than SLEEP_S's 60s — a
+//       throw creates a gap, it doesn't clear a room) the guard wakes into
+//       SUSPICIOUS, not INVESTIGATE, with stimulus = its OWN current position
+//       AND meter forced to 0 — this is the ONE deliberate difference from
+//       SLEEPING's wake (see above): a choked-out guard "notices something's
+//       off" (INVESTIGATE, groggy, unaware anything happened TO it), while a
+//       THROWN guard physically felt itself get grabbed and flung — it KNOWS
+//       something just happened, so it comes up already suspicious of its own
+//       surroundings, staring right where it landed, ready to escalate to
+//       ALERT immediately if its meter (now live again) confirms the player
+//       is still in sight — rather than needing a second, slower
+//       INVESTIGATE-search pass to get there. From there it's the ordinary
+//       SUSPICIOUS machinery already documented above (stares
+//       GUARD.SUSPICIOUS_STARE seconds, de-escalates to PATROL or advances to
+//       INVESTIGATE/ALERT exactly like any other SUSPICIOUS entry). STUNNED
+//       guards have no locker-related wake step (guard.stuffInLocker() is a
+//       no-op on anything but a SLEEPING guard — see below — so a STUNNED
+//       body can never have been stuffed anywhere in the first place).
+//       RADIO CHECK-IN (see src/director.js's own ESCALATION contract): the
+//       missed-check-in scan gates strictly on guard.state === "SLEEPING", so
+//       a STUNNED guard is never even considered for it — moot in practice
+//       anyway, since GUARD.STUN_S (5s) is far shorter than the 40s check-in
+//       interval, but the exemption holds regardless of timing coincidence.
+//       DRAGGING (see src/engine.js's DRAG VERB): the drag-attach lookup
+//       (nearestSleepingGuard) gates on guard.state === "SLEEPING" as well —
+//       a STUNNED guard, dizzy but on its feet, is never a valid drag target,
+//       only an actually-unconscious SLEEPING body is.
+//
 //   guard.tranq(headshot) — external stimulus API, called by the ENGINE (see
 //   src/items.js/src/engine.js) the instant a fired dart HITS this guard.
 //   `headshot` (boolean) is computed by the CALLER, not this guard (see
@@ -672,6 +719,21 @@
 //       guard; items.js's own hit test already excludes SLEEPING guards from
 //       being hit at all, so this is a defensive no-op, not a reachable path
 //       in practice).
+//     - Currently STUNNED (new — CQC THROW cycle): NOT a no-op — a dart lands
+//       on a STUNNED guard exactly like an awake one (items.js's hit test only
+//       excludes SLEEPING, see below). headshot is true in the common case
+//       (squad.phase !== ALERT — the THROW itself required that to connect,
+//       and STUNNED's own short-circuit means nothing this guard does can
+//       flip squad.phase on its own), giving an immediate enterSleep() — a
+//       STUNNED guard converts straight to SLEEPING, the deliberate
+//       "follow-up finisher" reward for closing distance again after a throw
+//       (see cqc() below for the CQC-takedown equivalent). If some OTHER
+//       guard has since put the squad into ALERT, headshot reads false
+//       instead and this guard merely staggers (see below) — but a STUNNED
+//       guard's own update() short-circuit means the stagger clock doesn't
+//       actually advance until it wakes, so the collapse-into-SLEEPING simply
+//       lands a few ticks after waking rather than during the stun; either
+//       way, tranq-ing a STUNNED guard always ends with it SLEEPING.
 //     - headshot === true: this guard is forced into SLEEPING IMMEDIATELY,
 //       this same tick, overriding whatever state/FSM step it was mid-way
 //       through — an unaware target drops instantly, no matter what.
@@ -690,12 +752,32 @@
 //   by the engine before calling this; this method is the same one-shot
 //   "make it SLEEPING" effect as a headshot, nothing more). v1 semantics:
 //   CHOKE === SLEEP — reuses enterSleep() verbatim (same GUARD.SLEEP_S timer,
-//   same wake-into-INVESTIGATE path below). A lethal/throw variant (permanent
-//   removal, a body that never wakes) is explicitly NOT this cycle's job —
-//   tracked as a future BACKLOG item, not hacked in here. No-op (like
-//   tranq()) if this guard is already SLEEPING — a second takedown on a body
-//   that's already down does nothing.
+//   same wake-into-INVESTIGATE path below). No-op (like tranq()) if this
+//   guard is already SLEEPING — a second takedown on a body that's already
+//   down does nothing. NOT a no-op if this guard is currently STUNNED (new —
+//   CQC THROW cycle, see below): guard.state !== "SLEEPING" holds for a
+//   STUNNED guard too, so this falls straight through to enterSleep() — the
+//   exact same "follow-up finisher" conversion tranq() gets above. This is
+//   the reward for closing distance on a THROWN guard a second time before it
+//   wakes: choke it out properly instead of leaving it to shake off the daze
+//   and come up swinging.
 //
+//   guard.cqcThrow() — external stimulus API (new — CQC THROW cycle), called
+//   by the ENGINE the instant a CQC THROW connects (see src/engine.js's THROW
+//   VERB — conditions are the SAME eligibility rule as cqc() above, distance/
+//   behind-check/squad.phase, PLUS "not already SLEEPING or STUNNED" — decided
+//   by the engine before calling this, along with the actual positional
+//   displacement, see STUNNED above for why that half is the engine's job,
+//   not this method's). This method is purely the FSM-side effect: calls
+//   enterStun() (below), the STUNNED equivalent of enterSleep(). No-op if this
+//   guard is already SLEEPING or STUNNED (defensive — same shape as
+//   tranq()/cqc()'s own guards; the engine's own eligibility check already
+//   excludes both before ever calling this, so this is a belt-and-suspenders
+//   backstop, not a reachable path in practice) — this is what makes a
+//   STUNNED guard NOT re-throwable: the engine's own candidate search already
+//   skips it, and even a hypothetical direct call here would still no-op.
+//
+
 //   guard.stuffInLocker(locker) — external stimulus API (new — CQC/locker
 //   cycle), called by the ENGINE when the player STUFFS an already-dragged,
 //   SLEEPING body into a locker (see src/engine.js's LOCKER VERB). `locker`
@@ -862,11 +944,22 @@
     BODY_SPOT_CONFIRM_S: 0.5,
     LOCKER_CHECK_RANGE: 6,
     LOCKER_CHECK_PAUSE: 1.2,
-    MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity, SLEEPING: 0 },
+    // STUN_S: s a CQC-THROWN guard stays STUNNED before waking — see STUNNED
+    // below. Deliberately much shorter than SLEEP_S (60s): a throw is a
+    // crowd-control tool for creating a gap, not a takedown — the guard is
+    // back on its feet, angry, well before a chokeout would ever wear off.
+    STUN_S: 5,
+    MAX_STATE_S: { SUSPICIOUS: 4.0, INVESTIGATE: 30.0, ALERT: Infinity, SLEEPING: 0, STUNNED: 0 },
   };
   // SLEEPING's ceiling is SLEEP_S + a 5s margin (see file header) — computed
   // here since GUARD.SLEEP_S isn't available yet inside the literal above.
   GUARD.MAX_STATE_S.SLEEPING = GUARD.SLEEP_S + 5;
+  // STUNNED's ceiling is STUN_S + a 5s margin — same rationale/shape as
+  // SLEEPING's above (see MAX_STATE_S note in the file header): STUNNED has
+  // no OTHER timer driving it out, so a bug in tickStunned's own wake check
+  // needs this backstop instead of silently stranding a guard stunned
+  // forever.
+  GUARD.MAX_STATE_S.STUNNED = GUARD.STUN_S + 5;
 
   // Local-only tuning (not part of the public contract, see file header).
   var TURN_RATE = 3; // rad/s, SUSPICIOUS turning-to-face-stimulus rate
@@ -1141,6 +1234,13 @@
     // (not part of the public contract; internal bookkeeping only, same
     // status as sleepTime/staggerActive above).
     var lockerFacing = null;
+
+    // STUNNED state (new — CQC THROW cycle, see guard.cqcThrow()/STUNNED in
+    // the file header). stunTime is seconds elapsed while STUNNED (wakes at
+    // GUARD.STUN_S) — same shape/status as sleepTime above, just a much
+    // shorter clock and a different wake target (SUSPICIOUS, not
+    // INVESTIGATE).
+    var stunTime = 0;
 
     function setState(newState, stimulus) {
       guard.state = newState;
@@ -1651,6 +1751,39 @@
       }
     }
 
+    // ---- STUNNED (see file header) -----------------------------------------------
+
+    // Forces this guard into STUNNED right now, overriding whatever state it
+    // was in — the FSM/timer half of a CQC THROW connecting (see
+    // guard.cqcThrow() below); the ENGINE has already done the positional
+    // displacement (world.moveCircle along the player's facing) BEFORE
+    // calling this, see STUNNED in the file header. setState resets
+    // stateTime/fireTimer as usual; stun-specific bookkeeping (stunTime,
+    // meter, hasLOS) is reset here, same shape as enterSleep() above.
+    function enterStun() {
+      setState("STUNNED", null);
+      stunTime = 0;
+      guard.meter = 0;
+      guard.hasLOS = false;
+    }
+
+    // Per-tick STUNNED behavior (see update() step 0.5 and file header):
+    // perception/movement/firing are all frozen; only the wake-up clock runs.
+    // Wakes into SUSPICIOUS (NOT INVESTIGATE — see file header for why this is
+    // the one deliberate difference from SLEEPING's wake) at this guard's own
+    // current position, with meter forced back to 0 (a fresh start, not a
+    // carried-over pinned value from being STUNNED).
+    function tickStunned(dt) {
+      guard.meter = 0;
+      guard.hasLOS = false;
+      stunTime += dt;
+      if (stunTime >= GUARD.STUN_S) {
+        stunTime = 0;
+        setState("SUSPICIOUS", { x: guard.x, y: guard.y });
+        guard.meter = 0;
+      }
+    }
+
     // COLLEAGUE DISCOVERY (see update() step 2.5 and file header) — checks
     // this guard's own sight against every SLEEPING colleague's body,
     // escalating to ALERT the instant one is confirmed. Only called while
@@ -1707,6 +1840,30 @@
               guard.stateTime.toFixed(2) +
               "s (max " +
               maxSleep +
+              "s) — FSM invariant violated"
+          );
+        }
+        if (ownSquad) {
+          squad.tick(dt, false);
+        }
+        return;
+      }
+
+      // 0.5b. STUNNED short-circuit (new — CQC THROW cycle, same shape as the
+      // SLEEPING short-circuit just above — see file header STUNNED / update()
+      // step 0.5): only the stun timer + this state's own MAX_STATE_S ceiling
+      // run, then (lone-squad only) squad.tick.
+      if (guard.state === "STUNNED") {
+        tickStunned(dt);
+        var maxStun = GUARD.MAX_STATE_S.STUNNED;
+        if (maxStun !== undefined && guard.stateTime > maxStun) {
+          throw new Error(
+            "guard " +
+              guard.id +
+              " stuck in STUNNED for " +
+              guard.stateTime.toFixed(2) +
+              "s (max " +
+              maxStun +
               "s) — FSM invariant violated"
           );
         }
@@ -1836,7 +1993,16 @@
     }
 
     function hearNoise(x, y, strength) {
-      if (guard.state === "ALERT" || guard.state === "EVASION" || guard.state === "SLEEPING") return;
+      // STUNNED (new — CQC THROW cycle): ignored for the exact same reason as
+      // SLEEPING — a dazed guard notices nothing, including a fresh noise
+      // (see file header STUNNED / hearNoise note).
+      if (
+        guard.state === "ALERT" ||
+        guard.state === "EVASION" ||
+        guard.state === "SLEEPING" ||
+        guard.state === "STUNNED"
+      )
+        return;
       if (strength === "faint") {
         if (guard.state === "PATROL") setState("SUSPICIOUS", { x: x, y: y });
       } else if (strength === "strong") {
@@ -1865,9 +2031,24 @@
 
     // guard.cqc() — see file header. v1: choke === sleep, reuses enterSleep()
     // verbatim (same no-op-if-already-SLEEPING guard as tranq() above).
+    // guard.state !== "SLEEPING" also holds for a STUNNED guard, so this
+    // falls straight through to enterSleep() for one — the "follow-up
+    // finisher" conversion (see file header cqc()/STUNNED notes).
     function cqc() {
       if (guard.state === "SLEEPING") return;
       enterSleep();
+    }
+
+    // guard.cqcThrow() — see file header. New (CQC THROW cycle): the FSM-side
+    // half of a connected CQC throw (the engine has already displaced this
+    // guard via world.moveCircle BEFORE calling this — see STUNNED / THROW
+    // VERB in the file header). No-op if this guard is already SLEEPING or
+    // STUNNED (defensive — the engine's own candidate search already
+    // excludes both, same belt-and-suspenders posture as tranq()/cqc()'s own
+    // guards) — this is what makes an already-STUNNED guard NOT re-throwable.
+    function cqcThrow() {
+      if (guard.state === "SLEEPING" || guard.state === "STUNNED") return;
+      enterStun();
     }
 
     // guard.stuffInLocker(locker) — see file header. No-op unless this guard
@@ -1892,10 +2073,11 @@
     // locker machinery documented throughout this file (pausing/pauseTime/
     // pauseBaseFacing, searching/searchTime/searchBaseFacing, sweeping/
     // sweepTime/sweepBaseFacing/sweepOffset, fireTimer/nextFireAt, sleepTime/
-    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing, and — NEW,
+    // staggerActive/staggerElapsed/bodySpotTimers, lockerFacing, — NEW,
     // locker-check cycle — lockerCheckDone/lockerChecking/lockerCheckPhase/
     // lockerCheckIndex/lockerCheckPauseTime/lockerCheckWedge, see EVASION
-    // LOCKER CHECK above) — miss ANY one of these and a restored guard can
+    // LOCKER CHECK above, and — NEW, CQC THROW cycle — stunTime, see STUNNED
+    // above) — miss ANY one of these and a restored guard can
     // diverge from a live one the next time that particular sub-machine's
     // timer/flag matters (a mid-pause head-sweep, a mid-search arc, a
     // mid-EVASION coordinated sweep, an in-flight fire cadence, a
@@ -1948,6 +2130,11 @@
         staggerElapsed: staggerElapsed,
         bodySpotTimers: Object.assign({}, bodySpotTimers),
         lockerFacing: lockerFacing,
+        // STUNNED state (new — CQC THROW cycle, see file header) — same
+        // "miss it and a restore diverges from a live guard" rule as
+        // sleepTime above: a restored mid-STUN guard needs its remaining
+        // stun window intact, not restarted from GUARD.STUN_S.
+        stunTime: stunTime,
         investigateWedge: investigateWedge.getState(),
         evasionWedge: evasionWedge.getState(),
         alertWedge: alertWedge.getState(),
@@ -2000,6 +2187,10 @@
       staggerElapsed = s.staggerElapsed;
       bodySpotTimers = Object.assign({}, s.bodySpotTimers);
       lockerFacing = s.lockerFacing;
+      // STUNNED state (new — CQC THROW cycle) — falls back to 0 for a save
+      // captured before this cycle (same defensive posture as
+      // lockerCheckDone's `|| false` fallback below).
+      stunTime = s.stunTime || 0;
       investigateWedge.setState(s.investigateWedge);
       evasionWedge.setState(s.evasionWedge);
       alertWedge.setState(s.alertWedge);
@@ -2019,6 +2210,7 @@
     guard.hearNoise = hearNoise;
     guard.tranq = tranq;
     guard.cqc = cqc;
+    guard.cqcThrow = cqcThrow;
     guard.stuffInLocker = stuffInLocker;
     guard.getState = getSaveState;
     guard.setState = applySaveState;

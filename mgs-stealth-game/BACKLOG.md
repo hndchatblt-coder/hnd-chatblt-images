@@ -34,7 +34,8 @@ content rotation) take over. L items must be split before selection.
 - Per-guard box memory | feature | S | Tension | a guard who saw the box move stays suspicious of it (extraMult 0.5 not 0.05 for that guard, decays with CAUTION).
 - Radar hidden/dragging states | polish | S | Readability | radarModel gains playerHidden/dragging; player triangle dims in locker (packet omission from c18).
 - ~~Locker checks during EVASION~~ DONE cycle 35.
-- CQC throw variant | feature | S | Expression | hold Q: throw (2m, 5s stun, 6m thud) vs tap choke — risk/reward choice.
+- ~~CQC throw variant~~ DONE cycle 37.
+- Title legend: Q tap/hold hint | polish | S | Readability | controls legend should say "Q choke / hold throw"; batch with next boot.js touch.
 - Aim line while F held | polish | S | Readability | faint ray preview so ranged darts are judgeable.
 12. ~~Codec~~ DONE cycle 26 (frequency-dial input + easter-egg calls → wells).
 - Defer non-critical codec calls while ALERT/EVASION | polish | S | Tension | firstBody/lowDarts queue until phase cools; firstAlert plays immediately (it's about the alert).

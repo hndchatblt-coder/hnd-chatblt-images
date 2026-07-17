@@ -132,14 +132,22 @@
 //                   { type: "cqc", guardId } — a CQC takedown connected this
 //                     tick (see CQC VERB above); the named guard is now
 //                     SLEEPING.
-//                   { type: "cqcMiss" } — a CQC edge fired but conditions
-//                     weren't met, AND some guard was within 2.5m of the
-//                     player (see CQC VERB above for the exact eligibility
-//                     rule and the reason for the 2.5m feedback-without-spam
-//                     gate).
-//                   { type: "busy" } — a fire edge occurred while
-//                     engine.dragging was set (see DRAG VERB above); no dart
-//                     spent, no tranqFired.
+//                   { type: "cqcMiss" } — a CQC edge OR a THROW edge (see
+//                     THROW VERB below — the two share this same event, one
+//                     empty-handed-press feedback signal for either verb)
+//                     fired but conditions weren't met, AND some guard was
+//                     within 2.5m of the player (see CQC VERB above for the
+//                     exact eligibility rule and the reason for the 2.5m
+//                     feedback-without-spam gate).
+//                   { type: "cqcThrow", guardId } — a CQC THROW connected this
+//                     tick (see THROW VERB below); the named guard is now
+//                     STUNNED, displaced, and the thud has already been
+//                     emitted (see the very next noiseHeard entries this same
+//                     tick for who heard it).
+//                   { type: "busy" } — a fire, cqc, OR cqcThrow edge occurred
+//                     while engine.dragging or inventory.boxOn was set (see
+//                     DRAG VERB / BOX VERB / CQC VERB / THROW VERB above);
+//                     no dart spent, no tranqFired/cqc/cqcThrow.
 //                   { type: "gameOver" } — player.hp reached 0 this tick (see
 //                     GAME OVER below). Fires exactly once, the tick hp hits
 //                     0; never again afterward (engine.gameOver latches, and
@@ -211,13 +219,31 @@
 //                 `type` as an open set and always branch on it, never
 //                 assume this is the full list.
 //
-//   CQC VERB — Q key, input.cqc (boolean), EDGE-TRIGGERED exactly like knock/
-//   fire (private prevCqc closure state, false->true only): on that edge,
-//   this module (not guardAI.js) decides eligibility by finding the
-//   NEAREST guard to the player satisfying ALL of:
+//   CQC / THROW: Q TAP vs Q HOLD (new — CQC THROW cycle) — a single Q key now
+//   drives TWO verbs, disambiguated by src/boot.js on RELEASE (see BOOT'S
+//   Q HOLD/TAP DETECTION below for the browser-side timing): a TAP (held
+//   < 0.35s) sends input.cqc (the original choke, unchanged); a HOLD (held
+//   >= 0.35s, or a 1.5s safety-cap auto-fire if release is somehow missed —
+//   see boot.js) sends input.cqcThrow instead. Exactly one of the two is ever
+//   true for a given press; both are one-shot, edge-triggered exactly like
+//   knock/fire (private prevCqc/prevCqcThrow closure state, false->true
+//   only). RISK/REWARD SUMMARY (see DESIGN.md pillar "Consequence: recoverable
+//   chaos" — document everywhere relevant): choke is slow (must get behind,
+//   fully silent, puts the guard down for a full 60s) — the safe, patient
+//   tool. Throw is instant crowd control that WAKES the guard ANGRY
+//   (SUSPICIOUS, not groggy) in just 5s and makes real noise — a tool for
+//   carving out a gap to move through, NOT a way to clear a room the way a
+//   choke chain can.
+//
+//   CQC VERB (Q TAP, input.cqc) — on that edge, this module (not guardAI.js)
+//   decides eligibility by finding the NEAREST guard to the player satisfying
+//   ALL of:
 //     - distance(player, guard) <= 1.4m,
-//     - guard.state !== "SLEEPING" (an awake target — you can't CQC a body
-//       that's already down),
+//     - guard.state !== "SLEEPING" (an awake OR STUNNED target — you can't
+//       CQC a body that's already down, but a STUNNED, dizzy-on-its-feet
+//       guard is fair game: this converts it straight to SLEEPING, the
+//       "follow-up finisher" reward for closing distance again after a THROW
+//       — see THROW VERB below and src/guardAI.js's own STUNNED contract),
 //     - the guard is BEHIND: the absolute angular difference between
 //       guard.facing and the guard->player direction is > 100 degrees, and
 //     - squad.phase !== "ALERT" (can't grab someone actively shooting at
@@ -239,6 +265,39 @@
 //   VERB / DRAG VERB below; both hands are full/occupied in either state,
 //   an intentional, documented restriction beyond the three conditions
 //   above.
+//
+//   THROW VERB (Q HOLD, input.cqcThrow, new — CQC THROW cycle) — same
+//   edge-triggered shape as CQC above (private prevCqcThrow closure state),
+//   gated by the EXACT SAME playerHidden/dragging/boxOn restriction (silently
+//   inert while playerHidden; pushes { type: "busy" } while dragging/boxOn,
+//   same as CQC — see the tick() CQC/DRAG/LOCKER block below). Eligibility is
+//   the SAME distance/behind/squad-phase rule CQC uses above, PLUS the target
+//   must not already be SLEEPING or STUNNED (can't throw a body that's down,
+//   and can't re-throw a guard who's already dizzy from the last one — see
+//   src/guardAI.js's STUNNED contract for why that's a no-op there too, this
+//   is just the same rule enforced at candidate-selection time). A qualifying
+//   guard: this module (not guardAI.js) computes the displacement — 2.0m
+//   along the PLAYER's current facing, resolved through world.moveCircle so
+//   the guard slides along and stops at a wall rather than clipping through
+//   one — overwrites the guard's x/y with the result, THEN calls
+//   guard.cqcThrow() (see src/guardAI.js contract — the FSM-only half: STUNNED
+//   for GUARD.STUN_S, see that module's own contract for the wake-into-
+//   SUSPICIOUS behavior and how it differs from a tranq/choke wake), pushes
+//   { type: "cqcThrow", guardId }, and emits a SHARP thud at the guard's NEW
+//   (post-displacement) position via soundEvents.emit(guard.x, guard.y,
+//   "bodyDrop", guards) — reusing soundEvents.js's existing named "bodyDrop"
+//   RADII/SHARP entry (radius 6, sharp — see src/soundEvents.js contract)
+//   rather than inventing a bespoke radius the way CQC's own faint thud does
+//   above, since "a body hits the floor/wall hard" is exactly what that kind
+//   already models. SHARP means "strong" strength for any listener in range
+//   — per src/guardAI.js's hearNoise contract, a PATROL/SUSPICIOUS/CAUTION
+//   guard that hears a "strong" noise goes straight to INVESTIGATE — this IS
+//   the risk half of the throw's risk/reward: a nearby second guard gets
+//   pulled to investigate the racket. No qualifying guard: pushes the SAME
+//   { type: "cqcMiss" } event CQC uses (same 2.5m-proximity feedback rule) —
+//   a hold that drifts out of position by the time it's released (behind
+//   check failing, out of range, squad gone ALERT mid-hold, etc.) misses
+//   exactly like a mistimed tap would.
 //
 //   DRAG VERB / LOCKER VERB — G key, input.drag (boolean), EDGE-TRIGGERED
 //   exactly like knock/fire/cqc (private prevDrag closure state). Unlike
@@ -1247,6 +1306,11 @@
       // takedown and the context-dependent drag/locker verb (see CQC VERB /
       // DRAG VERB / LOCKER VERB in the file header). Defaults to false.
       cqc: !!input.cqc,
+      // cqcThrow: same edge-triggered shape as cqc above, but for the CQC
+      // THROW risk/reward fork (see THROW VERB in the file header) — a Q TAP
+      // sends cqc, a Q HOLD sends this instead; boot.js guarantees at most
+      // one of the two is ever true on a given press. Defaults to false.
+      cqcThrow: !!input.cqcThrow,
       drag: !!input.drag,
       // box/ration/chaff: same edge-triggered shape as knock/fire/cqc/drag,
       // but for the cardboard box toggle and the ration/chaff consumables
@@ -1282,6 +1346,12 @@
   var CQC_MISS_FEEDBACK_RANGE = 2.5;
   var CQC_BEHIND_DEG = 100;
   var CQC_NOISE_RADIUS = 3;
+  // THROW VERB (see file header) — same range/behind/miss-feedback gates as
+  // CQC above (CQC_RANGE/CQC_BEHIND_DEG/CQC_MISS_FEEDBACK_RANGE, reused
+  // verbatim, not duplicated). CQC_THROW_DISPLACE is the ONE new tunable: how
+  // far (meters, along the player's facing) a connected throw shoves the
+  // guard via world.moveCircle.
+  var CQC_THROW_DISPLACE = 2.0;
   var DRAG_ATTACH_DIST = 1.2;
   var DRAG_FOLLOW_DIST = 0.9;
   var DRAG_SPEED_MULT = 0.55;
@@ -1540,6 +1610,10 @@
     // prevKnock/prevFire above.
     var prevCqc = false;
     var prevDrag = false;
+    // Edge-trigger state for the THROW verb (see file header CQC / THROW: Q
+    // TAP vs Q HOLD / THROW VERB) — same shape/rationale as prevCqc above,
+    // just a separate flag since cqc/cqcThrow are independent one-shot edges.
+    var prevCqcThrow = false;
 
     // Edge-trigger state for the box toggle / ration / chaff verbs (see
     // file header BOX VERB / RATION VERB / CHAFF VERB) — same shape/
@@ -1861,6 +1935,70 @@
         engine.events.push({ type: "cqc", guardId: bestGuard.id });
         engine.stats.cqcTakedowns++;
         var thudResults = soundEvents.emitRadius(bestGuard.x, bestGuard.y, CQC_NOISE_RADIUS, false, guards);
+        for (var ti = 0; ti < thudResults.length; ti++) {
+          if (thudResults[ti].heard) {
+            engine.events.push({
+              type: "noiseHeard",
+              guardId: thudResults[ti].listenerId,
+              x: bestGuard.x,
+              y: bestGuard.y,
+              strength: thudResults[ti].strength,
+            });
+          }
+        }
+      } else if (anyWithinMissRange) {
+        engine.events.push({ type: "cqcMiss" });
+      }
+    }
+
+    // THROW — see file header THROW VERB. Called only on a cqcThrow edge,
+    // and only while not playerHidden/dragging/boxOn (same gate as tryCqc
+    // above — see the tick() CQC/DRAG/LOCKER block below). Pushes its own
+    // cqcThrow/cqcMiss/noiseHeard events directly, same shape as tryCqc.
+    function tryCqcThrow() {
+      var bestGuard = null;
+      var bestDist = Infinity;
+      var anyWithinMissRange = false;
+
+      for (var i = 0; i < guards.length; i++) {
+        var g = guards[i];
+        var d = dist2d(player.x, player.y, g.x, g.y);
+        if (d <= CQC_MISS_FEEDBACK_RANGE) anyWithinMissRange = true;
+
+        if (d > CQC_RANGE) continue;
+        // Can't throw a body that's already down, and can't re-throw a
+        // guard who's already dizzy from the last one (see file header /
+        // src/guardAI.js's STUNNED contract — a STUNNED guard is "busy").
+        if (g.state === "SLEEPING" || g.state === "STUNNED") continue;
+        if (squad.phase === "ALERT") continue;
+        var dirToPlayer = Math.atan2(player.y - g.y, player.x - g.x);
+        var behindDeg = (absAngleDiff(g.facing, dirToPlayer) * 180) / Math.PI;
+        if (behindDeg <= CQC_BEHIND_DEG) continue;
+
+        if (d < bestDist) {
+          bestDist = d;
+          bestGuard = g;
+        }
+      }
+
+      if (bestGuard) {
+        // Displace 2.0m along the PLAYER's current facing, through
+        // world.moveCircle so the guard slides along and stops at a wall
+        // rather than clipping through one (same collision-safe primitive
+        // DRAG FOLLOW uses elsewhere in this file) — positioned BEFORE the
+        // FSM-only guard.cqcThrow() call below, see file header / STUNNED
+        // contract for why the engine owns this half of the effect.
+        var dx = Math.cos(player.facing) * CQC_THROW_DISPLACE;
+        var dy = Math.sin(player.facing) * CQC_THROW_DISPLACE;
+        var throwRes = world.moveCircle(bestGuard.x, bestGuard.y, dx, dy, bestGuard.radius || 0.4);
+        bestGuard.x = throwRes.x;
+        bestGuard.y = throwRes.y;
+        bestGuard.cqcThrow();
+        engine.events.push({ type: "cqcThrow", guardId: bestGuard.id });
+        // Thud at the guard's NEW (post-displacement) position — reuses
+        // soundEvents.js's existing named "bodyDrop" kind (radius 6, sharp)
+        // rather than a bespoke radius, see file header THROW VERB.
+        var thudResults = soundEvents.emit(bestGuard.x, bestGuard.y, "bodyDrop", guards);
         for (var ti = 0; ti < thudResults.length; ti++) {
           if (thudResults[ti].heard) {
             engine.events.push({
@@ -2245,6 +2383,17 @@
         tryCqc();
       } else if (cqcEdge && (engine.dragging || inventory.boxOn)) {
         // NO CQC WHILE DRAGGING or BOXED — both hands are full in either case.
+        engine.events.push({ type: "busy" });
+      }
+
+      // THROW VERB (see file header CQC / THROW: Q TAP vs Q HOLD / THROW
+      // VERB) — same gating shape as CQC just above, verbatim.
+      var cqcThrowEdge = normalized.cqcThrow && !prevCqcThrow;
+      prevCqcThrow = normalized.cqcThrow;
+      if (cqcThrowEdge && !engine.playerHidden && !engine.dragging && !inventory.boxOn) {
+        tryCqcThrow();
+      } else if (cqcThrowEdge && (engine.dragging || inventory.boxOn)) {
+        // NO THROW WHILE DRAGGING or BOXED — both hands are full in either case.
         engine.events.push({ type: "busy" });
       }
 
@@ -2778,13 +2927,13 @@
     // (world/player/guards/squad/vision/director/rng/inventory each own
     // their OWN state — see src/saveState.js for how those are captured
     // separately):
-    //   prevKnock/prevFire/prevCqc/prevDrag/prevBox/prevRation/prevChaff —
-    //     edge-trigger memory for every one-shot verb (see file header). Miss
-    //     ANY of these and a restored engine can double-fire (or swallow) the
-    //     very next tick's edge for whichever verb's key was HELD DOWN at
-    //     the moment of the save (a `true` input carried across a save/
-    //     restore boundary with a stale `false` prev-state reads as a FRESH
-    //     false->true edge that never actually happened).
+    //   prevKnock/prevFire/prevCqc/prevCqcThrow/prevDrag/prevBox/prevRation/
+    //     prevChaff — edge-trigger memory for every one-shot verb (see file
+    //     header). Miss ANY of these and a restored engine can double-fire
+    //     (or swallow) the very next tick's edge for whichever verb's key was
+    //     HELD DOWN at the moment of the save (a `true` input carried across
+    //     a save/restore boundary with a stale `false` prev-state reads as a
+    //     FRESH false->true edge that never actually happened).
     //   hiddenLockerIndex — hiddenLocker (the {x,y,facing} locker object the
     //     player is currently tucked into, or null) is a REFERENCE into this
     //     zone's OWN zone.lockers array (see nearestLocker() above) — since
@@ -2850,6 +2999,7 @@
         prevKnock: prevKnock,
         prevFire: prevFire,
         prevCqc: prevCqc,
+        prevCqcThrow: prevCqcThrow,
         prevDrag: prevDrag,
         prevBox: prevBox,
         prevRation: prevRation,
@@ -2888,6 +3038,7 @@
       prevKnock = state.prevKnock;
       prevFire = state.prevFire;
       prevCqc = state.prevCqc;
+      prevCqcThrow = !!state.prevCqcThrow;
       prevDrag = state.prevDrag;
       prevBox = state.prevBox;
       prevRation = state.prevRation;
