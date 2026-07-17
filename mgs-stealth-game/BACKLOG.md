@@ -46,8 +46,7 @@ content rotation) take over. L items must be split before selection.
 
 ## Audit findings (cycle 40 — full report in TESTLOG cycle 40)
 
-- **B1 (CRITICAL, cycle 41): saves with live reinforcement guards silently unloadable** | bugfix | S/M | Consequence | restore() throws on "reinf-N" ids absent from ZONE_GUARDS → boot shows "NO SAVE", save lost. Fix: restore() spawns missing reinforcement ids at captured state before per-guard restore; ALSO stash director's reinforcementSeq/alertWasActive/nextSpawnAt (B2) to prevent id collisions; regression: save mid-ALERT with reinforcement alive → F9 restores byte-identical.
-- B2: director escalation bookkeeping (reinforcementSeq/alertWasActive/nextSpawnAt) unsaved | bugfix | S | Consequence | fold into B1's cycle.
+- ~~B1/B2~~ FIXED cycle 41 (reunified reconstruction path + bookkeeping in saves).
 - B3: comment-stripping at build | polish | S | Readability (artifact honesty: 1.19MB → ~600KB measured) | strip comment-only lines from src (and optionally tests) at build; never strip code; assert tests still 100% in-browser.
 - B4: wire cameraAlert/laserTripped/reinforcement into player feedback | polish | M | Readability | distinct sting/flash/radar-blip per event; remaining write-only events get documented rationale.
 - B5: cqcThrow missing from verb-gating regression | bugfix | S | Readability | extend box-gates-combat/verb-gating tests: throw while boxed/hidden/dragging → busy.

@@ -1539,6 +1539,16 @@
   // is a base guard (rebuilt with its authored spawn/waypoints); anything
   // else is assumed a reinforcement (rebuilt with the SAME deterministic
   // guardDoor-anchored loop above — see buildReinforcementWaypointsForZone).
+  // REUSED BY src/saveState.js (NEW — cycle-40 audit B1 fix, exported below
+  // as Game.rebuildGuardsFromStash): restore()'s own per-guard step calls
+  // this directly for any saved guard id NOT in the freshly-built base
+  // roster, AFTER validating it matches the "reinf-<n>" id pattern (a save
+  // file is untrusted input, unlike an internal stash blob, so saveState.js
+  // still throws on a genuinely unrecognized id — see its own comment). This
+  // is the audit's called-for reunification: one shared construction path
+  // for "rebuild a reinforcement guard from a saved/stashed blob" instead of
+  // two divergent ones (previously, only the STASH path had one at all —
+  // saveState.js's restore() had no equivalent, which was B1's root cause).
   function rebuildGuardsFromStash(stashedGuards, targetZone, newWorld, newVision, rng, newSquad) {
     var baseConfigs = guardConfigsForZone(targetZone);
     var configById = {};
@@ -3074,6 +3084,21 @@
   // function, exported alongside createEngine so tests can exercise every
   // threshold directly without a live engine.
   Game.computeRank = computeRank;
+  // rebuildGuardsFromStash (NEW — cycle-40 audit B1 fix) — exported so
+  // src/saveState.js's restore() can reuse the EXACT same reinforcement-
+  // guard reconstruction this file's own zone-revisit STASH path
+  // (stashZone/switchZone above) already relies on, instead of a second,
+  // divergent implementation. This is the root-cause fix for audit B1: a
+  // save captured mid-ALERT (after director had spawned one or more
+  // "reinf-<n>" guards onto the live roster) used to be unrestorable —
+  // saveState.js's restore() only knew how to match ids against the
+  // ZONE_GUARDS base roster and threw on anything else, which
+  // src/boot.js's F9 silently swallowed into a "NO SAVE" toast. See
+  // src/saveState.js's own PER-GUARD RESTORE comment for exactly how it's
+  // used, and this function's own doc comment above for why reusing it here
+  // is safe/deterministic (pure function of zone.guardDoor + a freshly built
+  // world, same guarantee the zone-revisit path already leans on).
+  Game.rebuildGuardsFromStash = rebuildGuardsFromStash;
   if (typeof module !== "undefined")
     module.exports = { createEngine: createEngine, computeRank: computeRank };
 })(typeof window !== "undefined"

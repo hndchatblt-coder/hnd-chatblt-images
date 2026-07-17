@@ -1,5 +1,18 @@
 # TESTLOG.md
 
+## Cycle 41 (CRITICAL FIX: B1/B2 — reinforcement saves)
+
+257/257; 25/25; 5/5 shots. restore() reconstructs reinf-N guards via the
+SAME rebuildGuardsFromStash path the zone-stash uses (now exported) — the
+audit's root cause (two divergent persistence systems) is closed by
+reunification, and the stash path gained director-bookkeeping restoration
+for free. Unrecognized ids still throw (corrupt saves stay honest). B2:
+reinforcementSeq/alertWasActive/nextSpawnAt ride in saves. SAVE_VERSION 4.
+Hard gate passes: save mid-ALERT with a live reinforcement → restore →
+600-tick same-input replay → byte-identical snapshots.
+
+PLAYME's known-issue warning removed (fixed same day it shipped).
+
 ## Cycle 40 (AUDIT — no building)
 
 Fresh-eyes audit at HEAD 242892b (252/252, 25/25 verified green baseline).

@@ -63,7 +63,14 @@
 //                                 // it, see this module's own header note above). `id` is
 //                                 // carried alongside (not just array position) so restore()
 //                                 // can match guards by IDENTITY rather than assuming array
-//                                 // order never changes — see restore() below.
+//                                 // order never changes — see restore() below. `engine.guards`
+//                                 // can (and, mid-ALERT, often does) include director.js's own
+//                                 // "reinf-<n>" reinforcement guards ALONGSIDE the ZONE_GUARDS
+//                                 // base roster — this array was always captured correctly
+//                                 // (engine.guards.map() below doesn't care what spawned a
+//                                 // guard); it was restore()'s OWN base-roster-only rebuild
+//                                 // that couldn't round-trip one — see restore()'s PER-GUARD
+//                                 // RESTORE step below for the cycle-40 audit B1 fix.
 //       squad: {...},             // engine.squad.getState() verbatim (src/guardAI.js) —
 //                                 // phase/phaseTime/lastKnown/alertCount. Every guard in
 //                                 // `guards` above shares this ONE squad instance (see
@@ -76,7 +83,15 @@
 //                                 // fov, range, endpoints, period, duty) is immutable zone
 //                                 // data, already restored for free by rebuilding the world/
 //                                 // director for `zoneId` — only the live per-tick numbers
-//                                 // travel here.
+//                                 // travel here. ALSO — NEW this cycle (audit B2 fix) —
+//                                 // reinforcementSeq/alertWasActive/nextSpawnAt, director's
+//                                 // own ESCALATION reinforcement bookkeeping; see
+//                                 // src/director.js's own SAVE/RESTORE comment for why each
+//                                 // one matters (in short: without reinforcementSeq surviving
+//                                 // a restore, the next spawn after one would reissue an id
+//                                 // already in use by a just-restored reinforcement guard).
+//                                 // SAVE_VERSION was bumped 3 -> 4 for exactly this shape
+//                                 // change (see restore()'s VERSION GATE below).
 //       world: {...},             // engine.world.getState() verbatim (src/world.js) — the
 //                                 // per-door open/closed flag map. THE OTHER HALF OF DOORS
 //                                 // (the per-door auto-close timestamp, doorLastNear) lives on
@@ -143,12 +158,21 @@
 //        cycle that changes what any getState()/setState() captures MUST
 //        bump SAVE_VERSION) must never be silently half-applied into a
 //        corrupt engine; see tests/saveState.test.js's version-mismatch test.
-//        SAVE_VERSION is 3 as of this cycle (zone persistence) — bumped from
-//        2 because engine.getState() grew two more new fields (`zoneStash`,
-//        `zoneReinforcementUsed`, see the `engine` field note above), on top
-//        of the win-state cycle's earlier bump (1 -> 2, `stats`/
-//        `missionComplete`); a save captured by an older build simply won't
-//        have any of these.
+//        SAVE_VERSION is 4 as of this cycle (cycle-40 audit B1/B2 fix) —
+//        bumped from 3 because src/director.js's getState() grew three more
+//        new fields (`reinforcementSeq`, `alertWasActive`, `nextSpawnAt` —
+//        see the `director` field note above and src/director.js's own
+//        SAVE/RESTORE comment for the full B2 write-up); on top of the zone
+//        persistence cycle's earlier bump (2 -> 3, `zoneStash`/
+//        `zoneReinforcementUsed`) and the win-state cycle's before that
+//        (1 -> 2, `stats`/`missionComplete`). Note B1 itself (the actual
+//        critical "reinforcement save unloadable" bug — see PER-GUARD
+//        RESTORE below) is a pure restore()-side logic fix, not a capture()
+//        shape change — save.guards already carried every live guard
+//        including reinforcements before this cycle, restore() just
+//        couldn't rebuild one — so B1 alone would not have required a
+//        version bump; it is bundled into this same bump only because B2
+//        (a genuine shape change) already forces one this cycle.
 //     2. Looks up zoneData = Game.ZONES[save.zoneId] — throws a clear Error
 //        if that zone no longer exists (defensive; every zone this cycle
 //        ships is a fixed module-level Game.ZONES entry, so this should never
@@ -175,15 +199,35 @@
 //             squad createEngine constructed) — restoring it here is
 //             immediately visible to every guard.squad reference with no
 //             separate re-wiring step.
-//          e. PER-GUARD RESTORE: for every { id, state } in save.guards,
-//             finds the engine.guards[] entry with that SAME id (guard
-//             identity, not array position — see the `guards` field note
-//             above) and calls guard.setState(state) on it. Throws a clear
-//             Error if any saved guard id has no match in the freshly built
-//             roster (a save whose zoneId's ZONE_GUARDS table changed since
-//             the save was made, e.g. a dev/build mismatch — not a supported
-//             restore, but must fail loudly rather than silently drop a
-//             guard's state).
+//          e. PER-GUARD RESTORE (UPDATED — cycle-40 audit B1 fix, THE
+//             CRITICAL BUG): for every { id, state } in save.guards, first
+//             tries to find the engine.guards[] entry with that SAME id
+//             (guard identity, not array position — see the `guards` field
+//             note above) among the freshly-built ZONE_GUARDS base roster.
+//             A saved id NOT in that roster is no longer an automatic
+//             error — director.js can spawn "reinf-<n>" reinforcement
+//             guards onto engine.guards mid-ALERT (see its own ESCALATION /
+//             REINFORCEMENTS contract), and a save captured while one was
+//             alive used to be UNRESTORABLE: this exact case is audit
+//             finding B1 — restore() threw "no guard with id reinf-1" and
+//             src/boot.js's F9 caught it into a silent "NO SAVE" toast,
+//             discarding the player's save outright. Now: any unmatched id
+//             that matches /^reinf-\d+$/ is reconstructed via
+//             Game.rebuildGuardsFromStash — the SAME deterministic
+//             construction path src/engine.js's own zone-revisit STASH
+//             mechanism already uses to rebuild a departed zone's
+//             reinforcements (see that function's own contract for why it's
+//             safe/pure — a function of zone.guardDoor + a freshly built
+//             world only), reused here rather than duplicated, per the
+//             audit's own root-cause note that these two systems had
+//             diverged. guard.setState(state) is applied as part of that
+//             call. Any OTHER unmatched id (not in the base roster, NOT a
+//             reinforcement-shaped id) still throws a clear Error — a save
+//             whose zoneId's ZONE_GUARDS table genuinely changed since the
+//             save was made (e.g. a dev/build mismatch), or a corrupted/
+//             hand-edited save blob, must still fail loudly rather than
+//             silently half-load; see tests/regressions/reinforcement-
+//             save.test.js's own corrupt-save test for the pinned proof.
 //          f. engine.director.setState(save.director)
 //          g. engine.world.setState(save.world)
 //          h. engine.setState(save.engine) — restores tickCount/time/
@@ -213,7 +257,22 @@
   // `zoneStash` and `zoneReinforcementUsed` (see this file's own header note
   // on the `engine` field, and src/engine.js's ZONE PERSISTENCE / STASH
   // contract) — another genuine shape change, same rule.
-  var SAVE_VERSION = 3;
+  // SAVE_VERSION 3 -> 4 (cycle-40 audit B1/B2 fix): src/director.js's
+  // getState() grew `reinforcementSeq`/`alertWasActive`/`nextSpawnAt` (see
+  // this file's own header note on the `director` field, and
+  // src/director.js's own SAVE/RESTORE comment) — same rule. Bundled
+  // alongside the actual critical fix (B1: restore() can now rebuild a
+  // reinforcement guard at all — see PER-GUARD RESTORE below), which is a
+  // restore()-side logic change, not a capture() shape change.
+  var SAVE_VERSION = 4;
+
+  // REINFORCEMENT ID PATTERN (see PER-GUARD RESTORE below) — the exact
+  // shape director.js's spawnReinforcement() mints ("reinf-" + an
+  // incrementing 1-based integer, see that file's own SPAWN note). A saved
+  // guard id outside the freshly-built ZONE_GUARDS base roster is only ever
+  // treated as a legitimate reinforcement if it matches this — anything
+  // else still throws (see below).
+  var REINFORCEMENT_ID_RE = /^reinf-\d+$/;
 
   function capture(engine) {
     var player = engine.player;
@@ -282,9 +341,43 @@
     // here is immediately visible everywhere, no re-wiring needed.
     engine.squad.setState(save.squad);
 
-    // PER-GUARD RESTORE — match by id, not array position (see file header).
+    // PER-GUARD RESTORE — match by id, not array position (see file header
+    // for the full audit B1 write-up). First pass: partition save.guards
+    // into base-roster hits (present in the freshly-built engine.guards) vs
+    // everything else. `engine.guards` here is still exactly the
+    // ZONE_GUARDS base roster createEngine() built above — reinforcements
+    // (if any) get appended to it below, AFTER this partition, so this
+    // lookup can never accidentally match a reinforcement against itself.
+    var baseGuardIds = {};
+    for (var bgi = 0; bgi < engine.guards.length; bgi++) {
+      baseGuardIds[engine.guards[bgi].id] = true;
+    }
+
+    var baseSavedGuards = [];
+    var reinforcementSavedGuards = [];
     for (var i = 0; i < save.guards.length; i++) {
-      var savedGuard = save.guards[i];
+      var sg = save.guards[i];
+      if (baseGuardIds[sg.id]) {
+        baseSavedGuards.push(sg);
+      } else if (REINFORCEMENT_ID_RE.test(sg.id)) {
+        reinforcementSavedGuards.push(sg);
+      } else {
+        // Unmatched AND not reinforcement-shaped — a save whose zoneId's
+        // ZONE_GUARDS table changed since the save was made (e.g. a dev/
+        // build mismatch), or a corrupted/hand-edited blob. Must fail
+        // loudly rather than silently drop a guard's state — see file
+        // header and tests/regressions/reinforcement-save.test.js's own
+        // corrupt-save test.
+        throw new Error(
+          "saveState.restore: no guard with id " + sg.id + " in rebuilt zone " + save.zoneId
+        );
+      }
+    }
+
+    // Base guards: setState onto the matching already-built engine.guards
+    // entry, exactly as before this cycle.
+    for (var bi = 0; bi < baseSavedGuards.length; bi++) {
+      var savedGuard = baseSavedGuards[bi];
       var target = null;
       for (var j = 0; j < engine.guards.length; j++) {
         if (engine.guards[j].id === savedGuard.id) {
@@ -292,12 +385,46 @@
           break;
         }
       }
+      // Unreachable in practice: savedGuard.id came straight out of
+      // baseGuardIds above, so a match is guaranteed — kept as a defensive
+      // throw anyway, same posture as every other "shouldn't happen" guard
+      // in this file.
       if (!target) {
         throw new Error(
           "saveState.restore: no guard with id " + savedGuard.id + " in rebuilt zone " + save.zoneId
         );
       }
       target.setState(savedGuard.state);
+    }
+
+    // Reinforcements (audit B1 fix): reconstructed via the SAME construction
+    // path src/engine.js's own zone-revisit STASH mechanism already uses
+    // (Game.rebuildGuardsFromStash — see its own contract for why this is a
+    // safe, deterministic reconstruction: a pure function of zone.guardDoor
+    // + a freshly built world, same guardDoor-anchored waypoint loop
+    // director.js's own spawnReinforcement used originally). It calls
+    // guard.setState() internally, so no separate setState pass is needed
+    // here. Pushed in save.guards order, which — because director.js only
+    // ever appends a newly-spawned reinforcement to the END of the live
+    // guards array (see director.js's own ctx.guards note) — already lands
+    // in the same relative order the original engine's guards array had
+    // them in, base roster first, reinforcements in spawn order: preserving
+    // this order matters for byte-identical replay (see THE HARD GATE in
+    // tests/regressions/reinforcement-save.test.js), since director.js's
+    // own 40s radio check-in schedule is staggered by each guard's ARRAY
+    // INDEX (see director.js's PURE-FUNCTION CHECK-IN SCHEDULE note).
+    if (reinforcementSavedGuards.length) {
+      var rebuiltReinforcements = Game.rebuildGuardsFromStash(
+        reinforcementSavedGuards,
+        zoneData,
+        engine.world,
+        engine.vision,
+        engine.rng,
+        engine.squad
+      );
+      for (var ri = 0; ri < rebuiltReinforcements.length; ri++) {
+        engine.guards.push(rebuiltReinforcements[ri]);
+      }
     }
 
     engine.director.setState(save.director);

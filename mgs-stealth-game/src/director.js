@@ -430,26 +430,53 @@
 //   Pushes { type: "reinforcement", guardId } the tick a guard actually
 //   spawns.
 //
-// SAVE/RESTORE — HONEST GAP (documented, not hacked around): this section's
-// own mutable state (reinforcementCount, the spawn-timer bookkeeping, and the
-// check-ins' per-missing-guard searcher tracking) is NOT captured by this
-// file's existing getState()/setState() (see SAVE/RESTORE above cameras/
-// lasers) — src/saveState.js is out of scope for this cycle's task packet, so
-// a save/restore round-trip rebuilds a FRESH director for the restored zone
-// (same as it already does for cameras/lasers) that has forgotten this
-// section's own history. This is exactly why the check-in SCHEDULE above is
-// written as a pure function of (ctx.time, dt, index) rather than a stored
-// "next check-in at" seeded from this director's own construction moment: a
-// pure schedule means a freshly-rebuilt director (post-restore, or a mid-zone
-// re-tick after a save) computes the IDENTICAL check-in boundaries a
-// never-restored director would have, with nothing to lose. reinforcement
-// scheduling has no equivalent pure-function trick available (it is
-// inherently "history since this alert bout began"), so a save/restore taken
-// mid-ALERT can, in principle, forget an in-progress spawn countdown or an
-// already-spent slice of the +3 budget — same documented-gap posture as
-// every other "module X's own state, saveState.js out of scope" note already
-// in this codebase (see src/world.js's DOORS DO NOT ATTENUATE SOUND for the
-// same pattern).
+// SAVE/RESTORE (UPDATED — cycle-40 audit B1/B2 fix): reinforcementSeq,
+// alertWasActive, and nextSpawnAt now DO travel through this file's own
+// getState()/setState() (see below cameras/lasers) — this is the fix for
+// audit finding B2. Root cause of B1 (the actual critical bug): a save taken
+// mid-ALERT, after director had already spawned one or more "reinf-<n>"
+// guards onto the live engine.guards array, could not be restored at all —
+// src/saveState.js's restore() only knew how to rebuild the ZONE_GUARDS base
+// roster, so any saved guard id it didn't recognize (every reinforcement)
+// threw, and src/boot.js's F9 caught that throw and silently discarded the
+// save ("NO SAVE"). The fix lives in saveState.js (it now reconstructs a
+// reinforcement guard via the SAME Game.rebuildGuardsFromStash mechanism
+// src/engine.js's own zone-revisit stash path already used — see that
+// function's own contract for why it's a safe, deterministic, pure-function
+// reconstruction) — not here. But rebuilding the GUARD is only half the
+// story: without this director instance's OWN reinforcementSeq surviving the
+// restore too, the freshly-rebuilt director would start back at 0, and the
+// very next spawn after restore would reissue "reinf-1" — an id ALREADY in
+// use by the just-restored guard (audit B2). Capturing reinforcementSeq here
+// closes that hole. alertWasActive/nextSpawnAt ride along for the same
+// reason: without them, the first tickEscalation() call after a restore
+// taken mid-ALERT would see (isAlert=true, alertWasActive=false) — a false
+// "rising edge" — and stomp the correctly-mid-countdown nextSpawnAt with a
+// fresh +6s timer, which a live (never-restored) engine would never do.
+// BACKWARD COMPATIBLE: setState() defaults all three when absent (an
+// old-format director blob, or any pre-cycle-40 caller) to this module's own
+// fresh-construction values (0 / false / null) — harmless because
+// SAVE_VERSION's own gate (see src/saveState.js) means an old-shaped blob
+// should never actually reach here via a real save/restore in practice; the
+// zone-revisit STASH path (stashZone/switchZone in src/engine.js) calls this
+// same getState()/setState() pair too, so it picks up the identical fix for
+// free — no changes needed there.
+//   STILL AN HONEST GAP (deliberately NOT added, out of scope): reinforcement-
+// Count itself is untouched — see src/engine.js's own ZONE PERSISTENCE /
+// STASH note ("REINFORCEMENT COUNTER IS ZONE-LIFETIME, NOT PER-VISIT") for
+// why that's fine: engine.js's own zoneReinforcementUsed is the TRUE,
+// zone-lifetime cap (already captured/restored via engine.getState()/
+// setState() since SAVE_VERSION 2), and this module's reinforcementCount is
+// only ever a per-VISIT ceiling that's always >= what's actually left, so
+// resetting it to 0 on every rebuild (restore included) never falsely blocks
+// a spawn the true budget would still allow. missingSearchers (the check-ins'
+// per-missing-guard "who's already been dispatched" map) is ALSO still not
+// captured, same as before — the check-in SCHEDULE itself needs no help (it
+// remains a pure function of (ctx.time, dt, index), see PURE-FUNCTION
+// CHECK-IN SCHEDULE above), and losing missingSearchers is benign: at worst
+// one redundant re-dispatch to a guard that (per the old, forgotten
+// bookkeeping) might already have a searcher in flight — never a crash,
+// never a spurious alert. See src/engine.js's own identical precedent note.
 //
 // Pure JS logic — no THREE, no DOM, no Math.random/Date — runs headless in
 // node exactly like vision.js/guardAI.js. Consumes world/vision/squad only
@@ -810,9 +837,10 @@
       return fired;
     }
 
-    // getState()/setState() (NEW — save/restore cycle, additive only, no
-    // behavior change). Captures the per-camera/per-laser MUTABLE state
-    // arrays (camStates/laserActiveStates) — the camera/laser SCHEMA itself
+    // getState()/setState() (save/restore cycle, additive only within a
+    // version bump — see SAVE/RESTORE above for the cycle-40 audit B2
+    // addition). Captures the per-camera/per-laser MUTABLE state arrays
+    // (camStates/laserActiveStates) — the camera/laser SCHEMA itself
     // (x/y/facing/sweepDeg/... from world.zone.cameras/lasers) is immutable
     // zone data, already restored by rebuilding the world/director for
     // save.zoneId, so only the live per-tick numbers need to travel:
@@ -827,6 +855,10 @@
     //     fresh from ctx.time every tick regardless, but captured anyway so
     //     laserStates() reads correctly on a restored engine even before its
     //     first post-restore tick.
+    //   reinforcementSeq/alertWasActive/nextSpawnAt (NEW — audit B2) — the
+    //   ESCALATION section's own reinforcement bookkeeping, see this file's
+    //   SAVE/RESTORE note above for exactly why each one matters. Plain
+    //   numbers/booleans/null, JSON-safe as-is.
     // Same index order as `cameras`/`lasers` (the world.zone arrays) in both
     // directions — restoring onto a director built from a DIFFERENT zone (a
     // different camera/laser count) is not a supported call shape; callers
@@ -845,6 +877,9 @@
         lasers: laserActiveStates.map(function (st) {
           return { active: st.active };
         }),
+        reinforcementSeq: reinforcementSeq,
+        alertWasActive: alertWasActive,
+        nextSpawnAt: nextSpawnAt,
       };
     }
 
@@ -860,6 +895,12 @@
       for (var j = 0; j < laserActiveStates.length && j < lasersIn.length; j++) {
         laserActiveStates[j].active = lasersIn[j].active;
       }
+      // BACKWARD-COMPATIBLE DEFAULTS (see SAVE/RESTORE note above) — an
+      // old-shaped blob missing these simply falls back to this module's own
+      // fresh-construction values, matching a never-restored director.
+      reinforcementSeq = state.reinforcementSeq || 0;
+      alertWasActive = !!state.alertWasActive;
+      nextSpawnAt = state.nextSpawnAt === undefined || state.nextSpawnAt === null ? null : state.nextSpawnAt;
     }
 
     return {

@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.40 (cycle 40 — audit; 14 findings, B1 critical → cycle 41)
+**Version:** v0.41 (cycle 41 — B1/B2 critical save fix)
 
 ## Module status
 
@@ -36,6 +36,9 @@
 
 ## Changelog (last 5)
 
+- cycle 41: CRITICAL fix — reinforcement guards reconstruct on restore via
+  the reunified stash path; director bookkeeping saved; SAVE_VERSION 4
+  (257/257, 25/25)
 - cycle 40: AUDIT — 14 findings (B1 CRITICAL: reinforcement guards make
   saves silently unloadable), 5 watch items dispositioned
 - cycle 39: bugfix — closed doors attenuate sound like walls (252/252, 25/25)

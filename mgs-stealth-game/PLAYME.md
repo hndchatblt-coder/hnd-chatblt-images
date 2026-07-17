@@ -26,10 +26,6 @@ B box · R ration · X chaff · F5 save · F9 load (continues count vs rank)
 - Closed doors now muffle sound like the walls they are; hit-flash, death
   sting, radar shows you dimmed while hidden and your cargo while dragging.
 
-**Known issue (fix in flight):** saving (F5) while a reinforcement guard is
-alive makes that save unloadable ("NO SAVE" on F9). Save when things are
-calm until cycle 41 lands.
-
 ## Older highlights (cycles 21–30)
 
 - **The full facility:** Laboratory (keycard doors L1→L2→L3, timed laser
