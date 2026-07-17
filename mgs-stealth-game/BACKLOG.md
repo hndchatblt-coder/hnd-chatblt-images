@@ -74,6 +74,16 @@ content rotation) take over. L items must be split before selection.
 - ~~A10~~ FIXED cycle 22 (moveCircle routing + corner-drag regression).
 - ~~A11~~ FIXED cycle 30 (SPEC hedges). ~~A12~~ FIXED cycle 30 (loader unified).
 
+## Graphics arc (added cycle 41 from human direction — weave into rotation after B1/B3)
+
+- G1: Humanoid silhouettes | polish | M | Tension | guards/player as primitive-composed figures (torso/head/legs), walk-cycle bob, stance poses; screenshot-verified. The boxes→people step.
+- G2: Procedural canvas textures | polish | M | Tension | floor grain, container ridges, per-zone palettes (dock rust, lab cold, tower night); zero external assets.
+- G3: Lighting pass | polish | M | Readability | shadow-casting spotlights + darker ambient; dark zones as real shadow pools; keep cone honesty.
+- G4: CRT post-effect | polish | S | Tension | scanlines + vignette shader quad; toggleable.
+- G5: Peek camera rotation (SPEC) | feature | M | Expression | hold-key ~30° camera swing; revisits the top-down vs isometric drift.
+- G6: Guard chatter bubbles (SPEC) | polish | S | Toybox | idle speech dots on PATROL.
+- G7: Muzzle flash + tower searchlights | polish | S | Tension | later.
+
 ## Non-bootstrap items (from playtests)
 
 - moveCircle substep guard vs wall tunneling | bugfix | S | Consequence | a single-tick displacement of any magnitude never crosses a wall; regression test with a 2m/tick displacement into a 1m wall. (Blocked-by-need: do before any dash/throw physics.)
