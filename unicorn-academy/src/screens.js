@@ -31,7 +31,11 @@ let transitioning = false;
 
 /* wipe transition: circle grows from origin point, swap, shrink */
 UA.go = (id, opts = {}) => {
-  if (transitioning || !SCREENS[id]) return;
+  if (!SCREENS[id]) return;
+  if (transitioning) {           // a tap during a wipe must not be a dead tap
+    if (!opts._retried) setTimeout(() => UA.go(id, Object.assign({}, opts, { _retried: 1 })), 480);
+    return;
+  }
   transitioning = true;
   UA.audio.sfx.whoosh();
   const w = $('#wipe');
@@ -495,15 +499,23 @@ UA.ui.showActivity = (zone, stage) => {
 };
 
 UA.ui.renderQuestion = (q, sparkle) => {
-  $('#prompt-area').innerHTML = q.prompt || '';
+  // every question gets a visual anchor: its real prompt, or the unicorn with a
+  // big tappable speech bubble (the audio prompt made visible + repeatable)
+  if (q.prompt) {
+    $('#prompt-area').innerHTML = q.prompt;
+  } else {
+    $('#prompt-area').innerHTML = `<button class="listen-card" id="listen-card" aria-label="Hear it again">
+      <span class="lc-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</span>
+      <span class="lc-bubble"><span>${UA.speakerSVG()}</span></span></button>`;
+    $('#listen-card').addEventListener('pointerdown', () => UA.engine.repeat());
+  }
   const area = $('#options-area');
   area.innerHTML = '';
   const widget = UA.widgets[q.widget || q.stage.widget];
   widget.render(q, area);
   if (sparkle) {
     const first = area.querySelector('.answer');
-    area.insertAdjacentHTML('afterbegin',
-      `<div class="sparkle-badge" style="position:absolute;top:-8px;left:50%;transform:translateX(-50%)">${UA.sparkleSVG()}</div>`);
+    if (first) first.insertAdjacentHTML('beforeend', `<span class="sparkle-badge">${UA.sparkleSVG()}</span>`);
   }
   UA.ui.setOptionsQuiet(true);
 };

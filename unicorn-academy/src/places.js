@@ -10,6 +10,11 @@ const el = (h) => { const d = document.createElement('div'); d.innerHTML = h.tri
 const P = UA.PALETTE;
 const myUni = (extra = {}) => UA.unicornSVG(Object.assign({
   body: P.bodies[UA.S.uni.body], mane: P.manes[UA.S.uni.mane], cosmetics: UA.S.equipped }, extra));
+/* item thumbnails zoom onto the accessory region so items are tellable apart */
+const ANCHOR_VIEW = { head: '125 0 115 115', neck: '125 85 95 95', back: '45 50 115 115',
+  horn: '155 0 85 85', tail: '5 125 95 95', feet: '65 175 130 70' };
+const itemThumb = (item) => UA.unicornSVG({ body: P.bodies[UA.S.uni.body], mane: P.manes[UA.S.uni.mane],
+  cosmetics: [item.id] }).replace('viewBox="0 0 240 250"', `viewBox="${ANCHOR_VIEW[item.anchor] || '0 0 240 250'}"`);
 
 /* a full-screen place with a themed header band and a home-reachable body */
 const placeScreen = (id, title, bg) => {
@@ -66,7 +71,7 @@ UA.openBoutique = (pt) => {
         const owned = S.owned.includes(item.id);
         const equipped = S.equipped.includes(item.id);
         const card = el(`<button class="btq-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}" data-item="${item.id}">
-          <span style="width:82%;height:66%;display:block">${UA.unicornSVG({ body: P.bodies[S.uni.body], mane: P.manes[S.uni.mane], cosmetics: [item.id] })}</span>
+          <span style="width:82%;height:66%;display:block">${itemThumb(item)}</span>
           <span class="btq-price">${owned ? (equipped ? 'wearing' : 'owned') :
             `${item.royale ? UA.rainbowGemSVG() : UA.gemSVG()} ${item.price}`}</span></button>`);
         card.addEventListener('pointerdown', () => {
@@ -178,8 +183,9 @@ UA.openStable = (pt) => {
         UA.audio.speak(`Look! All your love made ${b.name} grow ${g === 1 ? 'bigger' : 'ALL the way up'}!`);
       }
       const size = [90, 130, 170][b.growth];
-      const wander = 12 + (i * 73) % 60;
-      const pen = el(`<button class="stable-baby" style="left:${wander}%;bottom:${8 + (i % 3) * 14}%;width:${size}px" data-baby="${i}">
+      const n = S.babies.length;   // spread across the barn, centred when few
+      const left = n === 1 ? 40 : 6 + i * (74 / Math.max(1, n - 1));
+      const pen = el(`<button class="stable-baby" style="left:${left}%;bottom:${8 + (i % 3) * 14}%;width:${size}px" data-baby="${i}">
         <span class="stable-name">${b.name}</span>
         ${UA.unicornSVG({ body: b.body, mane: b.mane, baby: [1, .55, 0][b.growth] })}</button>`);
       let lastPet = 0;
@@ -209,7 +215,7 @@ UA.openStable = (pt) => {
       }, 3800 + i * 700);
     });
     // treat tray: feeding HERE grows babies (this is what the sink is for)
-    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span></div>`);
+    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
     UA.TREATS.slice(0, 4).forEach(tr => {
       const btn = el(`<button class="btq-item" style="width:104px;height:118px"><span style="width:60%;height:56%">${UA.sprite(tr.id)}</span>
         <span class="btq-price">${UA.gemSVG()} ${tr.price}</span></button>`);
@@ -227,7 +233,7 @@ UA.openStable = (pt) => {
         const g = growthOf(b);
         if (g > b.growth) setTimeout(build, 900);   // rebuild triggers the growth ceremony
       });
-      tray.appendChild(btn);
+      $('.tray-row', tray).appendChild(btn);
     });
     body.appendChild(tray);
     if (!S.firsts.includes('barn-warming') && S.babies.length) {
@@ -248,8 +254,9 @@ UA.openKitchen = (pt) => {
     const body = placeScreen('kitchen', 'Unicorn Kitchen', 'linear-gradient(180deg,#FFE9F4,#FFF3C4 70%)');
     const layers = [];
     body.innerHTML = `
+      <div class="fr-banner">Stack a silly cake!</div>
       <div class="kitchen-uni" id="kitchen-uni">${myUni()}</div>
-      <div class="kitchen-cake" id="kitchen-cake"><div class="kitchen-plate"></div></div>
+      <div class="kitchen-cake" id="kitchen-cake"><div class="kitchen-plate"></div><div class="kitchen-hint"></div></div>
       <div class="kitchen-row" id="kitchen-row"></div>
       <button class="big-btn" id="kitchen-feed" style="background:var(--mint)">Feed ${UA.S.uni.name}!</button>`;
     const ingredients = UA.shuffle(FOODS).slice(0, 6).concat(UA.shuffle(['sock', 'fish', 'ball', 'drum']).slice(0, 2));
@@ -338,12 +345,13 @@ UA.openMirror = (pt) => {
       refresh();
     });
     if (!S.owned.length) {
-      body.appendChild(el(`<div class="stable-note">Treasures from the boutique appear here to try on!</div>`));
+      body.appendChild(el(`<div class="stable-note" style="display:flex;align-items:center;gap:10px">
+        <span style="width:30px;height:30px;display:inline-block">${UA.sparkleSVG()}</span>Treasures from the boutique appear here to try on!</div>`));
     }
     S.owned.forEach(id => {
       const item = UA.BOUTIQUE.find(b => b.id === id);
       const card = el(`<button class="btq-item ${S.equipped.includes(id) ? 'equipped' : ''}" style="width:110px;height:110px">
-        <span style="width:88%;height:88%;display:block">${UA.unicornSVG({ body: P.bodies[S.uni.body], mane: P.manes[S.uni.mane], cosmetics: [id] })}</span></button>`);
+        <span style="width:88%;height:88%;display:block">${itemThumb(item)}</span></button>`);
       card.addEventListener('pointerdown', () => {
         if (S.equipped.includes(id)) S.equipped = S.equipped.filter(i => i !== id);
         else S.equipped = S.equipped.filter(i => UA.BOUTIQUE.find(b => b.id === i).anchor !== item.anchor).concat([id]);
@@ -370,15 +378,17 @@ const PAGE_SIZE = 12;                                       // sticker slots per
 UA.openBook = (pt, tab) => {
   const build = () => {
     const body = placeScreen('book', 'Memory Book', 'linear-gradient(180deg,#FFF3C4,#FFF9F5 60%)');
+    const on = 'background:var(--butter);box-shadow:0 0 0 4px var(--gold),0 8px 0 var(--shadow)';
     const tabs = el(`<div style="display:flex;gap:14px">
-      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? 'background:var(--butter)' : ''}">Memories</button>
-      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? 'background:var(--butter)' : ''}">Stickers</button></div>`);
+      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? on : ''}">Memories</button>
+      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? on : ''}">Stickers</button></div>`);
     body.appendChild(tabs);
     $('#tab-mem', body).addEventListener('pointerdown', () => { tab = 'mem'; build(); });
     $('#tab-stk', body).addEventListener('pointerdown', () => { tab = 'stickers'; build(); UA.audio.speak('Your sticker album! One sticker for every round you finish!'); });
     if (tab === 'stickers') { buildStickers(body); return; }
     if (!UA.S.memoryBook.length) {
-      body.appendChild(el(`<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>`));
+      body.appendChild(el(`<div class="stable-note" style="font-size:28px;display:flex;align-items:center;gap:10px">
+        <span style="width:34px;height:34px;display:inline-block">${UA.sparkleSVG()}</span>Our adventures will be kept here!</div>`));
       body.appendChild(el(`<div style="width:200px">${myUni()}</div>`));
       return;
     }

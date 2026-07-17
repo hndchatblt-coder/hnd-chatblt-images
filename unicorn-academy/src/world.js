@@ -25,10 +25,10 @@ UA.world.decorateMap = (stage) => {
   const dock = phone ? el('<div class="fac-dock"></div>') : null;
   FACILITIES.forEach(f => {
     const b = el(phone
-      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`
+      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}<span class="fac-name">${f.name}</span></button>`
       : `<button class="zone-spot fac-spot" data-testid="${f.id}"
           style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
-          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
+          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}<span class="zone-label">${f.name}</span></button>`);
     b.addEventListener('pointerdown', (e) => f.open({ x: e.clientX, y: e.clientY }));
     (dock || stage).appendChild(b);
   });

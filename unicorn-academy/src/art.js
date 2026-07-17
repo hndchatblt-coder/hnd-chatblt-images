@@ -32,7 +32,7 @@ UA.rainbowGemSVG = () => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <circle cx="18" cy="14" r="3.4" fill="#fff" opacity=".9"/></svg>`;
 UA.starSVG = (col = '#FFD97A', empty) => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <polygon points="24,4 29.5,17.5 44,18.5 33,28 36.5,42 24,34.5 11.5,42 15,28 4,18.5 18.5,17.5"
-   fill="${empty ? 'rgba(255,255,255,.45)' : col}" ${OL} ${empty ? 'stroke-dasharray="4 3"' : ''}/>
+   fill="${empty ? '#EFE7F2' : col}" stroke="${empty ? '#B9A8C4' : '#5C4A66'}" stroke-width="3" stroke-linejoin="round"/>
   ${empty ? '' : '<circle cx="18" cy="15" r="2.6" fill="#fff" opacity=".9"/>'}</svg>`;
 UA.heartSVG = (col = '#FF7FB2') => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <path d="M24 42 C6 30 4 16 13 11 C19 8 24 13 24 17 C24 13 29 8 35 11 C44 16 42 30 24 42Z" fill="${col}" ${OL}/>

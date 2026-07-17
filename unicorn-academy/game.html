@@ -147,6 +147,16 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 #wipe.run .wipe-icon{opacity:1;transition:opacity .18s ease;animation:wipe-icon-pop .5s cubic-bezier(.34,1.56,.64,1)}
 @keyframes wipe-icon-pop{0%{transform:scale(.5)}100%{transform:scale(1)}}
 
+/* the listen card: visual anchor + hear-again for audio-only prompts */
+.listen-card{display:flex;align-items:flex-end;gap:0;border:none;background:none;cursor:pointer;padding:0}
+.lc-uni{width:clamp(72px,16vmin,130px);display:block}
+.lc-bubble{background:var(--cream);border-radius:26px 26px 26px 8px;padding:clamp(10px,2.4vmin,18px) clamp(14px,3vmin,24px);
+  box-shadow:0 6px 0 var(--shadow),0 10px 24px var(--shadow);margin-bottom:clamp(20px,5vmin,44px)}
+.lc-bubble>span{display:block;width:clamp(34px,7vmin,56px);height:clamp(34px,7vmin,56px);
+  animation:lc-pulse 1.8s ease-in-out infinite}
+.lc-bubble svg{width:100%;height:100%}
+@keyframes lc-pulse{50%{transform:scale(1.14)}}
+
 /* soft readability panel between the drawn zone scene and the question */
 .stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);
   top:calc(clamp(56px,12vmin,96px) + var(--sat));bottom:calc(clamp(8px,1.6vh,14px) + var(--sab));
@@ -185,8 +195,11 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 #rainbow-meter{width:clamp(92px,22vmin,190px);height:clamp(18px,3.4vmin,30px);background:var(--cream);border-radius:999px;
   box-shadow:0 5px 0 var(--shadow),inset 0 3px 8px rgba(92,74,102,.15);overflow:hidden;
   transition:transform .15s ease,opacity .3s ease,filter .3s ease}
+#rainbow-meter{position:relative}
 #rainbow-meter>div{height:100%;width:0%;border-radius:999px;transition:width .5s cubic-bezier(.34,1.56,.64,1);
   background:linear-gradient(90deg,#FF9EC7,#FFD97A,#9DE0B0,#8FD0FF,#B79CFF)}
+#rainbow-meter::after{content:'';position:absolute;inset:0;border-radius:999px;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 2px),rgba(92,74,102,.14) calc(10% - 2px) 10%)}
 
 /* ---------- activity layout ---------- */
 .activity-wrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
@@ -284,7 +297,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 .zone-label{position:absolute;left:50%;top:calc(100% + 2px);transform:translateX(-50%);
   font-size:clamp(11px,2.4vmin,16px);font-weight:800;color:var(--plum);background:var(--cream);
   border-radius:999px;padding:2px 10px;white-space:nowrap;box-shadow:0 3px 0 var(--shadow);pointer-events:none}
-.zone-lock{position:absolute;right:-6px;top:-6px;width:clamp(26px,5vmin,38px);height:clamp(26px,5vmin,38px);pointer-events:none}
+.zone-lock{position:absolute;right:2px;top:2px;width:clamp(26px,5vmin,38px);height:clamp(26px,5vmin,38px);pointer-events:none}
 .zone-spot.locked .zone-island{opacity:.72;filter:saturate(.55)}
 
 /* ---------- first-run ---------- */
@@ -319,9 +332,11 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   transition:transform .2s cubic-bezier(.34,1.56,.64,1);transform:translate(-50%,-50%)}
 .fac-dock{position:absolute;left:50%;bottom:calc(30px + var(--sab));transform:translateX(-50%);
   display:flex;flex-wrap:wrap;justify-content:center;gap:10px;width:min(96vw,420px);z-index:13}
-.fac-dock button{position:static;transform:none;width:30%;min-width:64px;height:76px;
+.fac-dock button{position:static;transform:none;width:30%;min-width:64px;height:96px;
   border:none;background:rgba(255,249,245,.85);border-radius:18px;cursor:pointer;
-  box-shadow:0 5px 0 var(--shadow);padding:4px}
+  box-shadow:0 5px 0 var(--shadow);padding:4px;display:flex;flex-direction:column;align-items:center}
+.fac-dock .zone-art{flex:1;min-height:0}
+.fac-dock .fac-name{font-size:clamp(11px,2.6vmin,14px);font-weight:800;color:var(--plum);pointer-events:none}
 .fac-dock button:active{transform:scale(.94)}
 .fac-dock .zone-art{width:100%;height:100%}
 .zone-spot:active{transform:translate(-50%,-50%) scale(.93)}
@@ -330,7 +345,8 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 @keyframes zone-bob{50%{transform:translateY(-8px)}}
 .zone-spot.locked .zone-bounce{animation:none}
 .zone-mist{position:absolute;inset:-10%;pointer-events:none}
-.zone-stars{position:absolute;left:50%;bottom:calc(100% + 1px);transform:translateX(-50%);display:flex;gap:2px;pointer-events:none}
+.zone-stars{position:absolute;left:50%;bottom:calc(100% + 1px);transform:translateX(-50%);display:flex;gap:2px;pointer-events:none;
+  background:rgba(255,249,245,.85);border-radius:999px;padding:2px 7px;box-shadow:0 2px 0 var(--shadow)}
 .zone-stars svg{width:clamp(16px,3.6vmin,26px);height:clamp(16px,3.6vmin,26px)}
 .map-uni{position:absolute;z-index:12;pointer-events:auto;cursor:pointer;border:none;background:none;padding:0;
   transition:left 1.6s ease-in-out,top 1.6s ease-in-out}
@@ -393,13 +409,15 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 
 /* ---------- places (boutique, toy corners, book, parents) ---------- */
 .place-title{position:fixed;top:calc(clamp(58px,13vmin,84px) + var(--sat));left:50%;transform:translateX(-50%);z-index:4;
+  max-width:92vw;text-align:center;
   font-size:clamp(18px,4vmin,30px);font-weight:900;color:var(--plum);background:var(--cream);border-radius:999px;
   padding:clamp(6px,1.2vmin,10px) clamp(16px,3.4vmin,30px);box-shadow:0 6px 0 var(--shadow);pointer-events:none;white-space:nowrap}
 .place-body{position:absolute;inset:0;padding:calc(clamp(104px,22vmin,160px) + var(--sat)) clamp(10px,2.6vw,24px) calc(clamp(12px,2.4vh,24px) + var(--sab));
   display:flex;flex-direction:column;align-items:center;gap:20px;overflow-y:auto;overflow-x:hidden}
 .fac-spot .zone-art{filter:drop-shadow(0 5px 8px var(--shadow))}
 #parents-link{position:fixed;left:calc(10px + var(--sal));bottom:calc(6px + var(--sab));z-index:6;
-  border:none;background:none;color:rgba(92,74,102,.5);font-size:13px;padding:8px;cursor:pointer}
+  border:none;background:rgba(255,249,245,.8);border-radius:999px;color:rgba(92,74,102,.75);
+  font-size:13px;font-weight:700;padding:6px 12px;cursor:pointer;box-shadow:0 2px 0 var(--shadow)}
 
 .btq-preview{display:flex;align-items:center;gap:26px;flex:0 0 auto}
 .btq-preview>div{width:min(30vh,230px)}
@@ -430,12 +448,16 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   background:rgba(255,249,245,.85);border-radius:999px;padding:2px 10px;margin-bottom:2px;
   animation:name-float 3s ease-in-out infinite}
 @keyframes name-float{50%{transform:translateY(-4px)}}
-.stable-tray{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center}
+.stable-tray{display:flex;flex-direction:column;gap:8px;align-items:center}
+.tray-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
 
 .kitchen-uni{width:min(26vh,210px);align-self:center}
 .kitchen-cake{position:relative;width:280px;height:230px;flex:0 0 auto}
 .kitchen-plate{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:250px;height:34px;
   background:var(--cream);border-radius:50%;box-shadow:0 5px 0 var(--shadow)}
+.kitchen-cake:has(.cake-layer) .kitchen-hint{display:none}
+.kitchen-hint{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);width:86px;height:60px;
+  border:4px dashed rgba(92,74,102,.28);border-radius:16px;pointer-events:none}
 .cake-layer{position:absolute;left:50%;transform:translateX(-50%);width:86px;height:60px;
   animation:cake-drop .4s cubic-bezier(.34,1.56,.64,1)}
 @keyframes cake-drop{0%{transform:translate(-50%,-70px) scale(1.2)}100%{transform:translateX(-50%)}}
@@ -443,7 +465,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 
 .music-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:flex-end;flex:1;
   align-content:center;max-width:900px}
-.music-flower{border:none;background:none;cursor:pointer;width:min(11vw,104px);height:min(13vw,124px);padding:0}
+.music-flower{border:none;background:none;cursor:pointer;flex:0 0 21%;max-width:110px;height:auto;aspect-ratio:5/6;padding:0}
 .music-flower svg{width:100%;height:100%}
 .music-flower.music-pop svg{animation:mus-pop .5s cubic-bezier(.34,1.56,.64,1)}
 @keyframes mus-pop{40%{transform:scale(1.25) rotate(6deg)}}
@@ -1040,7 +1062,7 @@ UA.rainbowGemSVG = () => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <circle cx="18" cy="14" r="3.4" fill="#fff" opacity=".9"/></svg>`;
 UA.starSVG = (col = '#FFD97A', empty) => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <polygon points="24,4 29.5,17.5 44,18.5 33,28 36.5,42 24,34.5 11.5,42 15,28 4,18.5 18.5,17.5"
-   fill="${empty ? 'rgba(255,255,255,.45)' : col}" ${OL} ${empty ? 'stroke-dasharray="4 3"' : ''}/>
+   fill="${empty ? '#EFE7F2' : col}" stroke="${empty ? '#B9A8C4' : '#5C4A66'}" stroke-width="3" stroke-linejoin="round"/>
   ${empty ? '' : '<circle cx="18" cy="15" r="2.6" fill="#fff" opacity=".9"/>'}</svg>`;
 UA.heartSVG = (col = '#FF7FB2') => `<svg viewBox="0 0 48 48" aria-hidden="true">
   <path d="M24 42 C6 30 4 16 13 11 C19 8 24 13 24 17 C24 13 29 8 35 11 C44 16 42 30 24 42Z" fill="${col}" ${OL}/>
@@ -2781,11 +2803,13 @@ def({ id: 'R4', zone: 'word-garden', name: 'Sound it out', skill: 'CVC blending'
   gen (l) {
     const bank = l < 3 ? UA.CVC.filter(c => c.cont) : UA.CVC;
     const nOpts = l < 5 ? 3 : 4;
-    let picks = UA.shuffle(bank).slice(0, 1);
-    const target = picks[0].w;
-    // distractors: at high levels prefer same-vowel rhymes to make her listen closely
-    const others = UA.shuffle(UA.CVC.filter(c => c.w !== target &&
-      (l < 5 || c.w[1] === target[1] ? true : UA.rand(2) === 0))).slice(0, nOpts - 1);
+    const target = UA.pick(bank).w;
+    // distractors share the vowel when possible — a curated set she must
+    // actually listen to, not random asset filler
+    const pool = UA.CVC.filter(c => c.w !== target);
+    const sameVowel = pool.filter(c => c.w[1] === target[1]);
+    const source = (l >= 4 && sameVowel.length >= nOpts - 1) ? sameVowel : pool;
+    const others = UA.shuffle(source).slice(0, nOpts - 1);
     const options = UA.shuffle([spriteOpt(target), ...others.map(o => spriteOpt(o.w))]);
     return {
       core: `Listen! ${blendSay(target)} Tap the ${target}!`,
@@ -3329,7 +3353,11 @@ let transitioning = false;
 
 /* wipe transition: circle grows from origin point, swap, shrink */
 UA.go = (id, opts = {}) => {
-  if (transitioning || !SCREENS[id]) return;
+  if (!SCREENS[id]) return;
+  if (transitioning) {           // a tap during a wipe must not be a dead tap
+    if (!opts._retried) setTimeout(() => UA.go(id, Object.assign({}, opts, { _retried: 1 })), 480);
+    return;
+  }
   transitioning = true;
   UA.audio.sfx.whoosh();
   const w = $('#wipe');
@@ -3793,15 +3821,23 @@ UA.ui.showActivity = (zone, stage) => {
 };
 
 UA.ui.renderQuestion = (q, sparkle) => {
-  $('#prompt-area').innerHTML = q.prompt || '';
+  // every question gets a visual anchor: its real prompt, or the unicorn with a
+  // big tappable speech bubble (the audio prompt made visible + repeatable)
+  if (q.prompt) {
+    $('#prompt-area').innerHTML = q.prompt;
+  } else {
+    $('#prompt-area').innerHTML = `<button class="listen-card" id="listen-card" aria-label="Hear it again">
+      <span class="lc-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</span>
+      <span class="lc-bubble"><span>${UA.speakerSVG()}</span></span></button>`;
+    $('#listen-card').addEventListener('pointerdown', () => UA.engine.repeat());
+  }
   const area = $('#options-area');
   area.innerHTML = '';
   const widget = UA.widgets[q.widget || q.stage.widget];
   widget.render(q, area);
   if (sparkle) {
     const first = area.querySelector('.answer');
-    area.insertAdjacentHTML('afterbegin',
-      `<div class="sparkle-badge" style="position:absolute;top:-8px;left:50%;transform:translateX(-50%)">${UA.sparkleSVG()}</div>`);
+    if (first) first.insertAdjacentHTML('beforeend', `<span class="sparkle-badge">${UA.sparkleSVG()}</span>`);
   }
   UA.ui.setOptionsQuiet(true);
 };
@@ -4229,6 +4265,11 @@ const el = (h) => { const d = document.createElement('div'); d.innerHTML = h.tri
 const P = UA.PALETTE;
 const myUni = (extra = {}) => UA.unicornSVG(Object.assign({
   body: P.bodies[UA.S.uni.body], mane: P.manes[UA.S.uni.mane], cosmetics: UA.S.equipped }, extra));
+/* item thumbnails zoom onto the accessory region so items are tellable apart */
+const ANCHOR_VIEW = { head: '125 0 115 115', neck: '125 85 95 95', back: '45 50 115 115',
+  horn: '155 0 85 85', tail: '5 125 95 95', feet: '65 175 130 70' };
+const itemThumb = (item) => UA.unicornSVG({ body: P.bodies[UA.S.uni.body], mane: P.manes[UA.S.uni.mane],
+  cosmetics: [item.id] }).replace('viewBox="0 0 240 250"', `viewBox="${ANCHOR_VIEW[item.anchor] || '0 0 240 250'}"`);
 
 /* a full-screen place with a themed header band and a home-reachable body */
 const placeScreen = (id, title, bg) => {
@@ -4285,7 +4326,7 @@ UA.openBoutique = (pt) => {
         const owned = S.owned.includes(item.id);
         const equipped = S.equipped.includes(item.id);
         const card = el(`<button class="btq-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}" data-item="${item.id}">
-          <span style="width:82%;height:66%;display:block">${UA.unicornSVG({ body: P.bodies[S.uni.body], mane: P.manes[S.uni.mane], cosmetics: [item.id] })}</span>
+          <span style="width:82%;height:66%;display:block">${itemThumb(item)}</span>
           <span class="btq-price">${owned ? (equipped ? 'wearing' : 'owned') :
             `${item.royale ? UA.rainbowGemSVG() : UA.gemSVG()} ${item.price}`}</span></button>`);
         card.addEventListener('pointerdown', () => {
@@ -4397,8 +4438,9 @@ UA.openStable = (pt) => {
         UA.audio.speak(`Look! All your love made ${b.name} grow ${g === 1 ? 'bigger' : 'ALL the way up'}!`);
       }
       const size = [90, 130, 170][b.growth];
-      const wander = 12 + (i * 73) % 60;
-      const pen = el(`<button class="stable-baby" style="left:${wander}%;bottom:${8 + (i % 3) * 14}%;width:${size}px" data-baby="${i}">
+      const n = S.babies.length;   // spread across the barn, centred when few
+      const left = n === 1 ? 40 : 6 + i * (74 / Math.max(1, n - 1));
+      const pen = el(`<button class="stable-baby" style="left:${left}%;bottom:${8 + (i % 3) * 14}%;width:${size}px" data-baby="${i}">
         <span class="stable-name">${b.name}</span>
         ${UA.unicornSVG({ body: b.body, mane: b.mane, baby: [1, .55, 0][b.growth] })}</button>`);
       let lastPet = 0;
@@ -4428,7 +4470,7 @@ UA.openStable = (pt) => {
       }, 3800 + i * 700);
     });
     // treat tray: feeding HERE grows babies (this is what the sink is for)
-    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span></div>`);
+    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
     UA.TREATS.slice(0, 4).forEach(tr => {
       const btn = el(`<button class="btq-item" style="width:104px;height:118px"><span style="width:60%;height:56%">${UA.sprite(tr.id)}</span>
         <span class="btq-price">${UA.gemSVG()} ${tr.price}</span></button>`);
@@ -4446,7 +4488,7 @@ UA.openStable = (pt) => {
         const g = growthOf(b);
         if (g > b.growth) setTimeout(build, 900);   // rebuild triggers the growth ceremony
       });
-      tray.appendChild(btn);
+      $('.tray-row', tray).appendChild(btn);
     });
     body.appendChild(tray);
     if (!S.firsts.includes('barn-warming') && S.babies.length) {
@@ -4467,8 +4509,9 @@ UA.openKitchen = (pt) => {
     const body = placeScreen('kitchen', 'Unicorn Kitchen', 'linear-gradient(180deg,#FFE9F4,#FFF3C4 70%)');
     const layers = [];
     body.innerHTML = `
+      <div class="fr-banner">Stack a silly cake!</div>
       <div class="kitchen-uni" id="kitchen-uni">${myUni()}</div>
-      <div class="kitchen-cake" id="kitchen-cake"><div class="kitchen-plate"></div></div>
+      <div class="kitchen-cake" id="kitchen-cake"><div class="kitchen-plate"></div><div class="kitchen-hint"></div></div>
       <div class="kitchen-row" id="kitchen-row"></div>
       <button class="big-btn" id="kitchen-feed" style="background:var(--mint)">Feed ${UA.S.uni.name}!</button>`;
     const ingredients = UA.shuffle(FOODS).slice(0, 6).concat(UA.shuffle(['sock', 'fish', 'ball', 'drum']).slice(0, 2));
@@ -4557,12 +4600,13 @@ UA.openMirror = (pt) => {
       refresh();
     });
     if (!S.owned.length) {
-      body.appendChild(el(`<div class="stable-note">Treasures from the boutique appear here to try on!</div>`));
+      body.appendChild(el(`<div class="stable-note" style="display:flex;align-items:center;gap:10px">
+        <span style="width:30px;height:30px;display:inline-block">${UA.sparkleSVG()}</span>Treasures from the boutique appear here to try on!</div>`));
     }
     S.owned.forEach(id => {
       const item = UA.BOUTIQUE.find(b => b.id === id);
       const card = el(`<button class="btq-item ${S.equipped.includes(id) ? 'equipped' : ''}" style="width:110px;height:110px">
-        <span style="width:88%;height:88%;display:block">${UA.unicornSVG({ body: P.bodies[S.uni.body], mane: P.manes[S.uni.mane], cosmetics: [id] })}</span></button>`);
+        <span style="width:88%;height:88%;display:block">${itemThumb(item)}</span></button>`);
       card.addEventListener('pointerdown', () => {
         if (S.equipped.includes(id)) S.equipped = S.equipped.filter(i => i !== id);
         else S.equipped = S.equipped.filter(i => UA.BOUTIQUE.find(b => b.id === i).anchor !== item.anchor).concat([id]);
@@ -4589,15 +4633,17 @@ const PAGE_SIZE = 12;                                       // sticker slots per
 UA.openBook = (pt, tab) => {
   const build = () => {
     const body = placeScreen('book', 'Memory Book', 'linear-gradient(180deg,#FFF3C4,#FFF9F5 60%)');
+    const on = 'background:var(--butter);box-shadow:0 0 0 4px var(--gold),0 8px 0 var(--shadow)';
     const tabs = el(`<div style="display:flex;gap:14px">
-      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? 'background:var(--butter)' : ''}">Memories</button>
-      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? 'background:var(--butter)' : ''}">Stickers</button></div>`);
+      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? on : ''}">Memories</button>
+      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? on : ''}">Stickers</button></div>`);
     body.appendChild(tabs);
     $('#tab-mem', body).addEventListener('pointerdown', () => { tab = 'mem'; build(); });
     $('#tab-stk', body).addEventListener('pointerdown', () => { tab = 'stickers'; build(); UA.audio.speak('Your sticker album! One sticker for every round you finish!'); });
     if (tab === 'stickers') { buildStickers(body); return; }
     if (!UA.S.memoryBook.length) {
-      body.appendChild(el(`<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>`));
+      body.appendChild(el(`<div class="stable-note" style="font-size:28px;display:flex;align-items:center;gap:10px">
+        <span style="width:34px;height:34px;display:inline-block">${UA.sparkleSVG()}</span>Our adventures will be kept here!</div>`));
       body.appendChild(el(`<div style="width:200px">${myUni()}</div>`));
       return;
     }
@@ -4788,10 +4834,10 @@ UA.world.decorateMap = (stage) => {
   const dock = phone ? el('<div class="fac-dock"></div>') : null;
   FACILITIES.forEach(f => {
     const b = el(phone
-      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`
+      ? `<button data-testid="${f.id}" aria-label="${f.name}">${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}<span class="fac-name">${f.name}</span></button>`
       : `<button class="zone-spot fac-spot" data-testid="${f.id}"
           style="left:${f.x}%;top:${f.y}%;width:min(11vw,96px);height:min(11vw,96px)" aria-label="${f.name}">
-          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}</button>`);
+          ${UA.landmark(f.icon, '#FFD6E8', '#FFF9F5')}<span class="zone-label">${f.name}</span></button>`);
     b.addEventListener('pointerdown', (e) => f.open({ x: e.clientX, y: e.clientY }));
     (dock || stage).appendChild(b);
   });
