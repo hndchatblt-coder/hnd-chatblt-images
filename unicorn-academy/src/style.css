@@ -36,6 +36,24 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   animation:lc-pulse 1.8s ease-in-out infinite}
 .lc-bubble svg{width:100%;height:100%}
 @keyframes lc-pulse{50%{transform:scale(1.14)}}
+.lc-bubble{display:flex;align-items:center;gap:10px;max-width:min(64vw,440px)}
+.lc-text{font-style:normal;font-weight:800;color:var(--plum);font-size:clamp(14px,3.2vmin,22px);text-align:left;line-height:1.25}
+#hear-btn.listening svg{animation:lc-pulse 1.4s ease-in-out infinite}
+.tick-badge{position:absolute;top:-14px;left:-14px;width:clamp(34px,7vmin,54px);height:clamp(34px,7vmin,54px);
+  pointer-events:none;animation:opt-pop .5s cubic-bezier(.34,1.56,.64,1)}
+.story-caption{position:absolute;left:50%;bottom:calc(14vh + var(--sab));transform:translateX(-50%);
+  background:var(--cream);border-radius:22px;padding:clamp(8px,1.8vmin,14px) clamp(16px,3.4vmin,26px);
+  font-size:clamp(16px,3.6vmin,26px);font-weight:800;color:var(--plum);max-width:88vw;text-align:center;
+  box-shadow:0 6px 0 var(--shadow)}
+.cake-layer.cake-silly{animation:cake-drop .4s cubic-bezier(.34,1.56,.64,1),silly-wobble 1.6s ease-in-out .5s 3}
+@keyframes silly-wobble{25%{transform:translateX(-50%) rotate(-9deg)}75%{transform:translateX(-50%) rotate(9deg)}}
+#toast{position:fixed;top:26%;left:50%;transform:translate(-50%,-50%);z-index:53;display:none;
+  align-items:center;gap:10px;background:var(--cream);border-radius:999px;padding:12px 26px;
+  font-size:clamp(24px,5vmin,40px);font-weight:900;color:var(--plum);box-shadow:0 8px 0 var(--shadow);pointer-events:none}
+#toast.show{display:flex;animation:toast-in 1.8s ease forwards}
+#toast svg{width:clamp(30px,6vmin,46px);height:clamp(30px,6vmin,46px)}
+@keyframes toast-in{0%{transform:translate(-50%,-20%) scale(.6);opacity:0}15%{transform:translate(-50%,-50%) scale(1.08);opacity:1}
+  80%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(-50%,-80%) scale(.9);opacity:0}}
 
 /* soft readability panel between the drawn zone scene and the question */
 .stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);

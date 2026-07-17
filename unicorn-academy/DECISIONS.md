@@ -68,3 +68,16 @@ _One line per judgment call: decision + why. Maintained by the build session._
 - Painted zone backgrounds (user-generated sheet) sliced 2x3 into per-zone JPEGs (~28KB each),
   embedded by build-game.js like the voice pack; procedural scenes remain the fallback when
   assets/scenes/ is absent. Cell seams dropped via a 6px inset during slicing.
+- Multi-lens playtest round (3 Sonnet agents: sound-off parent, visual critic, chaos QA):
+  listen-card now carries the spoken prompt as TEXT (audio+visual redundancy per UX law 2 — the
+  game was unplayable with sound off); correct answers hold a tick badge; story gets subtitles;
+  demo hand is a real pointing hand on a lighter veil; boutique/mirror thumbnails zoom onto the
+  accessory region per anchor; falls landmark redrawn as recognisable water; stable hides the
+  treat tray until a baby exists; silly cake layers wobble so the joke reads silently; gift pays
+  with a visible toast; returning players get "Welcome back" on the splash; hear-again pulses
+  while narration plays; quiet-option state brightened.
+- Kitchen keeps sock/fish/drum among ingredients deliberately — the SPEC'd "BLEURGH" comedy
+  machine; the wobble marks them as silly rather than removing them.
+- Chaos QA: 8/8 scenarios clean (mash, rotate-mid-drag, purchase races, ceremony interrupts,
+  corrupt saves, private mode); 90s bot soak shows bounded DOM growth and zero errors.
+- Tablet map recomposition deferred until the painted 3-time-of-day map sheet arrives.

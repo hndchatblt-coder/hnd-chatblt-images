@@ -74,6 +74,7 @@ const dailyGift = (stage) => {
     UA.audio.sfx.fanfare();
     UA.fx.burst({ x: e.clientX, y: e.clientY }, 'confetti', 18);
     UA.ui.gemFly(gems, g);
+    UA.ui.toast(`+${gems}`, UA.gemSVG());
     UA.audio.speak(`A present! Good morning, ${S.name}! ${gems} gems inside!`);
     g.remove();
   });

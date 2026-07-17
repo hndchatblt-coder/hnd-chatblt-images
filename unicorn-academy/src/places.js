@@ -214,8 +214,10 @@ UA.openStable = (pt) => {
         pen.style.left = Math.max(4, Math.min(84, parseFloat(pen.style.left) + (UA.rand(17) - 8))) + '%';
       }, 3800 + i * 700);
     });
-    // treat tray: feeding HERE grows babies (this is what the sink is for)
-    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
+    // treat tray: feeding HERE grows babies — no babies yet means nothing to
+    // feed, so the tray waits with the nest (an empty "Feed a friend" made no sense)
+    const tray = el(`<div class="stable-tray" ${S.babies.length ? '' : 'style="display:none"'}>
+      <span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
     UA.TREATS.slice(0, 4).forEach(tr => {
       const btn = el(`<button class="btq-item" style="width:104px;height:118px"><span style="width:60%;height:56%">${UA.sprite(tr.id)}</span>
         <span class="btq-price">${UA.gemSVG()} ${tr.price}</span></button>`);
@@ -267,7 +269,8 @@ UA.openKitchen = (pt) => {
         layers.push(name);
         UA.audio.sfx.pop();
         UA.audio.speak(name, { interrupt: true });
-        $('#kitchen-cake').appendChild(el(`<div class="cake-layer" style="bottom:${18 + (layers.length - 1) * 46}px">${UA.sprite(name)}</div>`));
+        const silly = !FOODS.includes(name);   // non-food wobbles so the joke reads without sound
+        $('#kitchen-cake').appendChild(el(`<div class="cake-layer ${silly ? 'cake-silly' : ''}" style="bottom:${18 + (layers.length - 1) * 46}px">${UA.sprite(name)}</div>`));
       });
       $('#kitchen-row').appendChild(b);
     });

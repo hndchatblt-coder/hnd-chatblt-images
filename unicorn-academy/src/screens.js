@@ -19,6 +19,15 @@ app.appendChild(el(`<div id="hud">
   <div id="rainbow-meter" data-testid="rainbow-meter"><div></div></div>
 </div>`));
 app.appendChild(el(`<div id="celebrate-layer"></div>`));
+app.appendChild(el(`<div id="toast"></div>`));
+UA.ui.toast = (text, iconSVG) => {
+  const t = $('#toast');
+  t.innerHTML = (iconSVG || '') + `<span>${text}</span>`;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1900);
+};
 
 const SCREENS = {};
 const screen = (id, extra) => {
@@ -244,6 +253,7 @@ const buildStory = () => {
     <div style="position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);width:min(46vh,340px)" id="story-uni">
       ${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
     <button class="round-btn" id="story-skip" data-testid="story-skip" aria-label="Skip">${UA.sparkleSVG()}</button>
+    <div class="story-caption" id="story-caption"></div>
   </div>`;
   let skipped = false;
   const finish = () => {
@@ -264,6 +274,8 @@ const buildStory = () => {
   (async () => {
     for (const c of chunks) {
       if (skipped) return;
+      const cap = $('#story-caption');
+      if (cap) cap.textContent = c;
       await UA.audio.speak(c);
       if (skipped) return;
       $('#story-uni').classList.add('leap');
@@ -504,9 +516,10 @@ UA.ui.renderQuestion = (q, sparkle) => {
   if (q.prompt) {
     $('#prompt-area').innerHTML = q.prompt;
   } else {
+    const coreText = UA.engine.personalise(q.core || '').replace(/</g, '&lt;');
     $('#prompt-area').innerHTML = `<button class="listen-card" id="listen-card" aria-label="Hear it again">
       <span class="lc-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</span>
-      <span class="lc-bubble"><span>${UA.speakerSVG()}</span></span></button>`;
+      <span class="lc-bubble"><span>${UA.speakerSVG()}</span>${coreText ? `<em class="lc-text">${coreText}</em>` : ''}</span></button>`;
     $('#listen-card').addEventListener('pointerdown', () => UA.engine.repeat());
   }
   const area = $('#options-area');
@@ -520,6 +533,7 @@ UA.ui.renderQuestion = (q, sparkle) => {
   UA.ui.setOptionsQuiet(true);
 };
 UA.ui.setOptionsQuiet = (quiet) => {
+  $('#hear-btn').classList.toggle('listening', quiet);   // "I am talking" cue
   $$('#options-area .answer').forEach((b, i) => {
     b.classList.toggle('quiet', quiet);
     if (!quiet) { b.classList.add('live'); b.style.animationDelay = (i * 60) + 'ms'; }
@@ -559,7 +573,11 @@ UA.ui.revealCorrect = (q) => {
   }
 };
 UA.ui.feedbackCorrect = (elm, pt) => {
-  if (elm && elm.classList) elm.classList.add('correct-glow');
+  if (elm && elm.classList) {
+    elm.classList.add('correct-glow');
+    if (!elm.querySelector('.tick-badge'))
+      elm.insertAdjacentHTML('beforeend', `<span class="tick-badge">${UA.tickSVG()}</span>`);
+  }
   UA.fx.burst(pt || (elm && elm.getBoundingClientRect ? {
     x: elm.getBoundingClientRect().left + elm.getBoundingClientRect().width / 2,
     y: elm.getBoundingClientRect().top } : null), 'spark', 12);
@@ -600,10 +618,14 @@ UA.ui.workedExample = (widgetName, stage) => new Promise((resolve) => {
     flip: 'Watch me! I flip a cloud, then flip another, looking for twins!',
     jigsaw: 'Watch me! I tap a piece, then I tap the spot where it belongs!',
   };
-  const demo = el(`<div class="veil" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px">
-    <div style="width:220px" class="demo-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
-    <div style="width:130px;height:130px" class="demo-hand">
-      <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="26" fill="rgba(255,255,255,.85)" stroke="#5C4A66" stroke-width="4"/><circle cx="50" cy="50" r="10" fill="#FF9EC7"/></svg></div>
+  const demo = el(`<div class="veil" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(92,74,102,.22)">
+    <div style="width:clamp(140px,30vmin,220px)" class="demo-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
+    <div style="width:clamp(80px,18vmin,120px);height:clamp(80px,18vmin,120px)" class="demo-hand">
+      <svg viewBox="0 0 100 100">
+        <path d="M42 88 C28 78 20 62 22 48 C23 41 31 40 34 46 L38 54 V22 C38 14 48 14 48 22 V44
+          L52 42 V26 C52 18 61 18 61 26 V44 L65 43 V32 C65 25 73 25 73 32 V62 C73 76 62 88 50 90 Z"
+          fill="#FFF9F5" stroke="#5C4A66" stroke-width="4" stroke-linejoin="round"/>
+      </svg></div>
   </div>`);
   document.body.appendChild(demo);
   demo.querySelector('.demo-uni .uni-rig').classList.add('nuzzle');

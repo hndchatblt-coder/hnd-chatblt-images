@@ -156,6 +156,24 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
   animation:lc-pulse 1.8s ease-in-out infinite}
 .lc-bubble svg{width:100%;height:100%}
 @keyframes lc-pulse{50%{transform:scale(1.14)}}
+.lc-bubble{display:flex;align-items:center;gap:10px;max-width:min(64vw,440px)}
+.lc-text{font-style:normal;font-weight:800;color:var(--plum);font-size:clamp(14px,3.2vmin,22px);text-align:left;line-height:1.25}
+#hear-btn.listening svg{animation:lc-pulse 1.4s ease-in-out infinite}
+.tick-badge{position:absolute;top:-14px;left:-14px;width:clamp(34px,7vmin,54px);height:clamp(34px,7vmin,54px);
+  pointer-events:none;animation:opt-pop .5s cubic-bezier(.34,1.56,.64,1)}
+.story-caption{position:absolute;left:50%;bottom:calc(14vh + var(--sab));transform:translateX(-50%);
+  background:var(--cream);border-radius:22px;padding:clamp(8px,1.8vmin,14px) clamp(16px,3.4vmin,26px);
+  font-size:clamp(16px,3.6vmin,26px);font-weight:800;color:var(--plum);max-width:88vw;text-align:center;
+  box-shadow:0 6px 0 var(--shadow)}
+.cake-layer.cake-silly{animation:cake-drop .4s cubic-bezier(.34,1.56,.64,1),silly-wobble 1.6s ease-in-out .5s 3}
+@keyframes silly-wobble{25%{transform:translateX(-50%) rotate(-9deg)}75%{transform:translateX(-50%) rotate(9deg)}}
+#toast{position:fixed;top:26%;left:50%;transform:translate(-50%,-50%);z-index:53;display:none;
+  align-items:center;gap:10px;background:var(--cream);border-radius:999px;padding:12px 26px;
+  font-size:clamp(24px,5vmin,40px);font-weight:900;color:var(--plum);box-shadow:0 8px 0 var(--shadow);pointer-events:none}
+#toast.show{display:flex;animation:toast-in 1.8s ease forwards}
+#toast svg{width:clamp(30px,6vmin,46px);height:clamp(30px,6vmin,46px)}
+@keyframes toast-in{0%{transform:translate(-50%,-20%) scale(.6);opacity:0}15%{transform:translate(-50%,-50%) scale(1.08);opacity:1}
+  80%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(-50%,-80%) scale(.9);opacity:0}}
 
 /* soft readability panel between the drawn zone scene and the question */
 .stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);
@@ -1295,7 +1313,11 @@ UA.landmark = (icon, col, col2) => {
     mountain: `<path d="M14 100 L48 26 L70 62 L84 40 L108 100Z" fill="${col}" ${OL}/><path d="M48 26 L58 46 L48 56 L38 44Z" fill="#FFF9F5" ${OL} stroke-width="2.4"/><path d="M84 40 L92 56 L84 62 L76 54Z" fill="#FFF9F5" ${OL} stroke-width="2.4"/>`,
     cloud: `${UA.gen.cloud(60, 66, 1.5, col2)}${UA.gen.cloud(38, 84, .9, '#fff')}<circle cx="46" cy="60" r="4" fill="${O}"/><circle cx="70" cy="60" r="4" fill="${O}"/><path d="M50 74 Q58 80 66 74" stroke="${O}" stroke-width="3" fill="none" stroke-linecap="round"/>`,
     garden: `<path d="M22 96 Q22 40 60 40 Q98 40 98 96" fill="none" stroke="${col}" stroke-width="10"/>${UA.gen.flower(22, 96, 12)}${UA.gen.flower(98, 96, 12)}${UA.gen.flower(60, 38, 14, 6, ['#FF9EC7', '#FFD97A'])}<rect x="30" y="92" width="60" height="10" rx="5" fill="#C89A6B" ${OL} stroke-width="2.4"/>`,
-    falls: `<path d="M30 30 H90 V44 Q60 52 30 44Z" fill="#8AA5B8" ${OL}/><path d="M44 44 Q40 78 30 96 H90 Q80 78 76 44 Q60 50 44 44Z" fill="${col}" ${OL}/><path d="M52 50 Q50 74 44 92 M68 50 Q70 74 76 92" stroke="#fff" stroke-width="4" fill="none" opacity=".7"/><ellipse cx="60" cy="98" rx="36" ry="9" fill="#D3F4F1" ${OL} stroke-width="2.4"/>`,
+    falls: `<path d="M26 26 H94 V40 Q60 48 26 40Z" fill="#7FA8C0" ${OL}/>
+      <path d="M38 40 Q36 74 28 92 H92 Q84 74 82 40 Q60 47 38 40Z" fill="#8FD9F2" ${OL}/>
+      <path d="M48 45 Q46 72 40 90 M60 47 Q60 74 60 92 M72 45 Q74 72 80 90" stroke="#fff" stroke-width="5" fill="none" opacity=".85" stroke-linecap="round"/>
+      <ellipse cx="60" cy="96" rx="40" ry="11" fill="#BFF0FA" ${OL}/>
+      <circle cx="30" cy="90" r="4" fill="#fff" opacity=".9"/><circle cx="90" cy="88" r="5" fill="#fff" opacity=".9"/><circle cx="24" cy="82" r="3" fill="#fff" opacity=".8"/>`,
     castle: `<rect x="30" y="46" width="60" height="52" rx="6" fill="#FFF3C4" ${OL}/><rect x="20" y="34" width="18" height="64" rx="5" fill="${col}" ${OL}/><rect x="82" y="34" width="18" height="64" rx="5" fill="${col}" ${OL}/><path d="M20 34 L29 20 L38 34Z" fill="#FF9EC7" ${OL}/><path d="M82 34 L91 20 L100 34Z" fill="#FF9EC7" ${OL}/><path d="M48 46 L60 28 L72 46Z" fill="#FF9EC7" ${OL}/><rect x="52" y="72" width="16" height="26" rx="8" fill="#B79CFF" ${OL}/><circle cx="60" cy="58" r="6" fill="#8FD0FF" ${OL} stroke-width="2.4"/>`,
     stable: `<path d="M18 54 L60 24 L102 54 V98 H18Z" fill="#E8B56D" ${OL}/><path d="M18 54 L60 24 L102 54" fill="none" ${OL} stroke-width="4"/><rect x="44" y="62" width="32" height="36" rx="6" fill="#8A6242" ${OL}/><path d="M44 62 A16 16 0 0 1 76 62" fill="#8A6242" ${OL}/><rect x="24" y="64" width="14" height="14" rx="4" fill="#FFF3C4" ${OL} stroke-width="2.4"/><rect x="82" y="64" width="14" height="14" rx="4" fill="#FFF3C4" ${OL} stroke-width="2.4"/>`,
     kitchen: `<rect x="22" y="52" width="76" height="46" rx="10" fill="#FFD6E8" ${OL}/><rect x="30" y="62" width="24" height="20" rx="5" fill="#FFF9F5" ${OL} stroke-width="2.4"/><circle cx="74" cy="72" r="12" fill="#FFF9F5" ${OL} stroke-width="2.4"/><rect x="34" y="30" width="52" height="24" rx="8" fill="#FF9EC7" ${OL}/><circle cx="46" cy="42" r="4" fill="#FFD97A"/><circle cx="60" cy="40" r="4" fill="#9DE0B0"/><circle cx="74" cy="42" r="4" fill="#8FD0FF"/>`,
@@ -3341,6 +3363,15 @@ app.appendChild(el(`<div id="hud">
   <div id="rainbow-meter" data-testid="rainbow-meter"><div></div></div>
 </div>`));
 app.appendChild(el(`<div id="celebrate-layer"></div>`));
+app.appendChild(el(`<div id="toast"></div>`));
+UA.ui.toast = (text, iconSVG) => {
+  const t = $('#toast');
+  t.innerHTML = (iconSVG || '') + `<span>${text}</span>`;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1900);
+};
 
 const SCREENS = {};
 const screen = (id, extra) => {
@@ -3566,6 +3597,7 @@ const buildStory = () => {
     <div style="position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);width:min(46vh,340px)" id="story-uni">
       ${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
     <button class="round-btn" id="story-skip" data-testid="story-skip" aria-label="Skip">${UA.sparkleSVG()}</button>
+    <div class="story-caption" id="story-caption"></div>
   </div>`;
   let skipped = false;
   const finish = () => {
@@ -3586,6 +3618,8 @@ const buildStory = () => {
   (async () => {
     for (const c of chunks) {
       if (skipped) return;
+      const cap = $('#story-caption');
+      if (cap) cap.textContent = c;
       await UA.audio.speak(c);
       if (skipped) return;
       $('#story-uni').classList.add('leap');
@@ -3826,9 +3860,10 @@ UA.ui.renderQuestion = (q, sparkle) => {
   if (q.prompt) {
     $('#prompt-area').innerHTML = q.prompt;
   } else {
+    const coreText = UA.engine.personalise(q.core || '').replace(/</g, '&lt;');
     $('#prompt-area').innerHTML = `<button class="listen-card" id="listen-card" aria-label="Hear it again">
       <span class="lc-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</span>
-      <span class="lc-bubble"><span>${UA.speakerSVG()}</span></span></button>`;
+      <span class="lc-bubble"><span>${UA.speakerSVG()}</span>${coreText ? `<em class="lc-text">${coreText}</em>` : ''}</span></button>`;
     $('#listen-card').addEventListener('pointerdown', () => UA.engine.repeat());
   }
   const area = $('#options-area');
@@ -3842,6 +3877,7 @@ UA.ui.renderQuestion = (q, sparkle) => {
   UA.ui.setOptionsQuiet(true);
 };
 UA.ui.setOptionsQuiet = (quiet) => {
+  $('#hear-btn').classList.toggle('listening', quiet);   // "I am talking" cue
   $$('#options-area .answer').forEach((b, i) => {
     b.classList.toggle('quiet', quiet);
     if (!quiet) { b.classList.add('live'); b.style.animationDelay = (i * 60) + 'ms'; }
@@ -3881,7 +3917,11 @@ UA.ui.revealCorrect = (q) => {
   }
 };
 UA.ui.feedbackCorrect = (elm, pt) => {
-  if (elm && elm.classList) elm.classList.add('correct-glow');
+  if (elm && elm.classList) {
+    elm.classList.add('correct-glow');
+    if (!elm.querySelector('.tick-badge'))
+      elm.insertAdjacentHTML('beforeend', `<span class="tick-badge">${UA.tickSVG()}</span>`);
+  }
   UA.fx.burst(pt || (elm && elm.getBoundingClientRect ? {
     x: elm.getBoundingClientRect().left + elm.getBoundingClientRect().width / 2,
     y: elm.getBoundingClientRect().top } : null), 'spark', 12);
@@ -3922,10 +3962,14 @@ UA.ui.workedExample = (widgetName, stage) => new Promise((resolve) => {
     flip: 'Watch me! I flip a cloud, then flip another, looking for twins!',
     jigsaw: 'Watch me! I tap a piece, then I tap the spot where it belongs!',
   };
-  const demo = el(`<div class="veil" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px">
-    <div style="width:220px" class="demo-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
-    <div style="width:130px;height:130px" class="demo-hand">
-      <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="26" fill="rgba(255,255,255,.85)" stroke="#5C4A66" stroke-width="4"/><circle cx="50" cy="50" r="10" fill="#FF9EC7"/></svg></div>
+  const demo = el(`<div class="veil" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(92,74,102,.22)">
+    <div style="width:clamp(140px,30vmin,220px)" class="demo-uni">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
+    <div style="width:clamp(80px,18vmin,120px);height:clamp(80px,18vmin,120px)" class="demo-hand">
+      <svg viewBox="0 0 100 100">
+        <path d="M42 88 C28 78 20 62 22 48 C23 41 31 40 34 46 L38 54 V22 C38 14 48 14 48 22 V44
+          L52 42 V26 C52 18 61 18 61 26 V44 L65 43 V32 C65 25 73 25 73 32 V62 C73 76 62 88 50 90 Z"
+          fill="#FFF9F5" stroke="#5C4A66" stroke-width="4" stroke-linejoin="round"/>
+      </svg></div>
   </div>`);
   document.body.appendChild(demo);
   demo.querySelector('.demo-uni .uni-rig').classList.add('nuzzle');
@@ -4469,8 +4513,10 @@ UA.openStable = (pt) => {
         pen.style.left = Math.max(4, Math.min(84, parseFloat(pen.style.left) + (UA.rand(17) - 8))) + '%';
       }, 3800 + i * 700);
     });
-    // treat tray: feeding HERE grows babies (this is what the sink is for)
-    const tray = el(`<div class="stable-tray"><span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
+    // treat tray: feeding HERE grows babies — no babies yet means nothing to
+    // feed, so the tray waits with the nest (an empty "Feed a friend" made no sense)
+    const tray = el(`<div class="stable-tray" ${S.babies.length ? '' : 'style="display:none"'}>
+      <span class="stable-note">Feed a friend:</span><div class="tray-row"></div></div>`);
     UA.TREATS.slice(0, 4).forEach(tr => {
       const btn = el(`<button class="btq-item" style="width:104px;height:118px"><span style="width:60%;height:56%">${UA.sprite(tr.id)}</span>
         <span class="btq-price">${UA.gemSVG()} ${tr.price}</span></button>`);
@@ -4522,7 +4568,8 @@ UA.openKitchen = (pt) => {
         layers.push(name);
         UA.audio.sfx.pop();
         UA.audio.speak(name, { interrupt: true });
-        $('#kitchen-cake').appendChild(el(`<div class="cake-layer" style="bottom:${18 + (layers.length - 1) * 46}px">${UA.sprite(name)}</div>`));
+        const silly = !FOODS.includes(name);   // non-food wobbles so the joke reads without sound
+        $('#kitchen-cake').appendChild(el(`<div class="cake-layer ${silly ? 'cake-silly' : ''}" style="bottom:${18 + (layers.length - 1) * 46}px">${UA.sprite(name)}</div>`));
       });
       $('#kitchen-row').appendChild(b);
     });
@@ -4883,6 +4930,7 @@ const dailyGift = (stage) => {
     UA.audio.sfx.fanfare();
     UA.fx.burst({ x: e.clientX, y: e.clientY }, 'confetti', 18);
     UA.ui.gemFly(gems, g);
+    UA.ui.toast(`+${gems}`, UA.gemSVG());
     UA.audio.speak(`A present! Good morning, ${S.name}! ${gems} gems inside!`);
     g.remove();
   });
@@ -5145,6 +5193,11 @@ document.addEventListener('touchend', () => { if (started) UA.audio.init(); }, {
 document.addEventListener('click', () => { if (started) UA.audio.init(); });
 
 UA.ui.updateHUD();
+// returning players see their save is safe BEFORE tapping anything
+if (UA.S.created) {
+  const sub = document.getElementById('start-sub');
+  if (sub) sub.textContent = 'Welcome back' + (UA.S.name ? ', ' + UA.S.name : '') + '! Tap to keep playing!';
+}
 })();
 
 </script>
