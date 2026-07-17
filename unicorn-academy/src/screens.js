@@ -143,6 +143,7 @@ const sActivity = screen('activity', 'data-testid="activity"');
 const buildCreate = () => {
   const P = UA.PALETTE;
   sCreate.innerHTML = `<div class="fr-wrap">
+    <div class="fr-banner" id="create-banner">Tap a colour to paint your unicorn!</div>
     <div class="fr-title-art" id="create-preview"></div>
     <div class="swatch-row" id="body-row">${P.bodies.map((c, i) =>
       `<button class="swatch" data-testid="unicorn-colour-${i + 1}" style="background:${c}" aria-label="${P.bodyNames[i]}"></button>`).join('')}</div>
@@ -157,6 +158,7 @@ const buildCreate = () => {
     $$('#body-row .swatch').forEach(x => x.classList.remove('picked')); b.classList.add('picked');
     if ($('#mane-row').style.display === 'none') {
       $('#mane-row').style.display = '';
+      $('#create-banner').textContent = 'Now pick a mane colour!';
       UA.audio.speak('Ooh lovely! Now tap a colour for my mane!');
     }
   }));
@@ -170,6 +172,7 @@ const buildCreate = () => {
 
 const buildUniName = () => {
   sUniName.innerHTML = `<div class="fr-wrap">
+    <div class="fr-banner">What will you call your unicorn?</div>
     <div class="fr-title-art">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
     <div class="name-row">${UA.UNI_NAMES.map(n =>
       `<button class="big-btn" data-testid="unicorn-name-option" data-name="${n}">${n}</button>`).join('')}</div>
@@ -195,6 +198,7 @@ const buildUniName = () => {
 /* her name: stealth letter game. Giant tick sits mid-screen (bare tick allowed). */
 const buildKidName = (onDone) => {
   sKidName.innerHTML = `<div class="fr-wrap" style="justify-content:flex-start;padding-top:calc(36px + var(--sat))">
+    <div class="fr-banner">Now tap YOUR name — or just the green tick!</div>
     <div class="name-display" id="kid-name-display">&nbsp;</div>
     <button class="round-btn" data-testid="name-done" id="kidname-done"
       style="width:132px;height:132px;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--mint)">${UA.tickSVG()}</button>
@@ -328,19 +332,27 @@ const enterMap = (fromPt) => {
 };
 UA.enterMap = enterMap;
 
+/* phones need their own zone spread — the tablet scatter collides at 390px */
+const PHONE_ZONE_POS = { 'crystal-castle': [50, 10], 'memory-clouds': [79, 24], 'word-garden': [21, 24],
+  'number-mountain': [50, 33], 'letter-meadow': [21, 49], 'puzzle-falls': [79, 49] };
 const buildMap = () => {
   const S = UA.S;
   sMap.innerHTML = `<div class="map-stage">${mapSceneSVG(UA.totalStars())}</div>`;
   const stage = $('.map-stage', sMap);
+  const phoneLayout = innerWidth < 700;
   // learning zones
   UA.ZONES.forEach(z => {
+    const [zx, zy] = phoneLayout ? PHONE_ZONE_POS[z.id] : [z.x, z.y];
     const unlocked = UA.zoneUnlocked(z.id);
+    const padlock = `<svg class="zone-lock" viewBox="0 0 40 40">
+      <rect x="8" y="17" width="24" height="17" rx="5" fill="#FFD97A" stroke="#5C4A66" stroke-width="2.6"/>
+      <path d="M13 17 V13 a7 7 0 0 1 14 0 V17" fill="none" stroke="#5C4A66" stroke-width="3"/>
+      <circle cx="20" cy="25" r="3" fill="#5C4A66"/></svg>`;
     const spot = el(`<button class="zone-spot ${unlocked ? '' : 'locked'}" data-testid="zone-${z.id}"
-      style="left:${z.x}%;top:${z.y}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
-      ${UA.landmark(z.icon, z.col, z.col2)}
-      ${unlocked ? zoneStarsRow(z) : `<svg class="zone-mist" viewBox="0 0 120 120">
-        ${UA.gen.cloud(40, 70, .9, '#E9DDFF', .8)}${UA.gen.cloud(80, 50, .8, '#F3EBFF', .75)}
-        ${UA.gen.sparkle(30, 40, 1)}${UA.gen.sparkle(90, 80, .8)}${UA.gen.sparkle(60, 24, .7)}</svg>`}
+      style="left:${zx}%;top:${zy}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
+      <span class="zone-island">${UA.landmark(z.icon, z.col, z.col2)}${unlocked ? '' : padlock}</span>
+      ${unlocked ? zoneStarsRow(z) : ''}
+      <span class="zone-label">${z.name}</span>
     </button>`);
     spot.addEventListener('pointerdown', (e) => {
       if (transitioning) return;
@@ -359,9 +371,9 @@ const buildMap = () => {
     stage.appendChild(spot);
   });
   // the unicorn herself, pettable, trots to the recommended zone (beacon)
-  const phoneMap = innerWidth < 700;   // keep her clear of the facilities dock
+  const phoneMap = phoneLayout;        // keep her clear of the dock AND the zones
   const uni = el(`<button class="map-uni" id="map-uni" aria-label="${S.uni.name}"
-    style="left:${phoneMap ? 56 : 44}%;top:${phoneMap ? 58 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
+    style="left:${phoneMap ? 50 : 44}%;top:${phoneMap ? 62 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
     ${UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane], cosmetics: S.equipped })}</button>`);
   let lastPet = 0;
   uni.addEventListener('pointerdown', (e) => {
@@ -403,7 +415,10 @@ const mapWelcome = () => {
     ? `Welcome back, ${S.name}! ${S.uni.name} missed you!`
     : `This is the Rainbow Kingdom, ${S.name}!`;
   const mem = UA.companion.memoryLine();
-  UA.audio.speak(hello + (mem ? ' ' + mem : ''));
+  const silly = UA.world && UA.world.pendingSillyLine;
+  if (UA.world) UA.world.pendingSillyLine = null;
+  UA.audio.speak(hello + (mem ? ' ' + mem : ''))
+    .then(() => { if (silly && current === 'map') return UA.audio.speak(silly, { interrupt: false }); });
   const rec = recommendZone();
   beaconTimer = setTimeout(() => {
     const uni = $('#map-uni'), spot = $(`[data-testid="zone-${rec.id}"]`);

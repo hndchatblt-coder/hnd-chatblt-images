@@ -12,8 +12,11 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#FFE9F4;
   position:fixed;inset:0;width:100%;overscroll-behavior:none;
   font-family:ui-rounded,"SF Pro Rounded","Hiragino Maru Gothic ProN",Quicksand,Comfortaa,"Comic Sans MS",system-ui,sans-serif;
   touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-#screen-start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+#screen-start{position:fixed;inset:0;display:flex;flex-direction:column;gap:5vh;align-items:center;justify-content:center;
   background:linear-gradient(180deg,#FFE9F4 0%,#E9DDFF 55%,#D3ECFF 100%);z-index:60}
+#start-title{font-size:clamp(34px,9vmin,64px);font-weight:900;color:#5C4A66;text-align:center;
+  text-shadow:0 3px 0 #FFD97A,0 6px 14px rgba(92,74,102,.25);letter-spacing:1px;padding:0 16px}
+#start-sub{font-size:clamp(15px,3.4vmin,22px);font-weight:700;color:rgba(92,74,102,.65);margin-top:-3vh}
 #start-btn{width:min(64vw,420px);height:min(64vw,420px);border:none;border-radius:50%;cursor:pointer;
   background:conic-gradient(#FF9EC7,#FFD97A,#9DE0B0,#8FD0FF,#B79CFF,#FF9EC7);
   box-shadow:0 18px 60px rgba(92,74,102,.35),inset 0 -10px 30px rgba(92,74,102,.15);
@@ -99,6 +102,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#FFE9F4;
 </svg>
 <div id="app">
   <div id="screen-start" data-screen="start">
+    <div id="start-title">Unicorn Academy</div>
     <button id="start-btn" data-testid="start-button" aria-label="Start">
       <span>
         <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -110,6 +114,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#FFE9F4;
         </svg>
       </span>
     </button>
+    <div id="start-sub">Tap the rainbow to begin!</div>
   </div>
 </div>
 <style>
@@ -206,7 +211,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 .option-card svg{width:72%;height:72%;pointer-events:none}
 .option-card .cap{font-size:clamp(14px,3vmin,24px);font-weight:800;pointer-events:none}
 .option-card:active{transform:scale(.94)}
-.option-card.quiet{opacity:.45;transform:scale(.96)}
+.option-card.quiet{opacity:.62;transform:scale(.97)}
 .option-card.live{animation:opt-pop .35s cubic-bezier(.34,1.56,.64,1) backwards}
 @keyframes opt-pop{0%{transform:scale(.92)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
 .option-card.faded{opacity:.18;pointer-events:none;transform:scale(.9)}
@@ -267,6 +272,21 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 /* ---------- particles ---------- */
 .particle{position:fixed;pointer-events:none;z-index:52;will-change:transform,opacity;left:0;top:0}
 
+/* first-run guidance banner (text always paired with the spoken line) */
+.fr-banner{font-size:clamp(18px,4.2vmin,30px);font-weight:900;color:var(--plum);text-align:center;
+  background:var(--cream);border-radius:999px;padding:clamp(8px,1.6vmin,14px) clamp(18px,4vmin,32px);
+  box-shadow:0 6px 0 var(--shadow);max-width:92vw}
+
+/* zone spots: a cream island makes "this is a place you can tap" legible */
+.zone-island{background:rgba(255,249,245,.88);border-radius:24%;box-shadow:0 6px 0 var(--shadow),0 10px 24px var(--shadow);
+  width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative}
+.zone-island .zone-art{width:88%;height:88%}
+.zone-label{position:absolute;left:50%;top:calc(100% + 2px);transform:translateX(-50%);
+  font-size:clamp(11px,2.4vmin,16px);font-weight:800;color:var(--plum);background:var(--cream);
+  border-radius:999px;padding:2px 10px;white-space:nowrap;box-shadow:0 3px 0 var(--shadow);pointer-events:none}
+.zone-lock{position:absolute;right:-6px;top:-6px;width:clamp(26px,5vmin,38px);height:clamp(26px,5vmin,38px);pointer-events:none}
+.zone-spot.locked .zone-island{opacity:.72;filter:saturate(.55)}
+
 /* ---------- first-run ---------- */
 .fr-wrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:26px;padding:calc(24px + var(--sat)) 24px calc(24px + var(--sab))}
@@ -310,8 +330,8 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 @keyframes zone-bob{50%{transform:translateY(-8px)}}
 .zone-spot.locked .zone-bounce{animation:none}
 .zone-mist{position:absolute;inset:-10%;pointer-events:none}
-.zone-stars{position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);display:flex;gap:3px;pointer-events:none}
-.zone-stars svg{width:26px;height:26px}
+.zone-stars{position:absolute;left:50%;bottom:calc(100% + 1px);transform:translateX(-50%);display:flex;gap:2px;pointer-events:none}
+.zone-stars svg{width:clamp(16px,3.6vmin,26px);height:clamp(16px,3.6vmin,26px)}
 .map-uni{position:absolute;z-index:12;pointer-events:auto;cursor:pointer;border:none;background:none;padding:0;
   transition:left 1.6s ease-in-out,top 1.6s ease-in-out}
 
@@ -1996,7 +2016,10 @@ const buildQuestion = () => {
   }
   const q = def.gen(level, UA.S);
   q.stage = def; q.level = level;
-  q.say = UA.frameFor(def.id, def.zone).replace('%Q', q.core || q.say || '');
+  // a story frame sets the scene when a round OPENS; mid-round questions stay
+  // snappy (frame-every-question made rounds feel slow and repetitive)
+  const frame = (E.roundQ === 0 || UA.rand(3) === 0) ? UA.frameFor(def.id, def.zone) : '%Q';
+  q.say = frame.replace('%Q', q.core || q.say || '');
   return q;
 };
 
@@ -3418,6 +3441,7 @@ const sActivity = screen('activity', 'data-testid="activity"');
 const buildCreate = () => {
   const P = UA.PALETTE;
   sCreate.innerHTML = `<div class="fr-wrap">
+    <div class="fr-banner" id="create-banner">Tap a colour to paint your unicorn!</div>
     <div class="fr-title-art" id="create-preview"></div>
     <div class="swatch-row" id="body-row">${P.bodies.map((c, i) =>
       `<button class="swatch" data-testid="unicorn-colour-${i + 1}" style="background:${c}" aria-label="${P.bodyNames[i]}"></button>`).join('')}</div>
@@ -3432,6 +3456,7 @@ const buildCreate = () => {
     $$('#body-row .swatch').forEach(x => x.classList.remove('picked')); b.classList.add('picked');
     if ($('#mane-row').style.display === 'none') {
       $('#mane-row').style.display = '';
+      $('#create-banner').textContent = 'Now pick a mane colour!';
       UA.audio.speak('Ooh lovely! Now tap a colour for my mane!');
     }
   }));
@@ -3445,6 +3470,7 @@ const buildCreate = () => {
 
 const buildUniName = () => {
   sUniName.innerHTML = `<div class="fr-wrap">
+    <div class="fr-banner">What will you call your unicorn?</div>
     <div class="fr-title-art">${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane] })}</div>
     <div class="name-row">${UA.UNI_NAMES.map(n =>
       `<button class="big-btn" data-testid="unicorn-name-option" data-name="${n}">${n}</button>`).join('')}</div>
@@ -3470,6 +3496,7 @@ const buildUniName = () => {
 /* her name: stealth letter game. Giant tick sits mid-screen (bare tick allowed). */
 const buildKidName = (onDone) => {
   sKidName.innerHTML = `<div class="fr-wrap" style="justify-content:flex-start;padding-top:calc(36px + var(--sat))">
+    <div class="fr-banner">Now tap YOUR name — or just the green tick!</div>
     <div class="name-display" id="kid-name-display">&nbsp;</div>
     <button class="round-btn" data-testid="name-done" id="kidname-done"
       style="width:132px;height:132px;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--mint)">${UA.tickSVG()}</button>
@@ -3603,19 +3630,27 @@ const enterMap = (fromPt) => {
 };
 UA.enterMap = enterMap;
 
+/* phones need their own zone spread — the tablet scatter collides at 390px */
+const PHONE_ZONE_POS = { 'crystal-castle': [50, 10], 'memory-clouds': [79, 24], 'word-garden': [21, 24],
+  'number-mountain': [50, 33], 'letter-meadow': [21, 49], 'puzzle-falls': [79, 49] };
 const buildMap = () => {
   const S = UA.S;
   sMap.innerHTML = `<div class="map-stage">${mapSceneSVG(UA.totalStars())}</div>`;
   const stage = $('.map-stage', sMap);
+  const phoneLayout = innerWidth < 700;
   // learning zones
   UA.ZONES.forEach(z => {
+    const [zx, zy] = phoneLayout ? PHONE_ZONE_POS[z.id] : [z.x, z.y];
     const unlocked = UA.zoneUnlocked(z.id);
+    const padlock = `<svg class="zone-lock" viewBox="0 0 40 40">
+      <rect x="8" y="17" width="24" height="17" rx="5" fill="#FFD97A" stroke="#5C4A66" stroke-width="2.6"/>
+      <path d="M13 17 V13 a7 7 0 0 1 14 0 V17" fill="none" stroke="#5C4A66" stroke-width="3"/>
+      <circle cx="20" cy="25" r="3" fill="#5C4A66"/></svg>`;
     const spot = el(`<button class="zone-spot ${unlocked ? '' : 'locked'}" data-testid="zone-${z.id}"
-      style="left:${z.x}%;top:${z.y}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
-      ${UA.landmark(z.icon, z.col, z.col2)}
-      ${unlocked ? zoneStarsRow(z) : `<svg class="zone-mist" viewBox="0 0 120 120">
-        ${UA.gen.cloud(40, 70, .9, '#E9DDFF', .8)}${UA.gen.cloud(80, 50, .8, '#F3EBFF', .75)}
-        ${UA.gen.sparkle(30, 40, 1)}${UA.gen.sparkle(90, 80, .8)}${UA.gen.sparkle(60, 24, .7)}</svg>`}
+      style="left:${zx}%;top:${zy}%;width:clamp(84px,17vw,150px);height:clamp(84px,17vw,150px)" aria-label="${z.name}">
+      <span class="zone-island">${UA.landmark(z.icon, z.col, z.col2)}${unlocked ? '' : padlock}</span>
+      ${unlocked ? zoneStarsRow(z) : ''}
+      <span class="zone-label">${z.name}</span>
     </button>`);
     spot.addEventListener('pointerdown', (e) => {
       if (transitioning) return;
@@ -3634,9 +3669,9 @@ const buildMap = () => {
     stage.appendChild(spot);
   });
   // the unicorn herself, pettable, trots to the recommended zone (beacon)
-  const phoneMap = innerWidth < 700;   // keep her clear of the facilities dock
+  const phoneMap = phoneLayout;        // keep her clear of the dock AND the zones
   const uni = el(`<button class="map-uni" id="map-uni" aria-label="${S.uni.name}"
-    style="left:${phoneMap ? 56 : 44}%;top:${phoneMap ? 58 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
+    style="left:${phoneMap ? 50 : 44}%;top:${phoneMap ? 62 : 78}%;width:clamp(96px,20vw,170px);border:none;background:none">
     ${UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane], cosmetics: S.equipped })}</button>`);
   let lastPet = 0;
   uni.addEventListener('pointerdown', (e) => {
@@ -3678,7 +3713,10 @@ const mapWelcome = () => {
     ? `Welcome back, ${S.name}! ${S.uni.name} missed you!`
     : `This is the Rainbow Kingdom, ${S.name}!`;
   const mem = UA.companion.memoryLine();
-  UA.audio.speak(hello + (mem ? ' ' + mem : ''));
+  const silly = UA.world && UA.world.pendingSillyLine;
+  if (UA.world) UA.world.pendingSillyLine = null;
+  UA.audio.speak(hello + (mem ? ' ' + mem : ''))
+    .then(() => { if (silly && current === 'map') return UA.audio.speak(silly, { interrupt: false }); });
   const rec = recommendZone();
   beaconTimer = setTimeout(() => {
     const uni = $('#map-uni'), spot = $(`[data-testid="zone-${rec.id}"]`);
@@ -4787,7 +4825,8 @@ const drawGarden = (stage) => {
 const dailyGift = (stage) => {
   const S = UA.S;
   if (S.lastGiftDay === UA.todayStr()) return;
-  const g = el(`<button class="zone-spot" style="left:44%;top:60%;width:100px;height:100px" aria-label="Present">
+  const giftPos = innerWidth < 700 ? [26, 64] : [44, 60];
+  const g = el(`<button class="zone-spot" style="left:${giftPos[0]}%;top:${giftPos[1]}%;width:clamp(72px,12vw,100px);height:clamp(72px,12vw,100px)" aria-label="Present">
     <svg class="zone-art" viewBox="0 0 48 48"><g class="zone-bounce">${UA.giftSVG().replace(/<\/?svg[^>]*>/g, '')}</g></svg></button>`);
   g.addEventListener('pointerdown', (e) => {
     if (S.lastGiftDay === UA.todayStr()) return;      // evaluate once per map load, single claim
@@ -4820,17 +4859,15 @@ const sillyDay = (stage) => {
       const wrap = $('#map-uni');
       wrap.innerHTML = UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane],
         cosmetics: S.equipped.concat(['socks-spotty']) });
-      setTimeout(() => UA.audio.speak('It is SOCK DAY! Everyone wears socks today. It is the law!'), 3600);
+      UA.world.pendingSillyLine = 'It is SOCK DAY! Everyone wears socks today. It is the law!';
     }
   } else if (kind === 'upside-down-day') {
     stage.querySelectorAll('.amb-butterfly').forEach(b => b.setAttribute('transform',
       (b.getAttribute('transform') || '') + ' rotate(180)'));
-    setTimeout(() => UA.audio.speak('It is Upside-Down Day! The butterflies are flying on their heads!'), 3600);
+    UA.world.pendingSillyLine = 'It is Upside-Down Day! The butterflies are flying on their heads!';
   } else if (kind === 'echo-day') {
-    setTimeout(() => {
-      const n = S.name || 'Superstar';
-      UA.audio.speak(`It is Echo Day! ${n}! ${n.toLowerCase().split('').join(' ')}! ${n}iddly-${n.slice(0, 2).toLowerCase()}oo!`);
-    }, 3600);
+    const n = S.name || 'Superstar';
+    UA.world.pendingSillyLine = `It is Echo Day! ${n}! ${n.toLowerCase().split('').join(' ')}! ${n}iddly-${n.slice(0, 2).toLowerCase()}oo!`;
   }
 };
 

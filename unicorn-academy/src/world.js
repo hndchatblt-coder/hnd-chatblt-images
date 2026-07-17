@@ -62,7 +62,8 @@ const drawGarden = (stage) => {
 const dailyGift = (stage) => {
   const S = UA.S;
   if (S.lastGiftDay === UA.todayStr()) return;
-  const g = el(`<button class="zone-spot" style="left:44%;top:60%;width:100px;height:100px" aria-label="Present">
+  const giftPos = innerWidth < 700 ? [26, 64] : [44, 60];
+  const g = el(`<button class="zone-spot" style="left:${giftPos[0]}%;top:${giftPos[1]}%;width:clamp(72px,12vw,100px);height:clamp(72px,12vw,100px)" aria-label="Present">
     <svg class="zone-art" viewBox="0 0 48 48"><g class="zone-bounce">${UA.giftSVG().replace(/<\/?svg[^>]*>/g, '')}</g></svg></button>`);
   g.addEventListener('pointerdown', (e) => {
     if (S.lastGiftDay === UA.todayStr()) return;      // evaluate once per map load, single claim
@@ -95,17 +96,15 @@ const sillyDay = (stage) => {
       const wrap = $('#map-uni');
       wrap.innerHTML = UA.unicornSVG({ body: UA.PALETTE.bodies[S.uni.body], mane: UA.PALETTE.manes[S.uni.mane],
         cosmetics: S.equipped.concat(['socks-spotty']) });
-      setTimeout(() => UA.audio.speak('It is SOCK DAY! Everyone wears socks today. It is the law!'), 3600);
+      UA.world.pendingSillyLine = 'It is SOCK DAY! Everyone wears socks today. It is the law!';
     }
   } else if (kind === 'upside-down-day') {
     stage.querySelectorAll('.amb-butterfly').forEach(b => b.setAttribute('transform',
       (b.getAttribute('transform') || '') + ' rotate(180)'));
-    setTimeout(() => UA.audio.speak('It is Upside-Down Day! The butterflies are flying on their heads!'), 3600);
+    UA.world.pendingSillyLine = 'It is Upside-Down Day! The butterflies are flying on their heads!';
   } else if (kind === 'echo-day') {
-    setTimeout(() => {
-      const n = S.name || 'Superstar';
-      UA.audio.speak(`It is Echo Day! ${n}! ${n.toLowerCase().split('').join(' ')}! ${n}iddly-${n.slice(0, 2).toLowerCase()}oo!`);
-    }, 3600);
+    const n = S.name || 'Superstar';
+    UA.world.pendingSillyLine = `It is Echo Day! ${n}! ${n.toLowerCase().split('').join(' ')}! ${n}iddly-${n.slice(0, 2).toLowerCase()}oo!`;
   }
 };
 
