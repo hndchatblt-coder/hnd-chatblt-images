@@ -1,5 +1,14 @@
 # TESTLOG.md
 
+## Cycle 42 (polish: B3 build-time comment stripping)
+
+257/257 node AND in-browser (verified: title reads 257/257); 25/25; 5/5
+shots. game.html 1.19MB → 577KB (−51.6%). Conservative rules: full-line //
+comments only, trailing/block comments kept, blank-run collapse, template-
+literal edge cases audited clean. Source files untouched — the contract
+blocks live on disk; the artifact travels light. The in-browser boot gate
+is the standing correctness proof for the stripper.
+
 ## Cycle 41 (CRITICAL FIX: B1/B2 — reinforcement saves)
 
 257/257; 25/25; 5/5 shots. restore() reconstructs reinf-N guards via the

@@ -3,6 +3,43 @@
 const fs = require("fs");
 const path = require("path");
 
+// stripCommentLines(source): remove full-line comments conservatively.
+// - Removes lines whose trimmed form starts with //, but keeps trailing comments.
+// - Does not touch block comments /* */ (build breaks if they're corrupted).
+// - Collapses runs of 3+ blank lines to 1.
+// NOTE: screenshot.js (boot gate 257/257 in-browser) is the stripping-correctness
+// gate: if any test count drops or errors appear, stripping broke a template literal
+// or other edge case—fix or revert to conservative skip.
+function stripCommentLines(source) {
+  const lines = source.split("\n");
+  const stripped = [];
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    // Remove lines that are purely comments (trimmed form starts with //)
+    if (trimmed.startsWith("//")) {
+      // Full-line comment: skip it (don't add to stripped)
+      continue;
+    }
+    // Keep everything else (code with trailing comments, blank lines, block comments)
+    stripped.push(line);
+  }
+  // Collapse runs of 3+ blank lines to 1
+  const result = [];
+  let consecutiveBlanks = 0;
+  for (const line of stripped) {
+    if (line.trim() === "") {
+      consecutiveBlanks++;
+      if (consecutiveBlanks <= 1) {
+        result.push(line);
+      }
+    } else {
+      consecutiveBlanks = 0;
+      result.push(line);
+    }
+  }
+  return result.join("\n");
+}
+
 // Dependency order. Logic modules first (pure JS, no THREE), render layer last.
 // Files not yet written are skipped; unknown files in src/ are an error so nothing
 // silently drops out of the artifact.
@@ -35,12 +72,16 @@ if (unknown.length) {
 }
 
 const parts = [];
+let strippedBytes = 0;
 // Concatenate src modules in ORDER, but exclude boot.js (it must run after all tests register).
 for (const f of ORDER) {
   if (f === "boot.js") continue; // boot.js is appended last, after test files
   const p = path.join(srcDir, f);
   if (!fs.existsSync(p)) continue;
-  parts.push(`// ==== src/${f} ====\n` + fs.readFileSync(p, "utf8"));
+  const originalContent = fs.readFileSync(p, "utf8");
+  const stripped = stripCommentLines(originalContent);
+  strippedBytes += originalContent.length - stripped.length;
+  parts.push(`// ==== src/${f} ====\n` + stripped);
 }
 
 // Recursively collect test files from tests/ and tests/regressions/, wrapped so they work in browser.
@@ -52,7 +93,9 @@ function collectTestFiles(dir, relPath = "") {
     const p = path.join(dir, f);
     const rel = relPath ? path.join(relPath, f) : f;
     if (f.endsWith(".js")) {
-      const content = fs.readFileSync(p, "utf8");
+      const originalContent = fs.readFileSync(p, "utf8");
+      const content = stripCommentLines(originalContent);
+      strippedBytes += originalContent.length - content.length;
       // Wrap test file so it works in browser: global.Game becomes window.Game in browser.
       parts.push(
         `// ==== tests/${rel} ====\n` +
@@ -71,7 +114,10 @@ collectTestFiles(path.join(__dirname, "tests"));
 // Finally, append boot.js which runs Game.selfTests after all tests have registered.
 const bootPath = path.join(srcDir, "boot.js");
 if (fs.existsSync(bootPath)) {
-  parts.push(`// ==== src/boot.js ====\n` + fs.readFileSync(bootPath, "utf8"));
+  const originalContent = fs.readFileSync(bootPath, "utf8");
+  const stripped = stripCommentLines(originalContent);
+  strippedBytes += originalContent.length - stripped.length;
+  parts.push(`// ==== src/boot.js ====\n` + stripped);
 }
 
 const html = `<!DOCTYPE html>
@@ -98,7 +144,12 @@ ${parts.join("\n")}
 
 fs.writeFileSync(path.join(__dirname, "game.html"), html);
 const moduleCount = ORDER.length - 1; // Exclude boot.js from module count (it's appended after tests)
+const strippedKB = (strippedBytes / 1024).toFixed(1);
+// Percentage of original source files (before concatenation) that was stripped
+const originalContentSize = strippedBytes + html.length;
+const strippedPercent = ((strippedBytes / originalContentSize) * 100).toFixed(1);
 console.log(
   `build.js: wrote game.html (${(html.length / 1024).toFixed(1)} KB, ` +
+    `stripped ${strippedKB} KB of comments [${strippedPercent}%]), ` +
     `${moduleCount} modules + ${testFileCount} test files)`
 );

@@ -47,7 +47,7 @@ content rotation) take over. L items must be split before selection.
 ## Audit findings (cycle 40 — full report in TESTLOG cycle 40)
 
 - ~~B1/B2~~ FIXED cycle 41 (reunified reconstruction path + bookkeeping in saves).
-- B3: comment-stripping at build | polish | S | Readability (artifact honesty: 1.19MB → ~600KB measured) | strip comment-only lines from src (and optionally tests) at build; never strip code; assert tests still 100% in-browser.
+- ~~B3~~ FIXED cycle 42 (1.19MB → 577KB).
 - B4: wire cameraAlert/laserTripped/reinforcement into player feedback | polish | M | Readability | distinct sting/flash/radar-blip per event; remaining write-only events get documented rationale.
 - B5: cqcThrow missing from verb-gating regression | bugfix | S | Readability | extend box-gates-combat/verb-gating tests: throw while boxed/hidden/dragging → busy.
 - B6: cross-module math agreement test | polish | S | — (meta/tooling; see B12) | parametrized test asserting all distance/angleDiff impls agree.

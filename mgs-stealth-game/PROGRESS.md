@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.41 (cycle 41 — B1/B2 critical save fix)
+**Version:** v0.42 (cycle 42 — artifact halved via comment stripping)
 
 ## Module status
 
@@ -36,6 +36,8 @@
 
 ## Changelog (last 5)
 
+- cycle 42: polish — build strips comment-only lines: game.html 1.19MB →
+  577KB (−51.6%); in-browser 257/257 is the gate
 - cycle 41: CRITICAL fix — reinforcement guards reconstruct on restore via
   the reunified stash path; director bookkeeping saved; SAVE_VERSION 4
   (257/257, 25/25)
