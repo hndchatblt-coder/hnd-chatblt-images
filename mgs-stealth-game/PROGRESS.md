@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.39 (cycle 39 — door acoustics)
+**Version:** v0.40 (cycle 40 — audit; 14 findings, B1 critical → cycle 41)
 
 ## Module status
 
@@ -36,6 +36,8 @@
 
 ## Changelog (last 5)
 
+- cycle 40: AUDIT — 14 findings (B1 CRITICAL: reinforcement guards make
+  saves silently unloadable), 5 watch items dispositioned
 - cycle 39: bugfix — closed doors attenuate sound like walls (252/252, 25/25)
 - cycle 38: polish — radar hidden/dragging, camera cyan→amber→red meter ramp
   (shared pure helper, both views), Q legend (247/247, 25/25)

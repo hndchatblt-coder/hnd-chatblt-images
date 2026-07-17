@@ -44,6 +44,23 @@ content rotation) take over. L items must be split before selection.
 
 - ~~Searcher-wedge crash~~ FIXED cycle 32 (wedge trackers + give-up; asymptotic edge case is a ledgered watch item).
 
+## Audit findings (cycle 40 — full report in TESTLOG cycle 40)
+
+- **B1 (CRITICAL, cycle 41): saves with live reinforcement guards silently unloadable** | bugfix | S/M | Consequence | restore() throws on "reinf-N" ids absent from ZONE_GUARDS → boot shows "NO SAVE", save lost. Fix: restore() spawns missing reinforcement ids at captured state before per-guard restore; ALSO stash director's reinforcementSeq/alertWasActive/nextSpawnAt (B2) to prevent id collisions; regression: save mid-ALERT with reinforcement alive → F9 restores byte-identical.
+- B2: director escalation bookkeeping (reinforcementSeq/alertWasActive/nextSpawnAt) unsaved | bugfix | S | Consequence | fold into B1's cycle.
+- B3: comment-stripping at build | polish | S | Readability (artifact honesty: 1.19MB → ~600KB measured) | strip comment-only lines from src (and optionally tests) at build; never strip code; assert tests still 100% in-browser.
+- B4: wire cameraAlert/laserTripped/reinforcement into player feedback | polish | M | Readability | distinct sting/flash/radar-blip per event; remaining write-only events get documented rationale.
+- B5: cqcThrow missing from verb-gating regression | bugfix | S | Readability | extend box-gates-combat/verb-gating tests: throw while boxed/hidden/dragging → busy.
+- B6: cross-module math agreement test | polish | S | — (meta/tooling; see B12) | parametrized test asserting all distance/angleDiff impls agree.
+- B7: asymptotic-wedge oscillation regression | polish | S | Consequence | build the oscillating-corner scenario the claim rests on.
+- B8: missingSearchers gap — confirmed benign, stays documented (no action).
+- B9: PROGRESS module-status table stale ~20 cycles | polish | S | Readability | sync or retire (changelog is the trusted ledger).
+- B10: codec pause mid-chase (Tension violation, aged 13 cycles) | polish | S | Tension | PROMOTED — defer firstBody/lowDarts during ALERT/EVASION; firstAlert stays immediate.
+- B11: guard-bar vs camera-ramp dual encoding | polish | S | Readability | consider unifying; low priority.
+- B12: pillar-citation discipline: add a "meta/tooling" lane to DESIGN.md or retrofit citations | polish | S | — | fix the constitution gap the audit found in the process itself.
+- B13: loader-order parity unenforced (node vs browser module order differs; harmless today) | polish | S | — (meta) | add a test asserting no module reads sibling Game.* at load time, or align the orders.
+- B14: chaff pickup collected-glow (dup of existing item; merged).
+
 ## Audit findings (cycle 20 — fresh-eyes review; full report in TESTLOG)
 
 - ~~A1: box doesn't gate fire/CQC~~ FIXED cycle 21 (regression test in tests/regressions/).

@@ -1,5 +1,30 @@
 # TESTLOG.md
 
+## Cycle 40 (AUDIT — no building)
+
+Fresh-eyes audit at HEAD 242892b (252/252, 25/25 verified green baseline).
+14 findings → BACKLOG B1-B14. **CRITICAL B1: F5 saves taken while a
+reinforcement guard is alive throw on restore and surface as "NO SAVE" —
+the save is silently lost.** Reproduced live by the auditor (ALERT → wait
+for reinf-1 → F5 → F9 → throw). Root cause: the zone-stash and full-save
+persistence systems were built independently; only the stash learned about
+reinforcement guards (transitions are INFILTRATION-gated so it never sees
+them live — the save path does). Zero cross-tests between the two systems.
+
+Watch-item dispositions: A7 unchanged (still no agreement test); A9 worse
+in absolute count (17 write-only event types, some pillar-relevant); the
+asymptotic wedge is unreachable with current zones but unproven by test;
+missingSearchers confirmed benign; comment-stripping measured at ~45-50%
+artifact savings.
+
+Verdict (auditor): "The rest is debt, not danger — but finding #1 is
+exactly the kind of thing the discipline is supposed to catch and didn't:
+two persistence systems both had to solve reinforcements, one remembered,
+one didn't, and nothing cross-tests them."
+
+Clean bill: THREE isolation, UMD, determinism sources, guardAI getState
+thoroughness, engine event-doc accuracy, no dead constants.
+
 ## Cycle 39 (bugfix: door acoustics)
 
 252/252; 25/25; 5/5 shots. Closed doors attenuate 50% per crossing exactly
