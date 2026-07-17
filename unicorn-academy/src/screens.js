@@ -322,6 +322,7 @@ const enterMap = (fromPt) => {
     $('#hud').classList.add('show');
     UA.ui.updateHUD();
     mapWelcome();
+    armMapIdle();
   } });
 };
 UA.enterMap = enterMap;
@@ -414,6 +415,24 @@ const mapWelcome = () => {
   }, 2600);
 };
 
+/* comedy reel idle bits: snore after long stillness; excited mood = extra leaps */
+let mapIdleTimer = null, mapMoodTimer = null;
+const armMapIdle = () => {
+  clearTimeout(mapIdleTimer); clearInterval(mapMoodTimer);
+  mapIdleTimer = setTimeout(() => {
+    if (current !== 'map') return;
+    const u = $('#map-uni .uni-rig');
+    if (u) { u.classList.add('sad-tilt'); setTimeout(() => u.classList.remove('sad-tilt'), 1500); }
+    UA.audio.speak('Zzzzz... zzzz... snore... mimimimi... oh! I was NOT sleeping! A unicorn never sleeps on duty!');
+  }, 45000);
+  mapMoodTimer = setInterval(() => {
+    if (current !== 'map' || UA.companion.mood !== 'excited') return;
+    const u = $('#map-uni .uni-rig');
+    if (u) { u.classList.remove('leap'); void u.getBoundingClientRect(); u.classList.add('leap'); }
+  }, 7000);
+};
+document.addEventListener('pointerdown', () => { if (current === 'map') armMapIdle(); }, true);
+
 const openZone = (z, pt) => {
   UA.go('activity', { colour: z.col, from: pt, onArrive: () => {
     UA.audio.startMusic(z.key);
@@ -439,7 +458,14 @@ UA.ui.showActivity = (zone, stage) => {
   $('#home-btn').classList.add('show');
   $('#hear-btn').classList.add('show');
   $('#hud').classList.add('show');
-  if (current !== 'activity') SCREENS.activity.classList.add('show');
+  if (current !== 'activity') {
+    // enforce exclusive visibility even when reached outside UA.go (dev jump,
+    // error recovery) — two .show screens means invisible dead taps
+    Object.values(SCREENS).forEach(s => s.classList.remove('show'));
+    SCREENS.start.style.display = 'none';
+    SCREENS.activity.classList.add('show');
+    current = 'activity';
+  }
 };
 
 UA.ui.renderQuestion = (q, sparkle) => {

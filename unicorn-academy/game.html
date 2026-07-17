@@ -333,7 +333,8 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 #celebrate-layer{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
   flex-direction:column;gap:20px}
 #celebrate-layer.show{display:flex}
-.ceremony-card{background:var(--cream);border-radius:48px;padding:40px 60px;box-shadow:0 16px 0 var(--shadow),0 30px 80px var(--shadow);
+.ceremony-card{position:relative;z-index:49;  /* must beat the sibling .veil (z-48) or its buttons are untappable */
+  background:var(--cream);border-radius:48px;padding:40px 60px;box-shadow:0 16px 0 var(--shadow),0 30px 80px var(--shadow);
   display:flex;flex-direction:column;align-items:center;gap:18px;max-width:86vw;
   animation:ceremony-in .6s cubic-bezier(.34,1.56,.64,1)}
 @keyframes ceremony-in{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
@@ -349,7 +350,7 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 .place-body{position:absolute;inset:0;padding:calc(160px + var(--sat)) 24px calc(24px + var(--sab));
   display:flex;flex-direction:column;align-items:center;gap:20px;overflow-y:auto;overflow-x:hidden}
 .fac-spot .zone-art{filter:drop-shadow(0 5px 8px var(--shadow))}
-#parents-link{position:fixed;right:calc(10px + var(--sar));bottom:calc(6px + var(--sab));z-index:6;
+#parents-link{position:fixed;left:calc(10px + var(--sal));bottom:calc(6px + var(--sab));z-index:6;
   border:none;background:none;color:rgba(92,74,102,.5);font-size:13px;padding:8px;cursor:pointer}
 
 .btq-preview{display:flex;align-items:center;gap:26px;flex:0 0 auto}
@@ -408,6 +409,16 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 .book-row{display:flex;align-items:center;gap:14px;text-align:left;border:none;background:var(--cream);
   border-radius:20px;padding:14px 18px;font-size:20px;font-weight:800;color:var(--plum);cursor:pointer;
   box-shadow:0 5px 0 var(--shadow);min-height:80px}
+
+.stk-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;background:var(--cream);
+  border:6px solid var(--pink);border-radius:22px;padding:14px}
+.stk-slot{aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative;
+  background:rgba(92,74,102,.05);border-radius:14px}
+.stk-slot.got{background:#fff}
+.stk-slot.got svg.pk{width:78%;height:78%}
+.stk-slot.rare{box-shadow:0 0 0 4px var(--yellow),0 0 22px var(--yellow)}
+.stk-rare{position:absolute;top:-9px;right:-9px;width:30px;height:30px}
+.stk-slot>span{width:78%;height:78%;display:flex;align-items:center;justify-content:center}
 
 .gate-pad{display:grid;grid-template-columns:repeat(3,86px);gap:12px;justify-content:center}
 .gate-key{width:86px;height:86px;border:none;border-radius:20px;background:var(--lav);font-size:32px;
@@ -1664,6 +1675,7 @@ const onCorrect = (el, pt) => {
   if (firstTry) E.roundFirstTry++;
   UA.ui.feedbackCorrect(el, pt);
   UA.audio.sfx.chime();
+  UA.audio.vibrate(30);                        // garnish only; no-op on iPad
   let praised = UA.pickFresh('praise', UA.PRAISE);
   if (E.isReview === 'sparkle') { UA.reward.gems(1, el); praised = 'Sparkle bonus! ' + praised; }
   UA.audio.speak(personalise(praised), { interrupt: true });
@@ -1774,6 +1786,8 @@ const roundEnd = () => {
   S.stickers[zid].push({ stage: id, rare });
   UA.save();                                    // rewards hit storage before celebration
   E.roundQ = 0; E.roundFirstTry = 0;
+  if (S.stickers[zid].length % 12 === 0 && UA.stickerPageDone)
+    setTimeout(() => UA.stickerPageDone(zid), 2600);   // after the round card
   if (UA.world && UA.world.roundHook(id)) return;   // coronation takes over the flow
   UA.ui.roundCelebration({ gems, perfect, rare, onDone: () => {
     if (!E.active) return;
@@ -3164,6 +3178,7 @@ const enterMap = (fromPt) => {
     $('#hud').classList.add('show');
     UA.ui.updateHUD();
     mapWelcome();
+    armMapIdle();
   } });
 };
 UA.enterMap = enterMap;
@@ -3256,6 +3271,24 @@ const mapWelcome = () => {
   }, 2600);
 };
 
+/* comedy reel idle bits: snore after long stillness; excited mood = extra leaps */
+let mapIdleTimer = null, mapMoodTimer = null;
+const armMapIdle = () => {
+  clearTimeout(mapIdleTimer); clearInterval(mapMoodTimer);
+  mapIdleTimer = setTimeout(() => {
+    if (current !== 'map') return;
+    const u = $('#map-uni .uni-rig');
+    if (u) { u.classList.add('sad-tilt'); setTimeout(() => u.classList.remove('sad-tilt'), 1500); }
+    UA.audio.speak('Zzzzz... zzzz... snore... mimimimi... oh! I was NOT sleeping! A unicorn never sleeps on duty!');
+  }, 45000);
+  mapMoodTimer = setInterval(() => {
+    if (current !== 'map' || UA.companion.mood !== 'excited') return;
+    const u = $('#map-uni .uni-rig');
+    if (u) { u.classList.remove('leap'); void u.getBoundingClientRect(); u.classList.add('leap'); }
+  }, 7000);
+};
+document.addEventListener('pointerdown', () => { if (current === 'map') armMapIdle(); }, true);
+
 const openZone = (z, pt) => {
   UA.go('activity', { colour: z.col, from: pt, onArrive: () => {
     UA.audio.startMusic(z.key);
@@ -3281,7 +3314,14 @@ UA.ui.showActivity = (zone, stage) => {
   $('#home-btn').classList.add('show');
   $('#hear-btn').classList.add('show');
   $('#hud').classList.add('show');
-  if (current !== 'activity') SCREENS.activity.classList.add('show');
+  if (current !== 'activity') {
+    // enforce exclusive visibility even when reached outside UA.go (dev jump,
+    // error recovery) — two .show screens means invisible dead taps
+    Object.values(SCREENS).forEach(s => s.classList.remove('show'));
+    SCREENS.start.style.display = 'none';
+    SCREENS.activity.classList.add('show');
+    current = 'activity';
+  }
 };
 
 UA.ui.renderQuestion = (q, sparkle) => {
@@ -4049,12 +4089,20 @@ UA.memory = {
     UA.save();
   },
 };
-UA.openBook = (pt) => {
+const PAGE_SIZE = 12;                                       // sticker slots per album page
+UA.openBook = (pt, tab) => {
   const build = () => {
     const body = placeScreen('book', 'Memory Book', 'linear-gradient(180deg,#FFF3C4,#FFF9F5 60%)');
+    const tabs = el(`<div style="display:flex;gap:14px">
+      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? 'background:var(--butter)' : ''}">Memories</button>
+      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? 'background:var(--butter)' : ''}">Stickers</button></div>`);
+    body.appendChild(tabs);
+    $('#tab-mem', body).addEventListener('pointerdown', () => { tab = 'mem'; build(); });
+    $('#tab-stk', body).addEventListener('pointerdown', () => { tab = 'stickers'; build(); UA.audio.speak('Your sticker album! One sticker for every round you finish!'); });
+    if (tab === 'stickers') { buildStickers(body); return; }
     if (!UA.S.memoryBook.length) {
-      body.innerHTML = `<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>
-        <div style="width:200px">${myUni()}</div>`;
+      body.appendChild(el(`<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>`));
+      body.appendChild(el(`<div style="width:200px">${myUni()}</div>`));
       return;
     }
     const list = el('<div class="book-list"></div>');
@@ -4070,7 +4118,41 @@ UA.openBook = (pt) => {
     });
     body.appendChild(list);
   };
-  openPlace('book', '#FFF3C4', pt, build, `Our memory book! Tap a page and we remember it together!`);
+  openPlace('book', '#FFF3C4', pt, build, `Our memory book! Memories on one page, stickers on the other!`);
+};
+
+/* sticker album: a page per zone, silhouette slots for the uncollected */
+const STICKER_ART = ['star', 'flower', 'butterfly', 'balloon', 'strawberry', 'shell', 'kite', 'cupcake', 'bee', 'bird', 'gift', 'ball'];
+const buildStickers = (body) => {
+  UA.ZONES.forEach(z => {
+    const got = (UA.S.stickers[z.id] || []);
+    const page = got.length ? got.slice(-(got.length % PAGE_SIZE || PAGE_SIZE)) : [];
+    const fullPages = Math.floor(got.length / PAGE_SIZE);
+    const sect = el(`<div style="width:100%;max-width:760px">
+      <h3 style="color:var(--plum);margin:10px 4px">${z.name}${fullPages ? ` — ${fullPages} full page${fullPages > 1 ? 's' : ''}!` : ''}</h3>
+      <div class="stk-grid" style="border-color:${z.col}"></div></div>`);
+    const grid = $('.stk-grid', sect);
+    for (let i = 0; i < PAGE_SIZE; i++) {
+      const st = page[i];
+      if (st) {
+        grid.appendChild(el(`<div class="stk-slot got ${st.rare ? 'rare' : ''}">
+          ${UA.sprite(STICKER_ART[(i + fullPages) % STICKER_ART.length])}
+          ${st.rare ? `<span class="stk-rare">${UA.sparkleSVG()}</span>` : ''}</div>`));
+      } else {
+        grid.appendChild(el(`<div class="stk-slot"><span style="opacity:.22;filter:grayscale(1)">${UA.sprite(STICKER_ART[(i + fullPages) % STICKER_ART.length])}</span></div>`));
+      }
+    }
+    body.appendChild(sect);
+  });
+};
+/* page-completion celebration: fired by the engine when a page fills */
+UA.stickerPageDone = (zoneId) => {
+  const z = UA.zoneById(zoneId);
+  UA.audio.sfx.fanfare();
+  UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 3 }, 'confetti', 26);
+  UA.memory.keep('stkpage-' + zoneId + '-' + (UA.S.stickers[zoneId].length / PAGE_SIZE),
+    `A whole sticker page of ${z.name} finished!`);
+  UA.audio.speak(`WOW! You filled a whole sticker page for ${z.name}! A brand new page is ready!`);
 };
 
 /* ---------- grown-ups' corner: gate + dashboard ---------- */

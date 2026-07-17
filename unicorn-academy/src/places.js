@@ -364,12 +364,20 @@ UA.memory = {
     UA.save();
   },
 };
-UA.openBook = (pt) => {
+const PAGE_SIZE = 12;                                       // sticker slots per album page
+UA.openBook = (pt, tab) => {
   const build = () => {
     const body = placeScreen('book', 'Memory Book', 'linear-gradient(180deg,#FFF3C4,#FFF9F5 60%)');
+    const tabs = el(`<div style="display:flex;gap:14px">
+      <button class="big-btn" id="tab-mem" style="font-size:22px;padding:12px 22px;${tab !== 'stickers' ? 'background:var(--butter)' : ''}">Memories</button>
+      <button class="big-btn" id="tab-stk" style="font-size:22px;padding:12px 22px;${tab === 'stickers' ? 'background:var(--butter)' : ''}">Stickers</button></div>`);
+    body.appendChild(tabs);
+    $('#tab-mem', body).addEventListener('pointerdown', () => { tab = 'mem'; build(); });
+    $('#tab-stk', body).addEventListener('pointerdown', () => { tab = 'stickers'; build(); UA.audio.speak('Your sticker album! One sticker for every round you finish!'); });
+    if (tab === 'stickers') { buildStickers(body); return; }
     if (!UA.S.memoryBook.length) {
-      body.innerHTML = `<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>
-        <div style="width:200px">${myUni()}</div>`;
+      body.appendChild(el(`<div class="stable-note" style="font-size:28px">Our adventures will be kept here!</div>`));
+      body.appendChild(el(`<div style="width:200px">${myUni()}</div>`));
       return;
     }
     const list = el('<div class="book-list"></div>');
@@ -385,7 +393,41 @@ UA.openBook = (pt) => {
     });
     body.appendChild(list);
   };
-  openPlace('book', '#FFF3C4', pt, build, `Our memory book! Tap a page and we remember it together!`);
+  openPlace('book', '#FFF3C4', pt, build, `Our memory book! Memories on one page, stickers on the other!`);
+};
+
+/* sticker album: a page per zone, silhouette slots for the uncollected */
+const STICKER_ART = ['star', 'flower', 'butterfly', 'balloon', 'strawberry', 'shell', 'kite', 'cupcake', 'bee', 'bird', 'gift', 'ball'];
+const buildStickers = (body) => {
+  UA.ZONES.forEach(z => {
+    const got = (UA.S.stickers[z.id] || []);
+    const page = got.length ? got.slice(-(got.length % PAGE_SIZE || PAGE_SIZE)) : [];
+    const fullPages = Math.floor(got.length / PAGE_SIZE);
+    const sect = el(`<div style="width:100%;max-width:760px">
+      <h3 style="color:var(--plum);margin:10px 4px">${z.name}${fullPages ? ` — ${fullPages} full page${fullPages > 1 ? 's' : ''}!` : ''}</h3>
+      <div class="stk-grid" style="border-color:${z.col}"></div></div>`);
+    const grid = $('.stk-grid', sect);
+    for (let i = 0; i < PAGE_SIZE; i++) {
+      const st = page[i];
+      if (st) {
+        grid.appendChild(el(`<div class="stk-slot got ${st.rare ? 'rare' : ''}">
+          ${UA.sprite(STICKER_ART[(i + fullPages) % STICKER_ART.length])}
+          ${st.rare ? `<span class="stk-rare">${UA.sparkleSVG()}</span>` : ''}</div>`));
+      } else {
+        grid.appendChild(el(`<div class="stk-slot"><span style="opacity:.22;filter:grayscale(1)">${UA.sprite(STICKER_ART[(i + fullPages) % STICKER_ART.length])}</span></div>`));
+      }
+    }
+    body.appendChild(sect);
+  });
+};
+/* page-completion celebration: fired by the engine when a page fills */
+UA.stickerPageDone = (zoneId) => {
+  const z = UA.zoneById(zoneId);
+  UA.audio.sfx.fanfare();
+  UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 3 }, 'confetti', 26);
+  UA.memory.keep('stkpage-' + zoneId + '-' + (UA.S.stickers[zoneId].length / PAGE_SIZE),
+    `A whole sticker page of ${z.name} finished!`);
+  UA.audio.speak(`WOW! You filled a whole sticker page for ${z.name}! A brand new page is ready!`);
 };
 
 /* ---------- grown-ups' corner: gate + dashboard ---------- */

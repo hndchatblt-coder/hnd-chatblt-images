@@ -194,6 +194,7 @@ const onCorrect = (el, pt) => {
   if (firstTry) E.roundFirstTry++;
   UA.ui.feedbackCorrect(el, pt);
   UA.audio.sfx.chime();
+  UA.audio.vibrate(30);                        // garnish only; no-op on iPad
   let praised = UA.pickFresh('praise', UA.PRAISE);
   if (E.isReview === 'sparkle') { UA.reward.gems(1, el); praised = 'Sparkle bonus! ' + praised; }
   UA.audio.speak(personalise(praised), { interrupt: true });
@@ -304,6 +305,8 @@ const roundEnd = () => {
   S.stickers[zid].push({ stage: id, rare });
   UA.save();                                    // rewards hit storage before celebration
   E.roundQ = 0; E.roundFirstTry = 0;
+  if (S.stickers[zid].length % 12 === 0 && UA.stickerPageDone)
+    setTimeout(() => UA.stickerPageDone(zid), 2600);   // after the round card
   if (UA.world && UA.world.roundHook(id)) return;   // coronation takes over the flow
   UA.ui.roundCelebration({ gems, perfect, rare, onDone: () => {
     if (!E.active) return;
