@@ -43,3 +43,15 @@ _One line per judgment call: decision + why. Maintained by the build session._
   rather than auto-teleporting into the last activity — the map IS the resume surface at four.
 - Sticker album lives as the second tab of the Memory Book (both are "look what we did" surfaces);
   pages hold 12 stickers, page completion celebrates and keeps a keepsake.
+- Polish round 2: full-bleed procedural zone scenes behind every activity with a translucent
+  readability panel; the wipe now carries the tapped zone's landmark (comprehension aid, per SPEC).
+- Kokoro-82M baked-narration pipeline: tools/make-voice-lines.js extracts 220 fixed atoms (letter
+  sounds/names, numbers, words, fixed lines); tools/generate-voice.py renders them with the
+  bf_isabella British voice ON THE PARENT'S MAC (this sandbox cannot reach the model weights);
+  build-game.js embeds any clips found in assets/voice/; audio.js plays exact-match clips and
+  falls back to device TTS for everything else (story frames, lines with her name).
+- Egg arrival moved to the next map visit — a star ceremony and an egg no longer stack.
+- Sparkle review is a deterministic every-5th-question counter, not a 20% dice roll.
+- Rotation mid-question re-renders the live question (engine state kept, layout recomputed).
+- Grown-ups' corner gained a copy/paste backup-and-restore code — iOS may purge localStorage.
+- Pages workflow now also publishes unicorn-academy/game.html as /academy.html for URL testing.

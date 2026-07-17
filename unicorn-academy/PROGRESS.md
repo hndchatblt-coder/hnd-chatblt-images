@@ -33,3 +33,10 @@ Rainbow Royale payout, hide-and-seek, silly days, surprise events and corrupt-sa
 proven via ?dev=1 scripts; real pointer interactions proven for drag / flip-pairs / jigsaw /
 tap-each / maze. Remaining real-device items (headless has no TTS voices): narration quality,
 music ducking feel, and touch feel on the actual iPad.
+
+Polish round 2 (2026-07-17, all verified — verify.js 0/0, 25/25 stage sweep, engine-rules,
+life-systems, real-touch all green): zone scenes + icon-carrying transitions; Kokoro baked-voice
+pipeline (tools/ + audio clip layer, TTS fallback); content expansion (frames 6-8 per key + 16 new
+stage keys, 24 sentences, 12 jokes, 24 praise, kitchen/pet line tables); host reactivity + maze
+trail + 4 jigsaw compositions; egg-on-map, deterministic reviews, rotation re-render, parent
+backup codes, /academy.html deploy.

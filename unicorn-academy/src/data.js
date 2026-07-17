@@ -108,6 +108,20 @@ UA.SENTENCES = [
   { t: ['My', ['hat'], 'is big.'], say: 'My hat is big.' },
   { t: ['The', ['duck'], 'can go.'], say: 'The duck can go.' },
   { t: ['The', ['bug'], 'is in.'], say: 'The bug is in.' },
+  { t: ['The', ['fox'], 'ran.'], say: 'The fox ran.' },
+  { t: ['The', ['owl'], 'sat.'], say: 'The owl sat.' },
+  { t: ['I', 'see', ['a', 'kite']], say: 'I see a kite.' },
+  { t: ['I', 'see', ['a', 'ball']], say: 'I see a ball.' },
+  { t: ['My', ['cup'], 'is red.'], say: 'My cup is red.' },
+  { t: ['My', ['van'], 'is big.'], say: 'My van is big.' },
+  { t: ['The', ['cow'], 'is up.'], say: 'The cow is up.' },
+  { t: ['The', ['bee'], 'can go.'], say: 'The bee can go.' },
+  { t: ['The', ['frog'], 'hid.'], say: 'The frog hid.' },
+  { t: ['We', 'see', ['a', 'boat']], say: 'We see a boat.' },
+  { t: ['We', 'see', ['a', 'train']], say: 'We see a train.' },
+  { t: ['The', ['mouse'], 'ran.'], say: 'The mouse ran.' },
+  { t: ['The', ['bird'], 'is in.'], say: 'The bird is in.' },
+  { t: ['The', ['bear'], 'sat.'], say: 'The bear sat.' },
 ];
 
 /* Beginning-sounds pool for R3: word -> sprite exists, first sound distinct. */
@@ -123,7 +137,7 @@ UA.COUNT_SPRITES = ['apple', 'strawberry', 'star', 'flower', 'balloon', 'butterf
 /* ---------- shapes (P1) — Tier 1 bespoke ---------- */
 UA.SHAPES = ['circle', 'square', 'triangle', 'star', 'rectangle', 'heart'];
 
-/* ---------- praise (growth mindset; "smart/clever/genius" banned game-wide) ---------- */
+/* ---------- praise (growth mindset; ability-labelling words are banned game-wide) ---------- */
 UA.PRAISE = [
   'You worked that out, %NAME%!', 'You kept trying and you got it!', 'Wow %NAME%, you found it!',
   'You listened so carefully!', 'That was tricky, and you did it!', 'Look at you go, %NAME%!',
@@ -131,12 +145,21 @@ UA.PRAISE = [
   'That took real thinking!', 'You did it all by yourself!', 'Hooray, %NAME%! You tried and tried!',
   'Beautiful work, %NAME%!', 'You looked so closely!', 'Your practising is working!',
   'Yes! You figured it out!', 'Great trying, %NAME%!', 'You are getting stronger at this!',
+  'You tried a new way, %NAME%!', 'You stuck with it, %NAME%, and got there!',
+  'Great strategy, %NAME%!', 'You did not give up, %NAME%!',
+  'Your hard work paid off!', 'Well tried, %NAME%! You got there!',
 ];
-UA.TRY_AGAIN = ['Almost! Try again!', 'Ooh, so close! Have another go!', 'Not that one — you can find it!', 'Keep looking, %NAME%!'];
-UA.REVEAL_LINES = ['Here it is! Let’s do it together!', 'This one! Let’s look at it together!', 'Here! We found it together!'];
+UA.TRY_AGAIN = [
+  'Almost! Try again!', 'Ooh, so close! Have another go!', 'Not that one — you can find it!', 'Keep looking, %NAME%!',
+  'Oopsie! Give it another try!', 'So close! Have another peek!', 'Not quite — try once more!', 'Nearly! You can find it, %NAME%!',
+];
+UA.REVEAL_LINES = [
+  'Here it is! Let’s do it together!', 'This one! Let’s look at it together!', 'Here! We found it together!',
+  'Look, here it is! We found it together!', 'This is the one! Let’s try it together!', 'Here it is, safe and sound! Together now!',
+];
 
 /* ---------- unicorn & baby names (spoken tappable list) ---------- */
-UA.UNI_NAMES = ['Sparkle', 'Rosie', 'Star', 'Moonbeam', 'Petal', 'Twinkle'];
+UA.UNI_NAMES = ['Sparkle', 'Rosie', 'Star', 'Moonbeam', 'Petal', 'Twinkle', 'Clover', 'Sunny', 'Pearl', 'Poppy'];
 UA.BABY_QUIRKS = ['sleepy', 'chaser', 'sneezy', 'bouncy', 'singer', 'spinner'];
 
 /* ---------- story frames: %Q is the core question line ---------- */
@@ -146,61 +169,221 @@ UA.FRAMES = {
     'A little bee needs help! %Q',
     'The meadow butterflies are playing a game! %Q',
     'Ooh, the tall grass is whispering! %Q',
+    'A fairy dropped her letter basket! %Q',
+    'The daisies are giggling with a secret! %Q',
+    'Buzz buzz! The bees need a helper! %Q',
+    'The meadow gate opens for just one letter! %Q',
   ],
   R1: [
     'The flower fairies painted letters! %Q',
     'A ladybird landed on a letter! %Q',
     'The letters are playing hide and seek! %Q',
+    'A snail is looking for its letter home! %Q',
+    'The bee left letter footprints in the dew! %Q',
+    'Sunbeams are shining on the letters! %Q',
+    'A caterpillar is munching towards a letter! %Q',
   ],
   R2: [
     'Listen! A flower is singing a sound! %Q',
     'The wind is whooshing a letter sound! %Q',
     'A baby bird is practising a sound! %Q',
+    'The bees are humming a tune! %Q',
+    'A cricket is chirping a sound for you! %Q',
+    'The meadow echo wants to copy a sound! %Q',
+    'Shh, a little seed is whispering its sound! %Q',
   ],
   R3: [
     'The picnic basket spilled! %Q',
     'The babies are so hungry! %Q',
     'The meadow shop needs sorting! %Q',
+    'A hungry duckling waddled over! %Q',
+    'The basket tipped over in the breeze! %Q',
+    'Snack time — but which one goes first? %Q',
+    'The bunny is looking for its lunch! %Q',
+  ],
+  R4: [
+    'The talking flower is sounding out a word! %Q',
+    'The garden gnome is stretching out the sounds! %Q',
+    'A seed is slowly waking up into a word! %Q',
+    'Listen close — the vine is spelling it out loud! %Q',
+    'The gnome is blending sounds like magic soup! %Q',
+  ],
+  R5: [
+    'The word garden needs its letters planted! %Q',
+    'The gnome dropped his letter blocks! %Q',
+    'Help the seed grow into a whole word! %Q',
+    'The flower pot is missing its letters! %Q',
+    'Plant the sounds and watch the word bloom! %Q',
+  ],
+  R6: [
+    'The gnome found a tricky double sound! %Q',
+    'Two letters are holding hands and singing! %Q',
+    'The garden pond is rippling with a sound! %Q',
+    'A funny sound is hiding in the leaves! %Q',
+    'The flower whispered a sneaky sound duo! %Q',
+  ],
+  R7: [
+    'The gnome keeps this word in his special jar! %Q',
+    'This word grows in every garden bed! %Q',
+    'The seed packet has a word on it! %Q',
+    'A word butterfly landed on the fence! %Q',
+    'The garden sign needs its word back! %Q',
   ],
   'number-mountain': [
     'The mountain goats need help! %Q',
     'We are climbing higher! %Q',
     'The snow sprites are counting! %Q',
+    'A goat is stuck on a rocky ledge! %Q',
+    'The snow sprites dropped their snowballs! %Q',
+    'Up, up the mountain we go! %Q',
+    'The climbing rope needs counting first! %Q',
+  ],
+  M1: [
+    'Quick! The snow sprite flashed a number! %Q',
+    'Blink and you will miss it — look fast! %Q',
+    'The goats hopped into a little group! %Q',
+    'A snowflake pattern twinkled on the mountain! %Q',
+    'The sprite is testing your quick eyes! %Q',
   ],
   M2: [
     'The bridge needs planks — count them on! %Q',
     'The picnic needs treats! %Q',
     'The baby goats are lining up! %Q',
+    'Tap each one so it does not get lost! %Q',
+    'The snow sprites are counting their footprints! %Q',
+    'One by one, help them cross the bridge! %Q',
+    'The mountain train needs its carriages counted! %Q',
+  ],
+  M3: [
+    'The mountain sign is missing a number! %Q',
+    'A goat is standing by the wrong number! %Q',
+    'The snow sprites carved numbers in the ice! %Q',
+    'Find the number before the giggly avalanche! %Q',
+    'The climbing flags each show a number! %Q',
+  ],
+  M4: [
+    'Which goat has more snowballs? %Q',
+    'The sprites are comparing their icicles! %Q',
+    'One ribbon is longer on the mountain path! %Q',
+    'The goats are lining up by size! %Q',
+    'Look closely — which pile is bigger? %Q',
+  ],
+  M6: [
+    'The ten-frame is only half full! %Q',
+    'Some snowflakes are hiding in the mountain mist! %Q',
+    'The goats split into two little groups! %Q',
+    'Part of the number is hiding behind the peak! %Q',
+    'The sprites shared their snowballs into two piles! %Q',
   ],
   M7: [
     'More friends came to the party! %Q',
     'The basket got fuller! %Q',
     'Snack time on the mountain! %Q',
+    'More snowflakes floated down to join! %Q',
+    'The goats invited a few more friends! %Q',
+    'Look, even more sprites arrived to play! %Q',
+    'The pile keeps growing — how many now? %Q',
   ],
   M8: [
     'Some bunnies hopped away! %Q',
     'Whoosh! Some flew off! %Q',
     'Munch munch — some got eaten! %Q',
+    'A few snowballs melted in the sun! %Q',
+    'Some goats wandered off to nap! %Q',
+    'Some sprites flew home for supper! %Q',
+    'The wind blew a few snowflakes away! %Q',
+  ],
+  M9: [
+    'The mountain path follows a pattern! %Q',
+    'The frogs are jumping by twos up the rocks! %Q',
+    'Snow sprites lined up in a colourful pattern! %Q',
+    'What comes next on the climbing trail? %Q',
+    'The goats are hopping to a beat! %Q',
   ],
   'memory-clouds': [
     'The clouds are playing peek-a-boo! %Q',
     'Shhh — the sky is hiding things! %Q',
     'The stars tucked themselves in! %Q',
+    'A cloud puffed up and hid a surprise! %Q',
+    'Twinkle twinkle — remember where the star went! %Q',
+    'The sky is playing a sneaky little game! %Q',
+    'Watch closely before the clouds drift by! %Q',
+  ],
+  PK: [
+    'Peek-a-boo! The clouds are hiding a friend! %Q',
+    'Ready or not, the stars are hiding! %Q',
+    'The moon is playing peek-a-boo tonight! %Q',
+    'Which cloud is puffing its cheeks with a secret? %Q',
+    'Shh, the sky is counting to hide! %Q',
+  ],
+  P1: [
+    'A cloud is shaped like something special! %Q',
+    'The stars are hiding in different shapes! %Q',
+    'Which shape is floating by tonight? %Q',
+    'The moon drew a shape in the sky! %Q',
+    'A fluffy cloud shifted into a shape! %Q',
+  ],
+  P4: [
+    'The clouds hid two matching friends! %Q',
+    'Peek-a-boo! Find the matching pair! %Q',
+    'The stars are playing a matching game! %Q',
+    'Two clouds are hiding the same secret! %Q',
+    'Remember where the twinkly pair went! %Q',
   ],
   'word-garden': [
     'A word seed is sprouting! %Q',
     'The garden gnome mixed up his labels! %Q',
     'The talking rose has a riddle! %Q',
+    'The vines are curling around a word! %Q',
+    'A ladybird is reading — well, nearly! %Q',
+    'The gnome tipped his wheelbarrow of words! %Q',
+    'The garden fountain is bubbling with sounds! %Q',
   ],
   'puzzle-falls': [
     'The waterfall splashed the puzzle apart! %Q',
     'The river fish love this game! %Q',
     'Drip drop — a puzzle appeared! %Q',
+    'The splashes scattered pieces everywhere! %Q',
+    'A fish nudged a puzzle piece downstream! %Q',
+    'The waterfall is giggling with bubbles! %Q',
+    'Splish splash — put it back together! %Q',
+  ],
+  P2: [
+    'The waterfall scattered the picture into pieces! %Q',
+    'The river fish nudged the pieces around! %Q',
+    'Splash! Help put the picture back together! %Q',
+    'A piece floated downstream — catch it! %Q',
+    'The falls washed the puzzle apart! %Q',
+  ],
+  P3: [
+    'The river fish are swimming in a pattern! %Q',
+    'Beads bounced down the waterfall in order! %Q',
+    'What splashes next in the pattern? %Q',
+    'The falls are dripping in a rhythm! %Q',
+    'The fish are lining up just so! %Q',
+  ],
+  P5: [
+    'The river winds through the falls — follow it! %Q',
+    'Hop along the stepping stones! %Q',
+    'The fish need a path through the splashes! %Q',
+    'Follow the glowing trail through the falls! %Q',
+    'Which way does the little stream go? %Q',
+  ],
+  P6: [
+    'One fish does not belong in this splash! %Q',
+    'Sort the pebbles before the falls wash them away! %Q',
+    'Which one is different by the riverbank? %Q',
+    'The waterfall mixed everything up — sort it! %Q',
+    'One little drop looks a bit different! %Q',
   ],
   'crystal-castle': [
     'A royal challenge, %NAME% the hero! %Q',
     'The crystal throne is glowing! %Q',
     'The kingdom is watching, champion! %Q',
+    'The royal trumpets are sounding! %Q',
+    'A crystal challenge sparkles before you! %Q',
+    'The champions’ hall awaits your turn! %Q',
+    'The crown jewels twinkle for this challenge! %Q',
   ],
 };
 UA.frameFor = (stageId, zoneId) => {
@@ -273,6 +456,54 @@ UA.JOKES = [
   'Why did the banana go to the doctor? It was not peeling well!',
   'What do you call a unicorn with no horn? ... A pony! Hee hee!',
   'Knock knock! Who is there? Moo. Moo who? No silly, cows go moo, owls go who!',
+  'What does a duck say when it buys lipstick? Put it on my BILL! Quack quack!',
+  'Why did the sheep cross the road? To get to the baa-baa shop! Baa!',
+  'What do you call a sleepy unicorn? ... A snoozicorn! Zzzzz!',
+  'Knock knock! Who is there? Boo. Boo who? Aww, do not cry, it is only a joke!',
+  'What does a bee say on a hot day? ... Buzz buzz, phew!',
+  'Why did the little pig bring a blanket? Because it wanted to be a snug-bug! Oink oink!',
+  'What did the horse say to the carrot? ... Nothing, horses cannot talk! Neigh! Hee hee!',
+  'What do you call a dancing unicorn? ... A dizzy-corn! Wheee!',
+];
+
+/* ---------- unicorn kitchen (toy corner): stack sprites into a "cake" ---------- */
+UA.KITCHEN_YUM = [
+  'Mmmmm! %ITEMS% cake is the best cake ever!',
+  'Yum yum yum! That was delicious!',
+  'Ooh, %ITEMS%! My favourite flavour!',
+  'Nom nom nom! More please!',
+  'That cake made my whole tail sparkle!',
+  'Yummy! %ITEMS% taste like sunshine!',
+  'Slurp! Best cake in the whole meadow!',
+  'Mmm, so sweet! Bake me another one!',
+  'That was scrumptious, %ITEMS% and all!',
+  'Happy tummy! Let us make more cake!',
+];
+UA.KITCHEN_YUCK = [
+  'A sock in my cake? BLEURGH! Hee hee, do it again!',
+  'Ooh, %ITEMS%?! BLEURGH! That tickled my tongue!',
+  'A fish cake?! BLEURGH! Ha ha, so silly!',
+  'Ick, a drum in my cake! BLEURGH! Make another one!',
+  'Whoa, %ITEMS%! BLEURGH! Hee hee, again again!',
+  'That fizzed and popped! BLEURGH! So funny!',
+  'Bleurgh, that was wobbly and weird! Hee hee!',
+  'My whole face went squiggly! BLEURGH! Do it again!',
+  'Yikes, %ITEMS% cake! BLEURGH! What a giggle!',
+  'That was the silliest cake yet! BLEURGH! More please!',
+];
+
+/* ---------- petting reactions (no rewards attached; debounced) ---------- */
+UA.PET_LINES = [
+  'Giggle! That tickles!',
+  'Ooh, sparkle shivers!',
+  'Hee hee, right there!',
+  'Nuzzle nuzzle, %NAME%!',
+  'That feels lovely!',
+  'Hee hee, again please!',
+  'Sparkles everywhere! Giggle!',
+  'You give the best pats, %NAME%!',
+  'Ooh, my mane feels tingly!',
+  'Snuggle time, %NAME%! Hee hee!',
 ];
 
 /* ---------- adult gate codes ---------- */

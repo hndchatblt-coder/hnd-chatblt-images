@@ -222,6 +222,13 @@ UA.widgets.tapSequence = {
       ? '<div style="position:relative;width:100%;height:100%;min-height:400px"></div>'
       : '<div class="options-grid"></div>');
     area.appendChild(field);
+    if (positioned) {                          // a dotted trail makes the path legible
+      const pts = q.sequence.map(s => `${s.x},${s.y}`).join(' ');
+      field.appendChild(el(`<svg viewBox="0 0 100 100" preserveAspectRatio="none"
+        style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+        <polyline points="${pts}" fill="none" stroke="rgba(92,74,102,.35)" stroke-width="5"
+          stroke-dasharray="1 12" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`));
+    }
     let next = 0;
     q.sequence.forEach((s, i) => {
       const b = optBtn({ id: s.id, html: s.html }, q.cardSize || 140);

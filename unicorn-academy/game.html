@@ -134,11 +134,18 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 /* ---------- screens & transition wipe ---------- */
 .screen{position:fixed;inset:0;display:none;overflow:hidden}
 .screen.show{display:block}
-#wipe{position:fixed;inset:-20%;z-index:55;pointer-events:none;display:none;
+#wipe{position:fixed;inset:-20%;z-index:55;pointer-events:none;
   border-radius:50%;transform:scale(0);display:flex;align-items:center;justify-content:center;visibility:hidden}
 #wipe.run{visibility:visible}
-#wipe svg{width:120px;height:120px;opacity:0}
-#wipe.run svg{opacity:1;transition:opacity .15s ease}
+.wipe-icon{width:150px;height:150px;opacity:0}
+.wipe-icon svg{width:100%;height:100%}
+#wipe.run .wipe-icon{opacity:1;transition:opacity .18s ease;animation:wipe-icon-pop .5s cubic-bezier(.34,1.56,.64,1)}
+@keyframes wipe-icon-pop{0%{transform:scale(.5)}100%{transform:scale(1)}}
+
+/* soft readability panel between the drawn zone scene and the question */
+.stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);
+  top:calc(96px + var(--sat));bottom:calc(14px + var(--sab));
+  background:rgba(255,249,245,.66);border-radius:38px;box-shadow:0 10px 40px rgba(92,74,102,.18)}
 
 /* ---------- shared chrome ---------- */
 .big-btn{border:none;border-radius:32px;padding:20px 34px;font-size:30px;font-weight:800;
@@ -548,6 +555,20 @@ UA.SENTENCES = [
   { t: ['My', ['hat'], 'is big.'], say: 'My hat is big.' },
   { t: ['The', ['duck'], 'can go.'], say: 'The duck can go.' },
   { t: ['The', ['bug'], 'is in.'], say: 'The bug is in.' },
+  { t: ['The', ['fox'], 'ran.'], say: 'The fox ran.' },
+  { t: ['The', ['owl'], 'sat.'], say: 'The owl sat.' },
+  { t: ['I', 'see', ['a', 'kite']], say: 'I see a kite.' },
+  { t: ['I', 'see', ['a', 'ball']], say: 'I see a ball.' },
+  { t: ['My', ['cup'], 'is red.'], say: 'My cup is red.' },
+  { t: ['My', ['van'], 'is big.'], say: 'My van is big.' },
+  { t: ['The', ['cow'], 'is up.'], say: 'The cow is up.' },
+  { t: ['The', ['bee'], 'can go.'], say: 'The bee can go.' },
+  { t: ['The', ['frog'], 'hid.'], say: 'The frog hid.' },
+  { t: ['We', 'see', ['a', 'boat']], say: 'We see a boat.' },
+  { t: ['We', 'see', ['a', 'train']], say: 'We see a train.' },
+  { t: ['The', ['mouse'], 'ran.'], say: 'The mouse ran.' },
+  { t: ['The', ['bird'], 'is in.'], say: 'The bird is in.' },
+  { t: ['The', ['bear'], 'sat.'], say: 'The bear sat.' },
 ];
 
 /* Beginning-sounds pool for R3: word -> sprite exists, first sound distinct. */
@@ -563,7 +584,7 @@ UA.COUNT_SPRITES = ['apple', 'strawberry', 'star', 'flower', 'balloon', 'butterf
 /* ---------- shapes (P1) — Tier 1 bespoke ---------- */
 UA.SHAPES = ['circle', 'square', 'triangle', 'star', 'rectangle', 'heart'];
 
-/* ---------- praise (growth mindset; "smart/clever/genius" banned game-wide) ---------- */
+/* ---------- praise (growth mindset; ability-labelling words are banned game-wide) ---------- */
 UA.PRAISE = [
   'You worked that out, %NAME%!', 'You kept trying and you got it!', 'Wow %NAME%, you found it!',
   'You listened so carefully!', 'That was tricky, and you did it!', 'Look at you go, %NAME%!',
@@ -571,12 +592,21 @@ UA.PRAISE = [
   'That took real thinking!', 'You did it all by yourself!', 'Hooray, %NAME%! You tried and tried!',
   'Beautiful work, %NAME%!', 'You looked so closely!', 'Your practising is working!',
   'Yes! You figured it out!', 'Great trying, %NAME%!', 'You are getting stronger at this!',
+  'You tried a new way, %NAME%!', 'You stuck with it, %NAME%, and got there!',
+  'Great strategy, %NAME%!', 'You did not give up, %NAME%!',
+  'Your hard work paid off!', 'Well tried, %NAME%! You got there!',
 ];
-UA.TRY_AGAIN = ['Almost! Try again!', 'Ooh, so close! Have another go!', 'Not that one — you can find it!', 'Keep looking, %NAME%!'];
-UA.REVEAL_LINES = ['Here it is! Let’s do it together!', 'This one! Let’s look at it together!', 'Here! We found it together!'];
+UA.TRY_AGAIN = [
+  'Almost! Try again!', 'Ooh, so close! Have another go!', 'Not that one — you can find it!', 'Keep looking, %NAME%!',
+  'Oopsie! Give it another try!', 'So close! Have another peek!', 'Not quite — try once more!', 'Nearly! You can find it, %NAME%!',
+];
+UA.REVEAL_LINES = [
+  'Here it is! Let’s do it together!', 'This one! Let’s look at it together!', 'Here! We found it together!',
+  'Look, here it is! We found it together!', 'This is the one! Let’s try it together!', 'Here it is, safe and sound! Together now!',
+];
 
 /* ---------- unicorn & baby names (spoken tappable list) ---------- */
-UA.UNI_NAMES = ['Sparkle', 'Rosie', 'Star', 'Moonbeam', 'Petal', 'Twinkle'];
+UA.UNI_NAMES = ['Sparkle', 'Rosie', 'Star', 'Moonbeam', 'Petal', 'Twinkle', 'Clover', 'Sunny', 'Pearl', 'Poppy'];
 UA.BABY_QUIRKS = ['sleepy', 'chaser', 'sneezy', 'bouncy', 'singer', 'spinner'];
 
 /* ---------- story frames: %Q is the core question line ---------- */
@@ -586,61 +616,221 @@ UA.FRAMES = {
     'A little bee needs help! %Q',
     'The meadow butterflies are playing a game! %Q',
     'Ooh, the tall grass is whispering! %Q',
+    'A fairy dropped her letter basket! %Q',
+    'The daisies are giggling with a secret! %Q',
+    'Buzz buzz! The bees need a helper! %Q',
+    'The meadow gate opens for just one letter! %Q',
   ],
   R1: [
     'The flower fairies painted letters! %Q',
     'A ladybird landed on a letter! %Q',
     'The letters are playing hide and seek! %Q',
+    'A snail is looking for its letter home! %Q',
+    'The bee left letter footprints in the dew! %Q',
+    'Sunbeams are shining on the letters! %Q',
+    'A caterpillar is munching towards a letter! %Q',
   ],
   R2: [
     'Listen! A flower is singing a sound! %Q',
     'The wind is whooshing a letter sound! %Q',
     'A baby bird is practising a sound! %Q',
+    'The bees are humming a tune! %Q',
+    'A cricket is chirping a sound for you! %Q',
+    'The meadow echo wants to copy a sound! %Q',
+    'Shh, a little seed is whispering its sound! %Q',
   ],
   R3: [
     'The picnic basket spilled! %Q',
     'The babies are so hungry! %Q',
     'The meadow shop needs sorting! %Q',
+    'A hungry duckling waddled over! %Q',
+    'The basket tipped over in the breeze! %Q',
+    'Snack time — but which one goes first? %Q',
+    'The bunny is looking for its lunch! %Q',
+  ],
+  R4: [
+    'The talking flower is sounding out a word! %Q',
+    'The garden gnome is stretching out the sounds! %Q',
+    'A seed is slowly waking up into a word! %Q',
+    'Listen close — the vine is spelling it out loud! %Q',
+    'The gnome is blending sounds like magic soup! %Q',
+  ],
+  R5: [
+    'The word garden needs its letters planted! %Q',
+    'The gnome dropped his letter blocks! %Q',
+    'Help the seed grow into a whole word! %Q',
+    'The flower pot is missing its letters! %Q',
+    'Plant the sounds and watch the word bloom! %Q',
+  ],
+  R6: [
+    'The gnome found a tricky double sound! %Q',
+    'Two letters are holding hands and singing! %Q',
+    'The garden pond is rippling with a sound! %Q',
+    'A funny sound is hiding in the leaves! %Q',
+    'The flower whispered a sneaky sound duo! %Q',
+  ],
+  R7: [
+    'The gnome keeps this word in his special jar! %Q',
+    'This word grows in every garden bed! %Q',
+    'The seed packet has a word on it! %Q',
+    'A word butterfly landed on the fence! %Q',
+    'The garden sign needs its word back! %Q',
   ],
   'number-mountain': [
     'The mountain goats need help! %Q',
     'We are climbing higher! %Q',
     'The snow sprites are counting! %Q',
+    'A goat is stuck on a rocky ledge! %Q',
+    'The snow sprites dropped their snowballs! %Q',
+    'Up, up the mountain we go! %Q',
+    'The climbing rope needs counting first! %Q',
+  ],
+  M1: [
+    'Quick! The snow sprite flashed a number! %Q',
+    'Blink and you will miss it — look fast! %Q',
+    'The goats hopped into a little group! %Q',
+    'A snowflake pattern twinkled on the mountain! %Q',
+    'The sprite is testing your quick eyes! %Q',
   ],
   M2: [
     'The bridge needs planks — count them on! %Q',
     'The picnic needs treats! %Q',
     'The baby goats are lining up! %Q',
+    'Tap each one so it does not get lost! %Q',
+    'The snow sprites are counting their footprints! %Q',
+    'One by one, help them cross the bridge! %Q',
+    'The mountain train needs its carriages counted! %Q',
+  ],
+  M3: [
+    'The mountain sign is missing a number! %Q',
+    'A goat is standing by the wrong number! %Q',
+    'The snow sprites carved numbers in the ice! %Q',
+    'Find the number before the giggly avalanche! %Q',
+    'The climbing flags each show a number! %Q',
+  ],
+  M4: [
+    'Which goat has more snowballs? %Q',
+    'The sprites are comparing their icicles! %Q',
+    'One ribbon is longer on the mountain path! %Q',
+    'The goats are lining up by size! %Q',
+    'Look closely — which pile is bigger? %Q',
+  ],
+  M6: [
+    'The ten-frame is only half full! %Q',
+    'Some snowflakes are hiding in the mountain mist! %Q',
+    'The goats split into two little groups! %Q',
+    'Part of the number is hiding behind the peak! %Q',
+    'The sprites shared their snowballs into two piles! %Q',
   ],
   M7: [
     'More friends came to the party! %Q',
     'The basket got fuller! %Q',
     'Snack time on the mountain! %Q',
+    'More snowflakes floated down to join! %Q',
+    'The goats invited a few more friends! %Q',
+    'Look, even more sprites arrived to play! %Q',
+    'The pile keeps growing — how many now? %Q',
   ],
   M8: [
     'Some bunnies hopped away! %Q',
     'Whoosh! Some flew off! %Q',
     'Munch munch — some got eaten! %Q',
+    'A few snowballs melted in the sun! %Q',
+    'Some goats wandered off to nap! %Q',
+    'Some sprites flew home for supper! %Q',
+    'The wind blew a few snowflakes away! %Q',
+  ],
+  M9: [
+    'The mountain path follows a pattern! %Q',
+    'The frogs are jumping by twos up the rocks! %Q',
+    'Snow sprites lined up in a colourful pattern! %Q',
+    'What comes next on the climbing trail? %Q',
+    'The goats are hopping to a beat! %Q',
   ],
   'memory-clouds': [
     'The clouds are playing peek-a-boo! %Q',
     'Shhh — the sky is hiding things! %Q',
     'The stars tucked themselves in! %Q',
+    'A cloud puffed up and hid a surprise! %Q',
+    'Twinkle twinkle — remember where the star went! %Q',
+    'The sky is playing a sneaky little game! %Q',
+    'Watch closely before the clouds drift by! %Q',
+  ],
+  PK: [
+    'Peek-a-boo! The clouds are hiding a friend! %Q',
+    'Ready or not, the stars are hiding! %Q',
+    'The moon is playing peek-a-boo tonight! %Q',
+    'Which cloud is puffing its cheeks with a secret? %Q',
+    'Shh, the sky is counting to hide! %Q',
+  ],
+  P1: [
+    'A cloud is shaped like something special! %Q',
+    'The stars are hiding in different shapes! %Q',
+    'Which shape is floating by tonight? %Q',
+    'The moon drew a shape in the sky! %Q',
+    'A fluffy cloud shifted into a shape! %Q',
+  ],
+  P4: [
+    'The clouds hid two matching friends! %Q',
+    'Peek-a-boo! Find the matching pair! %Q',
+    'The stars are playing a matching game! %Q',
+    'Two clouds are hiding the same secret! %Q',
+    'Remember where the twinkly pair went! %Q',
   ],
   'word-garden': [
     'A word seed is sprouting! %Q',
     'The garden gnome mixed up his labels! %Q',
     'The talking rose has a riddle! %Q',
+    'The vines are curling around a word! %Q',
+    'A ladybird is reading — well, nearly! %Q',
+    'The gnome tipped his wheelbarrow of words! %Q',
+    'The garden fountain is bubbling with sounds! %Q',
   ],
   'puzzle-falls': [
     'The waterfall splashed the puzzle apart! %Q',
     'The river fish love this game! %Q',
     'Drip drop — a puzzle appeared! %Q',
+    'The splashes scattered pieces everywhere! %Q',
+    'A fish nudged a puzzle piece downstream! %Q',
+    'The waterfall is giggling with bubbles! %Q',
+    'Splish splash — put it back together! %Q',
+  ],
+  P2: [
+    'The waterfall scattered the picture into pieces! %Q',
+    'The river fish nudged the pieces around! %Q',
+    'Splash! Help put the picture back together! %Q',
+    'A piece floated downstream — catch it! %Q',
+    'The falls washed the puzzle apart! %Q',
+  ],
+  P3: [
+    'The river fish are swimming in a pattern! %Q',
+    'Beads bounced down the waterfall in order! %Q',
+    'What splashes next in the pattern? %Q',
+    'The falls are dripping in a rhythm! %Q',
+    'The fish are lining up just so! %Q',
+  ],
+  P5: [
+    'The river winds through the falls — follow it! %Q',
+    'Hop along the stepping stones! %Q',
+    'The fish need a path through the splashes! %Q',
+    'Follow the glowing trail through the falls! %Q',
+    'Which way does the little stream go? %Q',
+  ],
+  P6: [
+    'One fish does not belong in this splash! %Q',
+    'Sort the pebbles before the falls wash them away! %Q',
+    'Which one is different by the riverbank? %Q',
+    'The waterfall mixed everything up — sort it! %Q',
+    'One little drop looks a bit different! %Q',
   ],
   'crystal-castle': [
     'A royal challenge, %NAME% the hero! %Q',
     'The crystal throne is glowing! %Q',
     'The kingdom is watching, champion! %Q',
+    'The royal trumpets are sounding! %Q',
+    'A crystal challenge sparkles before you! %Q',
+    'The champions’ hall awaits your turn! %Q',
+    'The crown jewels twinkle for this challenge! %Q',
   ],
 };
 UA.frameFor = (stageId, zoneId) => {
@@ -713,11 +903,64 @@ UA.JOKES = [
   'Why did the banana go to the doctor? It was not peeling well!',
   'What do you call a unicorn with no horn? ... A pony! Hee hee!',
   'Knock knock! Who is there? Moo. Moo who? No silly, cows go moo, owls go who!',
+  'What does a duck say when it buys lipstick? Put it on my BILL! Quack quack!',
+  'Why did the sheep cross the road? To get to the baa-baa shop! Baa!',
+  'What do you call a sleepy unicorn? ... A snoozicorn! Zzzzz!',
+  'Knock knock! Who is there? Boo. Boo who? Aww, do not cry, it is only a joke!',
+  'What does a bee say on a hot day? ... Buzz buzz, phew!',
+  'Why did the little pig bring a blanket? Because it wanted to be a snug-bug! Oink oink!',
+  'What did the horse say to the carrot? ... Nothing, horses cannot talk! Neigh! Hee hee!',
+  'What do you call a dancing unicorn? ... A dizzy-corn! Wheee!',
+];
+
+/* ---------- unicorn kitchen (toy corner): stack sprites into a "cake" ---------- */
+UA.KITCHEN_YUM = [
+  'Mmmmm! %ITEMS% cake is the best cake ever!',
+  'Yum yum yum! That was delicious!',
+  'Ooh, %ITEMS%! My favourite flavour!',
+  'Nom nom nom! More please!',
+  'That cake made my whole tail sparkle!',
+  'Yummy! %ITEMS% taste like sunshine!',
+  'Slurp! Best cake in the whole meadow!',
+  'Mmm, so sweet! Bake me another one!',
+  'That was scrumptious, %ITEMS% and all!',
+  'Happy tummy! Let us make more cake!',
+];
+UA.KITCHEN_YUCK = [
+  'A sock in my cake? BLEURGH! Hee hee, do it again!',
+  'Ooh, %ITEMS%?! BLEURGH! That tickled my tongue!',
+  'A fish cake?! BLEURGH! Ha ha, so silly!',
+  'Ick, a drum in my cake! BLEURGH! Make another one!',
+  'Whoa, %ITEMS%! BLEURGH! Hee hee, again again!',
+  'That fizzed and popped! BLEURGH! So funny!',
+  'Bleurgh, that was wobbly and weird! Hee hee!',
+  'My whole face went squiggly! BLEURGH! Do it again!',
+  'Yikes, %ITEMS% cake! BLEURGH! What a giggle!',
+  'That was the silliest cake yet! BLEURGH! More please!',
+];
+
+/* ---------- petting reactions (no rewards attached; debounced) ---------- */
+UA.PET_LINES = [
+  'Giggle! That tickles!',
+  'Ooh, sparkle shivers!',
+  'Hee hee, right there!',
+  'Nuzzle nuzzle, %NAME%!',
+  'That feels lovely!',
+  'Hee hee, again please!',
+  'Sparkles everywhere! Giggle!',
+  'You give the best pats, %NAME%!',
+  'Ooh, my mane feels tingly!',
+  'Snuggle time, %NAME%! Hee hee!',
 ];
 
 /* ---------- adult gate codes ---------- */
 UA.GATE_DIGITS = () => { const d = []; while (d.length < 3) { const n = 1 + UA.rand(9); if (!d.includes(n)) d.push(n); } return d; };
 
+</script>
+<script>
+/* baked narration clips (generated by tools/generate-voice.py, embedded by
+   build-game.js when assets/voice/ exists; empty object = pure TTS) */
+UA.VOICE_CLIPS = /* VOICE_PACK_JSON */{};
 </script>
 <script>
 /* ================= Unicorn Academy — art system =================
@@ -999,20 +1242,80 @@ UA.landmark = (icon, col, col2) => {
   return `<svg class="zone-art" viewBox="0 0 120 120" aria-hidden="true"><g class="zone-bounce">${map[icon] || map.meadow}</g></svg>`;
 };
 
-/* jigsaw scene: one cute composed scene, deterministic by seed */
+/* ---------- full-bleed zone scenes behind activities ---------- */
+UA.zoneScene = (icon) => {
+  const W = 1000, H = 700;
+  const sky = { meadow: ['#CFF0FF', '#EAFBF0'], mountain: ['#BFE0FF', '#E8F4FF'], cloud: ['#D9CCFF', '#F3EBFF'],
+    garden: ['#FFD9EC', '#FFF3FA'], falls: ['#C8F0EC', '#EFFDFB'], castle: ['#FFE9B8', '#FFF9EA'] }[icon] || ['#E9DDFF', '#FFF9F5'];
+  let mid = '';
+  if (icon === 'meadow') {
+    mid = UA.gen.hills(W, H) + [...Array(9)].map(() => UA.gen.flower(30 + UA.rand(940), 480 + UA.rand(190), 11 + UA.rand(12))).join('') +
+      UA.gen.tree(70, 430, .9) + UA.gen.tree(930, 450, 1.05) + UA.gen.butterfly(200 + UA.rand(600), 160 + UA.rand(90), .9) +
+      UA.gen.butterfly(150 + UA.rand(200), 60 + UA.rand(40), .8) +
+      `<circle cx="880" cy="76" r="56" fill="#FFD97A" stroke="${O}" stroke-width="4"/>
+       ${[...Array(8)].map((_, i) => `<line x1="${880 + Math.cos(i * .785) * 72}" y1="${76 + Math.sin(i * .785) * 72}" x2="${880 + Math.cos(i * .785) * 92}" y2="${76 + Math.sin(i * .785) * 92}" stroke="#FFD97A" stroke-width="7" stroke-linecap="round"/>`).join('')}
+       <g opacity=".9">${UA.gen.cloud(180, 70, 1.2)}${UA.gen.cloud(480, 46, .9)}</g>`;
+  } else if (icon === 'mountain') {
+    mid = `<path d="M-40 ${H} L230 220 L400 470 L560 190 L760 500 L900 260 L1060 ${H}Z" fill="#9FCBEF" stroke="${O}" stroke-width="4"/>
+      <path d="M230 220 L286 320 L230 360 L180 310Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      <path d="M560 190 L610 290 L560 330 L512 282Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      <path d="M900 260 L940 340 L900 372 L862 332Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      ${UA.gen.cloud(300, 120, 1.2)} ${UA.gen.cloud(700, 80, .9)}
+      <path d="M0 ${H} Q ${W / 2} ${H - 160} ${W} ${H} Z" fill="#D2F5DC"/>`;
+  } else if (icon === 'cloud') {
+    mid = [...Array(7)].map((_, i) => UA.gen.cloud(80 + i * 150 + UA.rand(60), 120 + (i % 3) * 160 + UA.rand(60), 1 + (i % 3) * .4, '#fff', .85)).join('') +
+      [...Array(10)].map(() => UA.gen.sparkle(UA.rand(W), UA.rand(H * .6), .8 + Math.random(), '#FFF3C4')).join('') +
+      `<path d="M0 ${H} Q ${W / 2} ${H - 120} ${W} ${H} Z" fill="#E9DDFF"/>`;
+  } else if (icon === 'garden') {
+    mid = UA.gen.hills(W, H, ['#CBEFD6', '#ACE3BE', '#8FD6A6']) +
+      [...Array(12)].map((_, i) => UA.gen.flower(40 + i * 80 + UA.rand(30), 500 + (i % 2) * 90, 14 + UA.rand(10))).join('') +
+      `<path d="M120 470 Q120 300 260 300 Q400 300 400 470" fill="none" stroke="#E8A0C0" stroke-width="16" opacity=".8"/>` +
+      UA.gen.butterfly(500 + UA.rand(300), 200, 1);
+  } else if (icon === 'falls') {
+    mid = `<path d="M340 0 H660 V90 Q500 120 340 90Z" fill="#8AA5B8" stroke="${O}" stroke-width="4"/>
+      <path d="M400 90 Q380 330 320 ${H - 120} H680 Q620 330 600 90 Q500 112 400 90Z" fill="#9FE2DB" stroke="${O}" stroke-width="4"/>
+      <path d="M450 110 Q440 320 400 ${H - 140} M550 110 Q560 320 600 ${H - 140}" stroke="#fff" stroke-width="7" fill="none" opacity=".7"/>
+      <ellipse cx="500" cy="${H - 90}" rx="330" ry="70" fill="#C4F1ED" stroke="${O}" stroke-width="4"/>
+      ${UA.gen.sparkle(430, H - 120, 1.4, '#fff')} ${UA.gen.sparkle(580, H - 100, 1.1, '#fff')}`;
+  } else if (icon === 'castle') {
+    mid = `<g transform="translate(320,110) scale(3)" opacity=".95">${UA.landmark('castle', '#FFD97A', '#FFF3C4').replace(/<\/?svg[^>]*>/g, '').replace(/<g class="zone-bounce">|<\/g>$/g, '')}</g>
+      ${[...Array(8)].map(() => UA.gen.sparkle(UA.rand(W), UA.rand(H * .5), 1 + Math.random(), '#FFD97A')).join('')}
+      <path d="M0 ${H} Q ${W / 2} ${H - 130} ${W} ${H} Z" fill="#FFE9B8"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%">
+    <defs><linearGradient id="zs-${icon}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs>
+    <rect width="${W}" height="${H}" fill="url(#zs-${icon})"/>${mid}</svg>`;
+};
+
+/* jigsaw scenes: four distinct compositions, deterministic by seed */
 UA.jigsawScene = (seed) => {
   const r = (n) => { seed = (seed * 9301 + 49297) % 233280; return Math.floor(seed / 233280 * n); };
-  const sky = ['#D3ECFF', '#FFE9F4', '#FFF3C4'][r(3)];
-  let fl = '';
-  for (let i = 0; i < 6; i++) fl += UA.gen.flower(30 + i * 55 + r(20), 250 + r(30), 12 + r(8));
-  return `<svg viewBox="0 0 360 300" aria-hidden="true">
-    <rect width="360" height="300" fill="${sky}"/>
-    ${UA.gen.rainbow(180, 140, 120, 5, 14)}
-    ${UA.gen.hills(360, 300)}
-    ${UA.gen.cloud(70 + r(40), 60, 1)} ${UA.gen.cloud(280, 40 + r(30), .8)}
-    ${fl}
-    <g transform="translate(110,120) scale(.55)">${UA.unicornSVG({ body: UA.pick(P().bodies), mane: UA.pick(P().manes), noAnim: true })}</g>
-  </svg>`;
+  const kind = r(4);
+  const uni = (x, y, s) => `<g transform="translate(${x},${y}) scale(${s})">${UA.unicornSVG({ body: P().bodies[r(6)], mane: P().manes[r(6)], noAnim: true })}</g>`;
+  let sky, mid;
+  if (kind === 0) {              // rainbow meadow
+    sky = ['#D3ECFF', '#FFE9F4', '#FFF3C4'][r(3)];
+    let fl = ''; for (let i = 0; i < 6; i++) fl += UA.gen.flower(30 + i * 55 + r(20), 250 + r(30), 12 + r(8));
+    mid = `${UA.gen.rainbow(180, 140, 120, 5, 14)}${UA.gen.hills(360, 300)}
+      ${UA.gen.cloud(70 + r(40), 60, 1)} ${UA.gen.cloud(280, 40 + r(30), .8)}${fl}${uni(110, 120, .55)}`;
+  } else if (kind === 1) {       // starry night with a sleepy unicorn
+    sky = '#4A3E6E';
+    let st = ''; for (let i = 0; i < 14; i++) st += UA.gen.sparkle(20 + r(320), 15 + r(160), .7 + r(10) / 10, '#FFF3C4');
+    mid = `${st}<path d="M270 60 A34 34 0 1 0 270 128 A26 26 0 1 1 270 60Z" fill="#FFF3C4" stroke="${O}" stroke-width="3"/>
+      ${UA.gen.hills(360, 300, ['#5E7E68', '#4E6E58', '#3E5C48'])}${uni(120, 140, .5)}`;
+  } else if (kind === 2) {       // castle celebration
+    sky = '#FFE9B8';
+    mid = `<g transform="translate(105,40) scale(1.3)">${UA.landmark('castle', '#FFD97A', '#FFF3C4').replace(/<\/?svg[^>]*>/g, '')}</g>
+      ${UA.gen.hills(360, 300, ['#CBEFD6', '#ACE3BE', '#8FD6A6'])}
+      ${UA.gen.sparkle(60, 60, 1.4)} ${UA.gen.sparkle(300, 50, 1.2)} ${UA.gen.sparkle(180, 30, 1)}${uni(40, 150, .42)}${uni(230, 150, .42)}`;
+  } else {                       // butterfly picnic
+    sky = '#D2F5DC';
+    let bf = ''; for (let i = 0; i < 4; i++) bf += UA.gen.butterfly(50 + r(260), 40 + r(100), .8 + r(6) / 10);
+    mid = `${UA.gen.hills(360, 300)}${bf}${UA.gen.tree(56, 150, .8)}${UA.gen.tree(310, 160, .9)}
+      <use href="#p-strawberry" x="150" y="230" width="44" height="44"/><use href="#p-cupcake" x="205" y="240" width="40" height="40"/>${uni(110, 130, .5)}`;
+  }
+  return `<svg viewBox="0 0 360 300" aria-hidden="true"><rect width="360" height="300" fill="${sky}"/>${mid}</svg>`;
 };
 })();
 
@@ -1158,6 +1461,54 @@ function speakChunks(chunks, idx, gen, pitch, rate, resolve) {
   const safety = setTimeout(advance, 12000);
   try { synth.speak(u); } catch (e) { advance(); }
 }
+/* ---------- baked narration clips (Kokoro) — exact-text lookup, TTS fallback.
+   UA.VOICE_CLIPS = { key: { t: 'text', d: 'data:audio/mpeg;base64,...' } }. */
+let clipTextIndex = null;
+const normText = (s) => (s || '').toString().toLowerCase().replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ').trim();
+function clipKeyForText(text) {
+  const clips = UA.VOICE_CLIPS || {};
+  if (!clipTextIndex) {
+    clipTextIndex = {};
+    for (const k of Object.keys(clips)) clipTextIndex[normText(clips[k].t)] = k;
+  }
+  return clipTextIndex[normText(text)] || null;
+}
+let clipEl = null, clipGen = 0;
+function playClip(key) {
+  const c = (UA.VOICE_CLIPS || {})[key];
+  if (!c || !toggles.voice) return null;
+  const gen = ++clipGen;
+  return new Promise((resolve) => {
+    try {
+      if (!clipEl) clipEl = new Audio();
+      clipEl.pause();
+      clipEl.src = c.d;
+      clipEl.volume = Math.max(0, Math.min(1, toggles.vol));
+      UA.audio.duck(true);
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        clearTimeout(safety);
+        if (gen === clipGen) UA.audio.duck(false);
+        resolve(true);
+      };
+      const safety = setTimeout(finish, 12000);
+      clipEl.onended = finish;
+      clipEl.onerror = finish;
+      clipEl.play().catch(finish);
+    } catch (e) { resolve(false); }
+  });
+}
+UA.audio.hasClip = (key) => !!((UA.VOICE_CLIPS || {})[key]);
+UA.audio.clip = (key) => playClip(key) || Promise.resolve(false);
+/* play a sequence of clip keys (blending: sss... uuu... nnn... sun!) */
+UA.audio.speakSeq = function (keys, gapMs) {
+  speakGen++;                                   // supersede any TTS in flight
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  return keys.reduce((p, k) => p.then(() => playClip(k) || Promise.resolve())
+    .then(() => new Promise(r => setTimeout(r, gapMs == null ? 140 : gapMs))), Promise.resolve());
+};
+
 UA.audio.speak = function (text, opts) {
   opts = opts || {};
   const pitch = opts.pitch != null ? opts.pitch : 1.1;
@@ -1166,7 +1517,11 @@ UA.audio.speak = function (text, opts) {
   if (interrupt) {
     speakGen++;
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+    try { clipEl && clipEl.pause(); } catch (e) {}
   }
+  // a baked clip that says exactly this line beats TTS every time
+  const ck = clipKeyForText(text);
+  if (ck) { const pr = playClip(ck); if (pr) return pr; }
   const gen = speakGen;
   if (!toggles.voice || !window.speechSynthesis || !hasVoices) return silentPath(text);
   return new Promise((resolve) => {
@@ -1180,12 +1535,24 @@ UA.audio.speak = function (text, opts) {
   });
 };
 UA.audio.speakSound = function (key) {
+  const pr = playClip('snd_' + key);
+  if (pr) return pr;
   const snd = UA.soundOf ? UA.soundOf(key) : null;
   return UA.audio.speak(snd ? snd.say : String(key), { rate: 0.8 });
 };
+/* stretched-sound blend of a word: baked clips when available, TTS otherwise */
+UA.audio.speakBlend = function (word, units) {
+  units = units || (UA.splitUnits ? UA.splitUnits(word) : word.split(''));
+  const keys = units.map(u => 'str_' + u).concat(['w_' + word.replace(/\W/g, '')]);
+  if (keys.every(UA.audio.hasClip)) return UA.audio.speakSeq(keys, 200);
+  const say = units.map(u => (UA.soundOf(u) || {}).stretch || u).join('... ') + '... ' + word + '!';
+  return UA.audio.speak(say);
+};
 UA.audio.stopSpeech = function () {
   speakGen++;
+  clipGen++;
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  try { clipEl && clipEl.pause(); } catch (e) {}
   UA.audio.duck(false);
 };
 
@@ -1504,6 +1871,7 @@ const E = UA.engine = {
   reviewStage: null,
   timers: [],           // everything cleared on stop()
   qToken: 0,            // invalidates async continuations after stop()/next
+  sinceReview: 0,       // deterministic sparkle-review pacing
 };
 
 const T = (fn, ms) => { const t = setTimeout(fn, ms); E.timers.push(t); return t; };
@@ -1594,7 +1962,8 @@ const buildQuestion = () => {
     E.isReview = 'warmup';
     E.reviewStage = stageDef(UA.pick(mastered));
     def = E.reviewStage; level = Math.max(1, starPins(def)[0]);
-  } else if (mastered.length && UA.rand(5) === 0) {
+  } else if (mastered.length && ++E.sinceReview >= 5) {   // steady 1-in-5, not a dice roll
+    E.sinceReview = 0;
     E.isReview = 'sparkle';
     E.reviewStage = stageDef(UA.pick(mastered));
     def = E.reviewStage; level = E.levelOf(def.id);
@@ -1827,14 +2196,13 @@ UA.reward = {
   starEarned (stageId, nth, then) {
     UA.ui.updateHUD();
     const total = UA.totalStars();
-    UA.ui.starCeremony(stageId, nth, () => {
-      // egg milestones ride on total stars; queue at most one at a time
-      if (UA.S.eggsAwarded < UA.EGG_MILESTONES.length && total >= UA.EGG_MILESTONES[UA.S.eggsAwarded] && !UA.S.eggPending) {
-        UA.S.eggPending = true;
-        UA.save();
-        UA.ui.eggArrives(then);
-      } else then && then();
-    });
+    // egg milestones ride on total stars; the egg waits ON THE MAP so two huge
+    // moments never stack — the ceremony plays now, the egg greets her at home
+    if (UA.S.eggsAwarded < UA.EGG_MILESTONES.length && total >= UA.EGG_MILESTONES[UA.S.eggsAwarded] && !UA.S.eggPending) {
+      UA.S.eggPending = true;
+      UA.save();
+    }
+    UA.ui.starCeremony(stageId, nth, () => then && then());
   },
 };
 
@@ -2080,6 +2448,13 @@ UA.widgets.tapSequence = {
       ? '<div style="position:relative;width:100%;height:100%;min-height:400px"></div>'
       : '<div class="options-grid"></div>');
     area.appendChild(field);
+    if (positioned) {                          // a dotted trail makes the path legible
+      const pts = q.sequence.map(s => `${s.x},${s.y}`).join(' ');
+      field.appendChild(el(`<svg viewBox="0 0 100 100" preserveAspectRatio="none"
+        style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+        <polyline points="${pts}" fill="none" stroke="rgba(92,74,102,.35)" stroke-width="5"
+          stroke-dasharray="1 12" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`));
+    }
     let next = 0;
     q.sequence.forEach((s, i) => {
       const b = optBtn({ id: s.id, html: s.html }, q.cardSize || 140);
@@ -2275,7 +2650,7 @@ const numOpts = (correct, lo, hi, n) => {
   return UA.shuffle([...set]).map(num);
 };
 const sndSay = (ch) => { const p = UA.soundOf(ch); return `${p.say}, like the start of ${p.anchor}`; };
-const splitUnits = (w) => {
+const splitUnits = UA.splitUnits = (w) => {
   const out = []; let i = 0;
   while (i < w.length) {
     const two = w.slice(i, i + 2);
@@ -2388,7 +2763,7 @@ def({ id: 'R5', zone: 'word-garden', name: 'Build the word', skill: 'CVC buildin
       slots: letters.map((ch, i) => ({ id: 's' + i })),
       pieces, correct: 'built',
       hint: `The word is ${target}. ${blendSay(target)}`,
-      afterCorrect: () => UA.audio.speak(blendSay(target)),
+      afterCorrect: () => UA.audio.speakBlend(target),
       slowNext: true,
     };
   } });
@@ -2881,7 +3256,7 @@ UA.ui = {};
 UA.fx = {};
 
 /* ---------- static chrome, built once ---------- */
-app.appendChild(el(`<div id="wipe"><svg viewBox="0 0 48 48"></svg></div>`));
+app.appendChild(el(`<div id="wipe"><div class="wipe-icon"></div></div>`));
 app.appendChild(el(`<button id="home-btn" class="round-btn" data-testid="home-button" aria-label="Home">${UA.homeSVG()}</button>`));
 app.appendChild(el(`<button id="hear-btn" class="round-btn" data-testid="hear-again" aria-label="Hear again">${UA.speakerSVG()}</button>`));
 app.appendChild(el(`<div id="hud">
@@ -2907,7 +3282,7 @@ UA.go = (id, opts = {}) => {
   const w = $('#wipe');
   const pt = opts.from || { x: innerWidth / 2, y: innerHeight / 2 };
   w.style.background = opts.colour || '#FFD6E8';
-  w.querySelector('svg').innerHTML = opts.iconSVG || '';
+  w.querySelector('.wipe-icon').innerHTML = opts.iconSVG || '';
   const R = Math.hypot(Math.max(pt.x, innerWidth - pt.x), Math.max(pt.y, innerHeight - pt.y)) * 1.1;
   w.style.left = (pt.x - R) + 'px'; w.style.top = (pt.y - R) + 'px';
   w.style.width = R * 2 + 'px'; w.style.height = R * 2 + 'px';
@@ -3246,7 +3621,7 @@ const buildMap = () => {
     } else {
       rig.classList.add(UA.pick(['nuzzle', 'shiver']));
       UA.audio.sfx.giggle();
-      if (UA.rand(3) === 0) UA.audio.speak(UA.pick(['Hee hee!', 'That tickles!', 'I love you, %NAME%!']).replace('%NAME%', S.name));
+      if (UA.rand(3) === 0) UA.audio.speak(UA.pickFresh('pet', UA.PET_LINES).replace('%NAME%', S.name));
     }
     UA.fx.burst({ x: e.clientX, y: e.clientY }, UA.rand(2) ? 'spark' : 'heart', 7);
   });
@@ -3263,6 +3638,10 @@ const recommendZone = () => {
 };
 const mapWelcome = () => {
   const S = UA.S;
+  if (S.eggPending) {                           // the egg waited at home for her
+    setTimeout(() => { if (current === 'map' && S.eggPending) UA.ui.eggArrives(() => {}); }, 1500);
+    return;
+  }
   const hello = S.created && S.sessions > 1
     ? `Welcome back, ${S.name}! ${S.uni.name} missed you!`
     : `This is the Rainbow Kingdom, ${S.name}!`;
@@ -3304,7 +3683,7 @@ const armMapIdle = () => {
 document.addEventListener('pointerdown', () => { if (current === 'map') armMapIdle(); }, true);
 
 const openZone = (z, pt) => {
-  UA.go('activity', { colour: z.col, from: pt, onArrive: () => {
+  UA.go('activity', { colour: z.col, from: pt, iconSVG: UA.landmark(z.icon, z.col, z.col2), onArrive: () => {
     UA.audio.startMusic(z.key);
     UA.engine.start(z.id, null, { hello: z.hello });
   } });
@@ -3315,8 +3694,9 @@ const openZone = (z, pt) => {
 ===================================================================== */
 UA.ui.showActivity = (zone, stage) => {
   sActivity.innerHTML = `
-    <div style="position:absolute;inset:0;background:linear-gradient(180deg,${zone.col2} 0%,#FFF9F5 70%)"></div>
-    <div style="position:absolute;inset:0;pointer-events:none;border:14px solid ${zone.col};border-radius:0;opacity:.5"></div>
+    <div style="position:absolute;inset:0">${UA.zoneScene(zone.icon)}</div>
+    <div class="stage-panel"></div>
+    <div style="position:absolute;inset:0;pointer-events:none;border:10px solid ${zone.col};opacity:.45"></div>
     <div style="position:absolute;right:calc(24px + var(--sar));bottom:calc(20px + var(--sab));width:110px;opacity:.9;pointer-events:none" id="activity-host">
       ${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</div>
     <div style="position:absolute;left:calc(26px + var(--sal));top:calc(126px + var(--sat));pointer-events:none;opacity:.9">
@@ -3356,7 +3736,21 @@ UA.ui.setOptionsQuiet = (quiet) => {
     b.classList.toggle('quiet', quiet);
     if (!quiet) { b.classList.add('live'); b.style.animationDelay = (i * 60) + 'ms'; }
   });
+  if (!quiet) {                                 // the host leans in: "your turn now!"
+    const h = $('#activity-host .uni-rig');
+    if (h) { h.classList.remove('nuzzle'); void h.getBoundingClientRect(); h.classList.add('nuzzle'); }
+  }
 };
+/* ambient host life during questions: tiny reactions, never during feedback */
+setInterval(() => {
+  if (current !== 'activity' || !UA.engine.active || UA.engine.locked) return;
+  const h = $('#activity-host .uni-rig');
+  if (h && UA.rand(3) === 0) {
+    h.classList.remove('nuzzle', 'shiver');
+    void h.getBoundingClientRect();
+    h.classList.add(UA.pick(['nuzzle', 'shiver']));
+  }
+}, 8000);
 UA.ui.pulseOptions = () => {
   $$('#options-area .answer').forEach(b => {
     b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }],
@@ -3393,8 +3787,20 @@ UA.ui.feedbackCorrect = (elm, pt) => {
 };
 UA.ui.feedbackWrong = (elm) => {
   if (elm && elm.classList) { elm.classList.add('wrong-wiggle'); setTimeout(() => elm.classList.remove('wrong-wiggle'), 550); }
+  const h = $('#activity-host .uni-rig');   // gentle only — no comedy on wrong answers
+  if (h) { h.classList.remove('sad-tilt'); void h.getBoundingClientRect(); h.classList.add('sad-tilt'); }
   UA.companion.calm();
 };
+
+/* rotation safety: re-render the live question so absolute layouts recompute */
+let resizeT = null;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    if (UA.engine.active && UA.engine.q && current === 'activity')
+      UA.ui.renderQuestion(UA.engine.q, UA.engine.isReview === 'sparkle');
+  }, 350);
+});
 
 /* worked example: the unicorn demonstrates before the first question of a new widget */
 UA.ui.workedExample = (widgetName, stage) => new Promise((resolve) => {
@@ -4010,11 +4416,11 @@ UA.openKitchen = (pt) => {
       void rig.getBoundingClientRect();
       if (yuck.length) {
         rig.classList.add('shiver');
-        UA.audio.speak(`Munch munch... wait. Is that ${yuck.join(' and ')}?! ... BLEURGH!! ${UA.pick(['My tummy!', 'You TRICKED me!', 'Never again!'])} Hee hee, again again!`);
+        UA.audio.speak(UA.pickFresh('kyuck', UA.KITCHEN_YUCK).replace('%ITEMS%', yuck.join(' and ')));
         UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 2.4 }, 'confetti', 14);
       } else {
         rig.classList.add('leap');
-        UA.audio.speak(`Munch munch munch... ${layers.join(', ')} cake... DELICIOUS! ${UA.pick(['Five sparkles!', 'The best cake EVER!', 'Chef %NAME%, amazing!']).replace('%NAME%', UA.S.name)}`);
+        UA.audio.speak(UA.pickFresh('kyum', UA.KITCHEN_YUM).replace('%ITEMS%', layers.join(' and ')).replace('%NAME%', UA.S.name));
         UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 2.4 }, 'heart', 12);
       }
       setTimeout(build, 2200);
@@ -4216,6 +4622,14 @@ UA.openParents = () => {
         <label><input type="checkbox" id="tg-sfx" ${S.settings.sfx ? 'checked' : ''}> effects</label>
         <label><input type="checkbox" id="tg-music" ${S.settings.music ? 'checked' : ''}> music</label>
         <label>volume <input type="range" id="tg-vol" min="0" max="1" step=".05" value="${S.settings.vol}"></label>
+        <h4>Backup</h4>
+        <p>Copy this code somewhere safe (Notes, email). Paste it back here on any device to restore
+        all progress — iOS can clear website data when storage runs low.</p>
+        <textarea id="dash-backup" readonly style="width:100%;height:64px;font-size:11px"></textarea>
+        <button id="dash-copy" class="gate-key" style="width:auto;padding:0 18px">copy backup code</button>
+        <p style="margin-top:10px">Restore: paste a backup code below, then tap restore.</p>
+        <textarea id="dash-restore-in" style="width:100%;height:44px;font-size:11px"></textarea>
+        <button id="dash-restore" class="gate-key" style="width:auto;padding:0 18px">restore from code</button>
         <h4>Reset</h4>
         <p>Hold the button for 3 seconds to erase ALL progress. This cannot be undone.</p>
         <button id="dash-reset" class="gate-key" style="width:auto;padding:0 18px;background:#FFB3B3">hold to reset everything</button>
@@ -4232,6 +4646,27 @@ UA.openParents = () => {
       UA.audio.setToggles(S.settings);
     };
     ['tg-voice', 'tg-sfx', 'tg-music', 'tg-vol'].forEach(id => $('#' + id, d).addEventListener('change', upd));
+    try { $('#dash-backup', d).value = btoa(unescape(encodeURIComponent(JSON.stringify(S)))); } catch (e) {}
+    $('#dash-copy', d).addEventListener('pointerdown', () => {
+      const ta = $('#dash-backup', d);
+      ta.select(); ta.setSelectionRange(0, 999999);
+      try { document.execCommand('copy'); } catch (e) {}
+      try { navigator.clipboard && navigator.clipboard.writeText(ta.value); } catch (e) {}
+      $('#dash-copy', d).textContent = 'copied!';
+      setTimeout(() => { const b = $('#dash-copy', d); if (b) b.textContent = 'copy backup code'; }, 1500);
+    });
+    $('#dash-restore', d).addEventListener('pointerdown', () => {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(escape(atob($('#dash-restore-in', d).value.trim()))));
+        if (!parsed || typeof parsed.v !== 'number') throw new Error('bad');
+        UA.S = parsed;
+        UA.save();
+        location.reload();
+      } catch (e) {
+        $('#dash-restore', d).textContent = 'that code did not work';
+        setTimeout(() => { const b = $('#dash-restore', d); if (b) b.textContent = 'restore from code'; }, 2000);
+      }
+    });
     let holdT = null;
     const rb = $('#dash-reset', d);
     rb.addEventListener('pointerdown', () => {

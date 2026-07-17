@@ -11,7 +11,7 @@ UA.ui = {};
 UA.fx = {};
 
 /* ---------- static chrome, built once ---------- */
-app.appendChild(el(`<div id="wipe"><svg viewBox="0 0 48 48"></svg></div>`));
+app.appendChild(el(`<div id="wipe"><div class="wipe-icon"></div></div>`));
 app.appendChild(el(`<button id="home-btn" class="round-btn" data-testid="home-button" aria-label="Home">${UA.homeSVG()}</button>`));
 app.appendChild(el(`<button id="hear-btn" class="round-btn" data-testid="hear-again" aria-label="Hear again">${UA.speakerSVG()}</button>`));
 app.appendChild(el(`<div id="hud">
@@ -37,7 +37,7 @@ UA.go = (id, opts = {}) => {
   const w = $('#wipe');
   const pt = opts.from || { x: innerWidth / 2, y: innerHeight / 2 };
   w.style.background = opts.colour || '#FFD6E8';
-  w.querySelector('svg').innerHTML = opts.iconSVG || '';
+  w.querySelector('.wipe-icon').innerHTML = opts.iconSVG || '';
   const R = Math.hypot(Math.max(pt.x, innerWidth - pt.x), Math.max(pt.y, innerHeight - pt.y)) * 1.1;
   w.style.left = (pt.x - R) + 'px'; w.style.top = (pt.y - R) + 'px';
   w.style.width = R * 2 + 'px'; w.style.height = R * 2 + 'px';
@@ -376,7 +376,7 @@ const buildMap = () => {
     } else {
       rig.classList.add(UA.pick(['nuzzle', 'shiver']));
       UA.audio.sfx.giggle();
-      if (UA.rand(3) === 0) UA.audio.speak(UA.pick(['Hee hee!', 'That tickles!', 'I love you, %NAME%!']).replace('%NAME%', S.name));
+      if (UA.rand(3) === 0) UA.audio.speak(UA.pickFresh('pet', UA.PET_LINES).replace('%NAME%', S.name));
     }
     UA.fx.burst({ x: e.clientX, y: e.clientY }, UA.rand(2) ? 'spark' : 'heart', 7);
   });
@@ -393,6 +393,10 @@ const recommendZone = () => {
 };
 const mapWelcome = () => {
   const S = UA.S;
+  if (S.eggPending) {                           // the egg waited at home for her
+    setTimeout(() => { if (current === 'map' && S.eggPending) UA.ui.eggArrives(() => {}); }, 1500);
+    return;
+  }
   const hello = S.created && S.sessions > 1
     ? `Welcome back, ${S.name}! ${S.uni.name} missed you!`
     : `This is the Rainbow Kingdom, ${S.name}!`;
@@ -434,7 +438,7 @@ const armMapIdle = () => {
 document.addEventListener('pointerdown', () => { if (current === 'map') armMapIdle(); }, true);
 
 const openZone = (z, pt) => {
-  UA.go('activity', { colour: z.col, from: pt, onArrive: () => {
+  UA.go('activity', { colour: z.col, from: pt, iconSVG: UA.landmark(z.icon, z.col, z.col2), onArrive: () => {
     UA.audio.startMusic(z.key);
     UA.engine.start(z.id, null, { hello: z.hello });
   } });
@@ -445,8 +449,9 @@ const openZone = (z, pt) => {
 ===================================================================== */
 UA.ui.showActivity = (zone, stage) => {
   sActivity.innerHTML = `
-    <div style="position:absolute;inset:0;background:linear-gradient(180deg,${zone.col2} 0%,#FFF9F5 70%)"></div>
-    <div style="position:absolute;inset:0;pointer-events:none;border:14px solid ${zone.col};border-radius:0;opacity:.5"></div>
+    <div style="position:absolute;inset:0">${UA.zoneScene(zone.icon)}</div>
+    <div class="stage-panel"></div>
+    <div style="position:absolute;inset:0;pointer-events:none;border:10px solid ${zone.col};opacity:.45"></div>
     <div style="position:absolute;right:calc(24px + var(--sar));bottom:calc(20px + var(--sab));width:110px;opacity:.9;pointer-events:none" id="activity-host">
       ${UA.unicornSVG({ body: UA.PALETTE.bodies[UA.S.uni.body], mane: UA.PALETTE.manes[UA.S.uni.mane], cosmetics: UA.S.equipped })}</div>
     <div style="position:absolute;left:calc(26px + var(--sal));top:calc(126px + var(--sat));pointer-events:none;opacity:.9">
@@ -486,7 +491,21 @@ UA.ui.setOptionsQuiet = (quiet) => {
     b.classList.toggle('quiet', quiet);
     if (!quiet) { b.classList.add('live'); b.style.animationDelay = (i * 60) + 'ms'; }
   });
+  if (!quiet) {                                 // the host leans in: "your turn now!"
+    const h = $('#activity-host .uni-rig');
+    if (h) { h.classList.remove('nuzzle'); void h.getBoundingClientRect(); h.classList.add('nuzzle'); }
+  }
 };
+/* ambient host life during questions: tiny reactions, never during feedback */
+setInterval(() => {
+  if (current !== 'activity' || !UA.engine.active || UA.engine.locked) return;
+  const h = $('#activity-host .uni-rig');
+  if (h && UA.rand(3) === 0) {
+    h.classList.remove('nuzzle', 'shiver');
+    void h.getBoundingClientRect();
+    h.classList.add(UA.pick(['nuzzle', 'shiver']));
+  }
+}, 8000);
 UA.ui.pulseOptions = () => {
   $$('#options-area .answer').forEach(b => {
     b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }],
@@ -523,8 +542,20 @@ UA.ui.feedbackCorrect = (elm, pt) => {
 };
 UA.ui.feedbackWrong = (elm) => {
   if (elm && elm.classList) { elm.classList.add('wrong-wiggle'); setTimeout(() => elm.classList.remove('wrong-wiggle'), 550); }
+  const h = $('#activity-host .uni-rig');   // gentle only — no comedy on wrong answers
+  if (h) { h.classList.remove('sad-tilt'); void h.getBoundingClientRect(); h.classList.add('sad-tilt'); }
   UA.companion.calm();
 };
+
+/* rotation safety: re-render the live question so absolute layouts recompute */
+let resizeT = null;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    if (UA.engine.active && UA.engine.q && current === 'activity')
+      UA.ui.renderQuestion(UA.engine.q, UA.engine.isReview === 'sparkle');
+  }, 350);
+});
 
 /* worked example: the unicorn demonstrates before the first question of a new widget */
 UA.ui.workedExample = (widgetName, stage) => new Promise((resolve) => {

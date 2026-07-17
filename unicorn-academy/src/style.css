@@ -19,11 +19,18 @@ button{font-family:inherit;color:var(--plum);-webkit-user-select:none;user-selec
 /* ---------- screens & transition wipe ---------- */
 .screen{position:fixed;inset:0;display:none;overflow:hidden}
 .screen.show{display:block}
-#wipe{position:fixed;inset:-20%;z-index:55;pointer-events:none;display:none;
+#wipe{position:fixed;inset:-20%;z-index:55;pointer-events:none;
   border-radius:50%;transform:scale(0);display:flex;align-items:center;justify-content:center;visibility:hidden}
 #wipe.run{visibility:visible}
-#wipe svg{width:120px;height:120px;opacity:0}
-#wipe.run svg{opacity:1;transition:opacity .15s ease}
+.wipe-icon{width:150px;height:150px;opacity:0}
+.wipe-icon svg{width:100%;height:100%}
+#wipe.run .wipe-icon{opacity:1;transition:opacity .18s ease;animation:wipe-icon-pop .5s cubic-bezier(.34,1.56,.64,1)}
+@keyframes wipe-icon-pop{0%{transform:scale(.5)}100%{transform:scale(1)}}
+
+/* soft readability panel between the drawn zone scene and the question */
+.stage-panel{position:absolute;left:max(16px,3vw);right:max(16px,3vw);
+  top:calc(96px + var(--sat));bottom:calc(14px + var(--sab));
+  background:rgba(255,249,245,.66);border-radius:38px;box-shadow:0 10px 40px rgba(92,74,102,.18)}
 
 /* ---------- shared chrome ---------- */
 .big-btn{border:none;border-radius:32px;padding:20px 34px;font-size:30px;font-weight:800;

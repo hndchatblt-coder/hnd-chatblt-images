@@ -20,6 +20,7 @@ const E = UA.engine = {
   reviewStage: null,
   timers: [],           // everything cleared on stop()
   qToken: 0,            // invalidates async continuations after stop()/next
+  sinceReview: 0,       // deterministic sparkle-review pacing
 };
 
 const T = (fn, ms) => { const t = setTimeout(fn, ms); E.timers.push(t); return t; };
@@ -110,7 +111,8 @@ const buildQuestion = () => {
     E.isReview = 'warmup';
     E.reviewStage = stageDef(UA.pick(mastered));
     def = E.reviewStage; level = Math.max(1, starPins(def)[0]);
-  } else if (mastered.length && UA.rand(5) === 0) {
+  } else if (mastered.length && ++E.sinceReview >= 5) {   // steady 1-in-5, not a dice roll
+    E.sinceReview = 0;
     E.isReview = 'sparkle';
     E.reviewStage = stageDef(UA.pick(mastered));
     def = E.reviewStage; level = E.levelOf(def.id);
@@ -343,14 +345,13 @@ UA.reward = {
   starEarned (stageId, nth, then) {
     UA.ui.updateHUD();
     const total = UA.totalStars();
-    UA.ui.starCeremony(stageId, nth, () => {
-      // egg milestones ride on total stars; queue at most one at a time
-      if (UA.S.eggsAwarded < UA.EGG_MILESTONES.length && total >= UA.EGG_MILESTONES[UA.S.eggsAwarded] && !UA.S.eggPending) {
-        UA.S.eggPending = true;
-        UA.save();
-        UA.ui.eggArrives(then);
-      } else then && then();
-    });
+    // egg milestones ride on total stars; the egg waits ON THE MAP so two huge
+    // moments never stack — the ceremony plays now, the egg greets her at home
+    if (UA.S.eggsAwarded < UA.EGG_MILESTONES.length && total >= UA.EGG_MILESTONES[UA.S.eggsAwarded] && !UA.S.eggPending) {
+      UA.S.eggPending = true;
+      UA.save();
+    }
+    UA.ui.starCeremony(stageId, nth, () => then && then());
   },
 };
 

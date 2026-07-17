@@ -277,19 +277,79 @@ UA.landmark = (icon, col, col2) => {
   return `<svg class="zone-art" viewBox="0 0 120 120" aria-hidden="true"><g class="zone-bounce">${map[icon] || map.meadow}</g></svg>`;
 };
 
-/* jigsaw scene: one cute composed scene, deterministic by seed */
+/* ---------- full-bleed zone scenes behind activities ---------- */
+UA.zoneScene = (icon) => {
+  const W = 1000, H = 700;
+  const sky = { meadow: ['#CFF0FF', '#EAFBF0'], mountain: ['#BFE0FF', '#E8F4FF'], cloud: ['#D9CCFF', '#F3EBFF'],
+    garden: ['#FFD9EC', '#FFF3FA'], falls: ['#C8F0EC', '#EFFDFB'], castle: ['#FFE9B8', '#FFF9EA'] }[icon] || ['#E9DDFF', '#FFF9F5'];
+  let mid = '';
+  if (icon === 'meadow') {
+    mid = UA.gen.hills(W, H) + [...Array(9)].map(() => UA.gen.flower(30 + UA.rand(940), 480 + UA.rand(190), 11 + UA.rand(12))).join('') +
+      UA.gen.tree(70, 430, .9) + UA.gen.tree(930, 450, 1.05) + UA.gen.butterfly(200 + UA.rand(600), 160 + UA.rand(90), .9) +
+      UA.gen.butterfly(150 + UA.rand(200), 60 + UA.rand(40), .8) +
+      `<circle cx="880" cy="76" r="56" fill="#FFD97A" stroke="${O}" stroke-width="4"/>
+       ${[...Array(8)].map((_, i) => `<line x1="${880 + Math.cos(i * .785) * 72}" y1="${76 + Math.sin(i * .785) * 72}" x2="${880 + Math.cos(i * .785) * 92}" y2="${76 + Math.sin(i * .785) * 92}" stroke="#FFD97A" stroke-width="7" stroke-linecap="round"/>`).join('')}
+       <g opacity=".9">${UA.gen.cloud(180, 70, 1.2)}${UA.gen.cloud(480, 46, .9)}</g>`;
+  } else if (icon === 'mountain') {
+    mid = `<path d="M-40 ${H} L230 220 L400 470 L560 190 L760 500 L900 260 L1060 ${H}Z" fill="#9FCBEF" stroke="${O}" stroke-width="4"/>
+      <path d="M230 220 L286 320 L230 360 L180 310Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      <path d="M560 190 L610 290 L560 330 L512 282Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      <path d="M900 260 L940 340 L900 372 L862 332Z" fill="#FFF9F5" stroke="${O}" stroke-width="3"/>
+      ${UA.gen.cloud(300, 120, 1.2)} ${UA.gen.cloud(700, 80, .9)}
+      <path d="M0 ${H} Q ${W / 2} ${H - 160} ${W} ${H} Z" fill="#D2F5DC"/>`;
+  } else if (icon === 'cloud') {
+    mid = [...Array(7)].map((_, i) => UA.gen.cloud(80 + i * 150 + UA.rand(60), 120 + (i % 3) * 160 + UA.rand(60), 1 + (i % 3) * .4, '#fff', .85)).join('') +
+      [...Array(10)].map(() => UA.gen.sparkle(UA.rand(W), UA.rand(H * .6), .8 + Math.random(), '#FFF3C4')).join('') +
+      `<path d="M0 ${H} Q ${W / 2} ${H - 120} ${W} ${H} Z" fill="#E9DDFF"/>`;
+  } else if (icon === 'garden') {
+    mid = UA.gen.hills(W, H, ['#CBEFD6', '#ACE3BE', '#8FD6A6']) +
+      [...Array(12)].map((_, i) => UA.gen.flower(40 + i * 80 + UA.rand(30), 500 + (i % 2) * 90, 14 + UA.rand(10))).join('') +
+      `<path d="M120 470 Q120 300 260 300 Q400 300 400 470" fill="none" stroke="#E8A0C0" stroke-width="16" opacity=".8"/>` +
+      UA.gen.butterfly(500 + UA.rand(300), 200, 1);
+  } else if (icon === 'falls') {
+    mid = `<path d="M340 0 H660 V90 Q500 120 340 90Z" fill="#8AA5B8" stroke="${O}" stroke-width="4"/>
+      <path d="M400 90 Q380 330 320 ${H - 120} H680 Q620 330 600 90 Q500 112 400 90Z" fill="#9FE2DB" stroke="${O}" stroke-width="4"/>
+      <path d="M450 110 Q440 320 400 ${H - 140} M550 110 Q560 320 600 ${H - 140}" stroke="#fff" stroke-width="7" fill="none" opacity=".7"/>
+      <ellipse cx="500" cy="${H - 90}" rx="330" ry="70" fill="#C4F1ED" stroke="${O}" stroke-width="4"/>
+      ${UA.gen.sparkle(430, H - 120, 1.4, '#fff')} ${UA.gen.sparkle(580, H - 100, 1.1, '#fff')}`;
+  } else if (icon === 'castle') {
+    mid = `<g transform="translate(320,110) scale(3)" opacity=".95">${UA.landmark('castle', '#FFD97A', '#FFF3C4').replace(/<\/?svg[^>]*>/g, '').replace(/<g class="zone-bounce">|<\/g>$/g, '')}</g>
+      ${[...Array(8)].map(() => UA.gen.sparkle(UA.rand(W), UA.rand(H * .5), 1 + Math.random(), '#FFD97A')).join('')}
+      <path d="M0 ${H} Q ${W / 2} ${H - 130} ${W} ${H} Z" fill="#FFE9B8"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%">
+    <defs><linearGradient id="zs-${icon}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs>
+    <rect width="${W}" height="${H}" fill="url(#zs-${icon})"/>${mid}</svg>`;
+};
+
+/* jigsaw scenes: four distinct compositions, deterministic by seed */
 UA.jigsawScene = (seed) => {
   const r = (n) => { seed = (seed * 9301 + 49297) % 233280; return Math.floor(seed / 233280 * n); };
-  const sky = ['#D3ECFF', '#FFE9F4', '#FFF3C4'][r(3)];
-  let fl = '';
-  for (let i = 0; i < 6; i++) fl += UA.gen.flower(30 + i * 55 + r(20), 250 + r(30), 12 + r(8));
-  return `<svg viewBox="0 0 360 300" aria-hidden="true">
-    <rect width="360" height="300" fill="${sky}"/>
-    ${UA.gen.rainbow(180, 140, 120, 5, 14)}
-    ${UA.gen.hills(360, 300)}
-    ${UA.gen.cloud(70 + r(40), 60, 1)} ${UA.gen.cloud(280, 40 + r(30), .8)}
-    ${fl}
-    <g transform="translate(110,120) scale(.55)">${UA.unicornSVG({ body: UA.pick(P().bodies), mane: UA.pick(P().manes), noAnim: true })}</g>
-  </svg>`;
+  const kind = r(4);
+  const uni = (x, y, s) => `<g transform="translate(${x},${y}) scale(${s})">${UA.unicornSVG({ body: P().bodies[r(6)], mane: P().manes[r(6)], noAnim: true })}</g>`;
+  let sky, mid;
+  if (kind === 0) {              // rainbow meadow
+    sky = ['#D3ECFF', '#FFE9F4', '#FFF3C4'][r(3)];
+    let fl = ''; for (let i = 0; i < 6; i++) fl += UA.gen.flower(30 + i * 55 + r(20), 250 + r(30), 12 + r(8));
+    mid = `${UA.gen.rainbow(180, 140, 120, 5, 14)}${UA.gen.hills(360, 300)}
+      ${UA.gen.cloud(70 + r(40), 60, 1)} ${UA.gen.cloud(280, 40 + r(30), .8)}${fl}${uni(110, 120, .55)}`;
+  } else if (kind === 1) {       // starry night with a sleepy unicorn
+    sky = '#4A3E6E';
+    let st = ''; for (let i = 0; i < 14; i++) st += UA.gen.sparkle(20 + r(320), 15 + r(160), .7 + r(10) / 10, '#FFF3C4');
+    mid = `${st}<path d="M270 60 A34 34 0 1 0 270 128 A26 26 0 1 1 270 60Z" fill="#FFF3C4" stroke="${O}" stroke-width="3"/>
+      ${UA.gen.hills(360, 300, ['#5E7E68', '#4E6E58', '#3E5C48'])}${uni(120, 140, .5)}`;
+  } else if (kind === 2) {       // castle celebration
+    sky = '#FFE9B8';
+    mid = `<g transform="translate(105,40) scale(1.3)">${UA.landmark('castle', '#FFD97A', '#FFF3C4').replace(/<\/?svg[^>]*>/g, '')}</g>
+      ${UA.gen.hills(360, 300, ['#CBEFD6', '#ACE3BE', '#8FD6A6'])}
+      ${UA.gen.sparkle(60, 60, 1.4)} ${UA.gen.sparkle(300, 50, 1.2)} ${UA.gen.sparkle(180, 30, 1)}${uni(40, 150, .42)}${uni(230, 150, .42)}`;
+  } else {                       // butterfly picnic
+    sky = '#D2F5DC';
+    let bf = ''; for (let i = 0; i < 4; i++) bf += UA.gen.butterfly(50 + r(260), 40 + r(100), .8 + r(6) / 10);
+    mid = `${UA.gen.hills(360, 300)}${bf}${UA.gen.tree(56, 150, .8)}${UA.gen.tree(310, 160, .9)}
+      <use href="#p-strawberry" x="150" y="230" width="44" height="44"/><use href="#p-cupcake" x="205" y="240" width="40" height="40"/>${uni(110, 130, .5)}`;
+  }
+  return `<svg viewBox="0 0 360 300" aria-hidden="true"><rect width="360" height="300" fill="${sky}"/>${mid}</svg>`;
 };
 })();

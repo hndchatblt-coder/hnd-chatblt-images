@@ -138,6 +138,54 @@ function speakChunks(chunks, idx, gen, pitch, rate, resolve) {
   const safety = setTimeout(advance, 12000);
   try { synth.speak(u); } catch (e) { advance(); }
 }
+/* ---------- baked narration clips (Kokoro) — exact-text lookup, TTS fallback.
+   UA.VOICE_CLIPS = { key: { t: 'text', d: 'data:audio/mpeg;base64,...' } }. */
+let clipTextIndex = null;
+const normText = (s) => (s || '').toString().toLowerCase().replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ').trim();
+function clipKeyForText(text) {
+  const clips = UA.VOICE_CLIPS || {};
+  if (!clipTextIndex) {
+    clipTextIndex = {};
+    for (const k of Object.keys(clips)) clipTextIndex[normText(clips[k].t)] = k;
+  }
+  return clipTextIndex[normText(text)] || null;
+}
+let clipEl = null, clipGen = 0;
+function playClip(key) {
+  const c = (UA.VOICE_CLIPS || {})[key];
+  if (!c || !toggles.voice) return null;
+  const gen = ++clipGen;
+  return new Promise((resolve) => {
+    try {
+      if (!clipEl) clipEl = new Audio();
+      clipEl.pause();
+      clipEl.src = c.d;
+      clipEl.volume = Math.max(0, Math.min(1, toggles.vol));
+      UA.audio.duck(true);
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        clearTimeout(safety);
+        if (gen === clipGen) UA.audio.duck(false);
+        resolve(true);
+      };
+      const safety = setTimeout(finish, 12000);
+      clipEl.onended = finish;
+      clipEl.onerror = finish;
+      clipEl.play().catch(finish);
+    } catch (e) { resolve(false); }
+  });
+}
+UA.audio.hasClip = (key) => !!((UA.VOICE_CLIPS || {})[key]);
+UA.audio.clip = (key) => playClip(key) || Promise.resolve(false);
+/* play a sequence of clip keys (blending: sss... uuu... nnn... sun!) */
+UA.audio.speakSeq = function (keys, gapMs) {
+  speakGen++;                                   // supersede any TTS in flight
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  return keys.reduce((p, k) => p.then(() => playClip(k) || Promise.resolve())
+    .then(() => new Promise(r => setTimeout(r, gapMs == null ? 140 : gapMs))), Promise.resolve());
+};
+
 UA.audio.speak = function (text, opts) {
   opts = opts || {};
   const pitch = opts.pitch != null ? opts.pitch : 1.1;
@@ -146,7 +194,11 @@ UA.audio.speak = function (text, opts) {
   if (interrupt) {
     speakGen++;
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+    try { clipEl && clipEl.pause(); } catch (e) {}
   }
+  // a baked clip that says exactly this line beats TTS every time
+  const ck = clipKeyForText(text);
+  if (ck) { const pr = playClip(ck); if (pr) return pr; }
   const gen = speakGen;
   if (!toggles.voice || !window.speechSynthesis || !hasVoices) return silentPath(text);
   return new Promise((resolve) => {
@@ -160,12 +212,24 @@ UA.audio.speak = function (text, opts) {
   });
 };
 UA.audio.speakSound = function (key) {
+  const pr = playClip('snd_' + key);
+  if (pr) return pr;
   const snd = UA.soundOf ? UA.soundOf(key) : null;
   return UA.audio.speak(snd ? snd.say : String(key), { rate: 0.8 });
 };
+/* stretched-sound blend of a word: baked clips when available, TTS otherwise */
+UA.audio.speakBlend = function (word, units) {
+  units = units || (UA.splitUnits ? UA.splitUnits(word) : word.split(''));
+  const keys = units.map(u => 'str_' + u).concat(['w_' + word.replace(/\W/g, '')]);
+  if (keys.every(UA.audio.hasClip)) return UA.audio.speakSeq(keys, 200);
+  const say = units.map(u => (UA.soundOf(u) || {}).stretch || u).join('... ') + '... ' + word + '!';
+  return UA.audio.speak(say);
+};
 UA.audio.stopSpeech = function () {
   speakGen++;
+  clipGen++;
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  try { clipEl && clipEl.pause(); } catch (e) {}
   UA.audio.duck(false);
 };
 

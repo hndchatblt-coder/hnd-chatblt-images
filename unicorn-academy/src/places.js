@@ -271,11 +271,11 @@ UA.openKitchen = (pt) => {
       void rig.getBoundingClientRect();
       if (yuck.length) {
         rig.classList.add('shiver');
-        UA.audio.speak(`Munch munch... wait. Is that ${yuck.join(' and ')}?! ... BLEURGH!! ${UA.pick(['My tummy!', 'You TRICKED me!', 'Never again!'])} Hee hee, again again!`);
+        UA.audio.speak(UA.pickFresh('kyuck', UA.KITCHEN_YUCK).replace('%ITEMS%', yuck.join(' and ')));
         UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 2.4 }, 'confetti', 14);
       } else {
         rig.classList.add('leap');
-        UA.audio.speak(`Munch munch munch... ${layers.join(', ')} cake... DELICIOUS! ${UA.pick(['Five sparkles!', 'The best cake EVER!', 'Chef %NAME%, amazing!']).replace('%NAME%', UA.S.name)}`);
+        UA.audio.speak(UA.pickFresh('kyum', UA.KITCHEN_YUM).replace('%ITEMS%', layers.join(' and ')).replace('%NAME%', UA.S.name));
         UA.fx.burst({ x: innerWidth / 2, y: innerHeight / 2.4 }, 'heart', 12);
       }
       setTimeout(build, 2200);
@@ -477,6 +477,14 @@ UA.openParents = () => {
         <label><input type="checkbox" id="tg-sfx" ${S.settings.sfx ? 'checked' : ''}> effects</label>
         <label><input type="checkbox" id="tg-music" ${S.settings.music ? 'checked' : ''}> music</label>
         <label>volume <input type="range" id="tg-vol" min="0" max="1" step=".05" value="${S.settings.vol}"></label>
+        <h4>Backup</h4>
+        <p>Copy this code somewhere safe (Notes, email). Paste it back here on any device to restore
+        all progress — iOS can clear website data when storage runs low.</p>
+        <textarea id="dash-backup" readonly style="width:100%;height:64px;font-size:11px"></textarea>
+        <button id="dash-copy" class="gate-key" style="width:auto;padding:0 18px">copy backup code</button>
+        <p style="margin-top:10px">Restore: paste a backup code below, then tap restore.</p>
+        <textarea id="dash-restore-in" style="width:100%;height:44px;font-size:11px"></textarea>
+        <button id="dash-restore" class="gate-key" style="width:auto;padding:0 18px">restore from code</button>
         <h4>Reset</h4>
         <p>Hold the button for 3 seconds to erase ALL progress. This cannot be undone.</p>
         <button id="dash-reset" class="gate-key" style="width:auto;padding:0 18px;background:#FFB3B3">hold to reset everything</button>
@@ -493,6 +501,27 @@ UA.openParents = () => {
       UA.audio.setToggles(S.settings);
     };
     ['tg-voice', 'tg-sfx', 'tg-music', 'tg-vol'].forEach(id => $('#' + id, d).addEventListener('change', upd));
+    try { $('#dash-backup', d).value = btoa(unescape(encodeURIComponent(JSON.stringify(S)))); } catch (e) {}
+    $('#dash-copy', d).addEventListener('pointerdown', () => {
+      const ta = $('#dash-backup', d);
+      ta.select(); ta.setSelectionRange(0, 999999);
+      try { document.execCommand('copy'); } catch (e) {}
+      try { navigator.clipboard && navigator.clipboard.writeText(ta.value); } catch (e) {}
+      $('#dash-copy', d).textContent = 'copied!';
+      setTimeout(() => { const b = $('#dash-copy', d); if (b) b.textContent = 'copy backup code'; }, 1500);
+    });
+    $('#dash-restore', d).addEventListener('pointerdown', () => {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(escape(atob($('#dash-restore-in', d).value.trim()))));
+        if (!parsed || typeof parsed.v !== 'number') throw new Error('bad');
+        UA.S = parsed;
+        UA.save();
+        location.reload();
+      } catch (e) {
+        $('#dash-restore', d).textContent = 'that code did not work';
+        setTimeout(() => { const b = $('#dash-restore', d); if (b) b.textContent = 'restore from code'; }, 2000);
+      }
+    });
     let holdT = null;
     const rb = $('#dash-reset', d);
     rb.addEventListener('pointerdown', () => {

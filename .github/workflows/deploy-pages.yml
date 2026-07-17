@@ -38,6 +38,9 @@ jobs:
           # so no manual Settings change is required.
           enablement: true
 
+      - name: Include Unicorn Academy alongside the older game
+        run: cp unicorn-academy/game.html unicorn-reading-game/academy.html
+
       - name: Upload the game folder as the Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

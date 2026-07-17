@@ -19,7 +19,7 @@ const numOpts = (correct, lo, hi, n) => {
   return UA.shuffle([...set]).map(num);
 };
 const sndSay = (ch) => { const p = UA.soundOf(ch); return `${p.say}, like the start of ${p.anchor}`; };
-const splitUnits = (w) => {
+const splitUnits = UA.splitUnits = (w) => {
   const out = []; let i = 0;
   while (i < w.length) {
     const two = w.slice(i, i + 2);
@@ -132,7 +132,7 @@ def({ id: 'R5', zone: 'word-garden', name: 'Build the word', skill: 'CVC buildin
       slots: letters.map((ch, i) => ({ id: 's' + i })),
       pieces, correct: 'built',
       hint: `The word is ${target}. ${blendSay(target)}`,
-      afterCorrect: () => UA.audio.speak(blendSay(target)),
+      afterCorrect: () => UA.audio.speakBlend(target),
       slowNext: true,
     };
   } });
