@@ -450,8 +450,11 @@ const openZone = (z, pt) => {
    ACTIVITY SCREEN & ENGINE UI SURFACE
 ===================================================================== */
 UA.ui.showActivity = (zone, stage) => {
+  const painted = UA.SCENE_IMGS && UA.SCENE_IMGS[zone.icon];
   sActivity.innerHTML = `
-    <div style="position:absolute;inset:0">${UA.zoneScene(zone.icon)}</div>
+    <div style="position:absolute;inset:0">${painted
+      ? `<img src="${painted}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`
+      : UA.zoneScene(zone.icon)}</div>
     <div class="stage-panel"></div>
     <div style="position:absolute;inset:0;pointer-events:none;border:10px solid ${zone.col};opacity:.45"></div>
     <div style="position:absolute;right:calc(24px + var(--sar));bottom:calc(20px + var(--sab));width:110px;opacity:.9;pointer-events:none" id="activity-host">

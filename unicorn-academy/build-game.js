@@ -23,6 +23,19 @@ if (fs.existsSync('assets/voice') && fs.existsSync('tools/voice-lines.json')) {
     console.log('embedded ' + n + ' voice clips');
   }
 }
+// painted zone backgrounds: embed assets/scenes/*.jpg when present
+if (fs.existsSync('assets/scenes')) {
+  const scenes = {};
+  for (const f of fs.readdirSync('assets/scenes')) {
+    if (!f.endsWith('.jpg')) continue;
+    scenes[f.replace('.jpg', '')] = 'data:image/jpeg;base64,' + fs.readFileSync('assets/scenes/' + f).toString('base64');
+  }
+  if (Object.keys(scenes).length) {
+    html = html.replace('/* SCENE_PACK_JSON */{}', JSON.stringify(scenes));
+    console.log('embedded ' + Object.keys(scenes).length + ' scene backgrounds');
+  }
+}
+
 const leftovers = html.match(/<!-- (SPRITE_PACK_HERE|INCLUDE:[\w.-]+) -->/);
 if (leftovers) { console.error('Unresolved marker: ' + leftovers[0]); process.exit(1); }
 fs.writeFileSync('game.html', html);
