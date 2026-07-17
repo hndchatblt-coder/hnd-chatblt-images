@@ -18,12 +18,20 @@ const optBtn = (o, size) => {
   return b;
 };
 const tapPoint = (ev) => ({ x: ev.clientX || 0, y: ev.clientY || 0 });
-// first pointer wins: one live pointerId at a time per question
-let livePointer = null;
-document.addEventListener('pointerdown', (e) => { if (livePointer === null) livePointer = e.pointerId; }, true);
+// first pointer wins: one live pointerId at a time. A pointerdown that never
+// gets its pointerup (interrupted gesture, lost event) must not brick input
+// forever, so a stale claim is abandoned after 2.5s and the new finger adopted.
+let livePointer = null, liveT = 0;
+document.addEventListener('pointerdown', (e) => {
+  if (livePointer === null || Date.now() - liveT > 2500) { livePointer = e.pointerId; liveT = Date.now(); }
+}, true);
 document.addEventListener('pointerup', (e) => { if (livePointer === e.pointerId) livePointer = null; }, true);
 document.addEventListener('pointercancel', (e) => { if (livePointer === e.pointerId) livePointer = null; }, true);
-const firstPointer = (e) => livePointer === null || e.pointerId === livePointer;
+const firstPointer = (e) => {
+  if (livePointer === null || e.pointerId === livePointer) return true;
+  if (Date.now() - liveT > 2500) { livePointer = e.pointerId; liveT = Date.now(); return true; }
+  return false;
+};
 
 /* ---------- tap the right choice ---------- */
 UA.widgets.tapChoice = {
@@ -330,11 +338,13 @@ UA.widgets.jigsaw = {
       border-radius:18px;box-shadow:inset 0 0 0 4px rgba(92,74,102,.25)"></div>`);
     const tray = el('<div style="display:flex;flex-wrap:wrap;gap:14px;max-width:420px;justify-content:center"></div>');
     wrap.appendChild(board); wrap.appendChild(tray);
+    // the scene arrives as a complete <svg>; unwrap it so the crop viewBox applies
+    const sceneInner = q.scene.replace(/^\s*<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
     const tile = (i, forTray) => {
       const c = i % cols, r = Math.floor(i / cols);
       const tw = W / cols, th = H / rows;
       return `<svg viewBox="${c * 360 / cols} ${r * 300 / rows} ${360 / cols} ${300 / rows}"
-        width="${forTray ? tw * .9 : tw}" height="${forTray ? th * .9 : th}" style="border-radius:10px;pointer-events:none">${q.scene}</svg>`;
+        width="${forTray ? tw * .9 : tw}" height="${forTray ? th * .9 : th}" style="border-radius:10px;pointer-events:none">${sceneInner}</svg>`;
     };
     let picked = null, placed = 0;
     for (let i = 0; i < n; i++) {

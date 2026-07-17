@@ -197,7 +197,8 @@ const onCorrect = (el, pt) => {
   UA.audio.vibrate(30);                        // garnish only; no-op on iPad
   let praised = UA.pickFresh('praise', UA.PRAISE);
   if (E.isReview === 'sparkle') { UA.reward.gems(1, el); praised = 'Sparkle bonus! ' + praised; }
-  UA.audio.speak(personalise(praised), { interrupt: true });
+  if (E.q.afterCorrect) E.q.afterCorrect();          // e.g. the built word blends aloud
+  else UA.audio.speak(personalise(praised), { interrupt: true });
   const q = E.q;
   const done = () => { if (!E.active) return; postCorrect(firstTry); };
   T(done, q.slowNext ? 1900 : 1100);
