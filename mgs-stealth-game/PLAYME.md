@@ -1,16 +1,36 @@
-# PLAYME.md — v0.30 (regenerated at cycle 30)
+# PLAYME.md — v0.40 (regenerated at cycle 40)
 
-Open `game.html` (or `releases/v0.30.html`) — double-click, no server. ENTER
-to start. **The game is now winnable: reach the Comms Tower helipad and
-extract for a rank. BIG BOSS = zero alerts, zero kills.**
+Open `game.html` (or `releases/v0.40.html`) — double-click, no server. ENTER
+to start. Winnable: extract from the Comms Tower helipad. BIG BOSS = zero
+alerts, zero kills.
 
 ## Controls
 
 WASD/arrows move · SHIFT run · C crouch · Z crawl · E knock · F tranq dart
-Q CQC (from behind) · G drag body / stuff in locker / hide in locker · B box
-R ration · X chaff grenade · F5 save · F9 load (continues count against rank)
+Q choke (from behind) · **hold Q throw** (5s stun, loud) · G drag/locker
+B box · R ration · X chaff · F5 save · F9 load (continues count vs rank)
 
-## New since v0.20 (cycles 21–30)
+## New since v0.30 (cycles 31–40)
+
+- **The facility fights back:** reinforcements pour in from the zone door
+  during alerts (max +3); guards radio in every 40s — a tranq'd guard who
+  misses his check-in gets a buddy sent to look for him. Hide your bodies.
+- **The facility remembers:** leave a zone and return — sleeping guards are
+  still where you left them, spent reinforcements stay spent.
+- **Lockers aren't safe anymore (mid-chase):** EVASION sweeps check lockers
+  near your last known position. Break sight, put distance in, THEN hide.
+- **CQC throw:** hold Q to hurl a guard — instant crowd control, but he
+  wakes angry in 5s and the thud carries 6m.
+- **You can see your own noise** — run/walk/knock draw expanding rings at
+  the true sound radius. Cameras visibly warm up cyan→amber→red.
+- Closed doors now muffle sound like the walls they are; hit-flash, death
+  sting, radar shows you dimmed while hidden and your cargo while dragging.
+
+**Known issue (fix in flight):** saving (F5) while a reinforcement guard is
+alive makes that save unloadable ("NO SAVE" on F9). Save when things are
+calm until cycle 41 lands.
+
+## Older highlights (cycles 21–30)
 
 - **The full facility:** Laboratory (keycard doors L1→L2→L3, timed laser
   grids, 3 cameras — the L1 keycard hides in the warehouse's dark corner) and
