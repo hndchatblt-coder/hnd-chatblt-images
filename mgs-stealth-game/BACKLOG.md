@@ -25,17 +25,17 @@ content rotation) take over. L items must be split before selection.
 9b. Mute key + volume | polish | S | Readability | M toggles mute (suspend master gain); persists in-session; title legend updated.
 10. ~~Remaining zones~~ ALL DONE (Warehouse c15, cameras c23, Laboratory c24, Comms Tower c25).
 - ~~Ration pickup collectible~~ FIXED cycle 29.
-- Camera meter visibility | polish | S | Readability | cone color ramps with camera meter (cyan→amber→red) so players see how close a camera is to confirming.
+- ~~Camera meter visibility~~ DONE cycle 38.
 - soundEvents: attenuate through closed doors, not just walls | bugfix | S | Consequence | HONEST GAP from the Laboratory cycle — src/soundEvents.js's wallsBetween/effectiveRadius iterate `world.zone.walls` directly (see its own IMPLEMENTATION NOTE for why it can't reuse world.raycast in a marching loop) and have no notion of world.js's new dynamic door-blockers list, so a closed Laboratory door is currently ACOUSTICALLY TRANSPARENT — a knock/gunshot/footstep on one side attenuates as if the door weren't there (movement/LOS through it are still correctly blocked; only the sound-radius math misses it). Fix: thread a door-aware wallsBetween through soundEvents.js once that file is back in scope.
 - radar/render pickup glow: chaff has no exposed "already collected" flag | polish | S | Readability | src/radar.js's radarModel.pickups / src/render.js's pickup actors correctly stop glowing a collected KEYCARD pickup (checked against engine.inventory.keycards) but a collected "chaff" pickup has no equivalent persistent per-index flag exposed outside engine.js's own private PICKUPS bookkeeping, so its glow/card keeps showing after collection — cosmetic only (inventory.collectPickup itself is correctly idempotent-safe). Fix: expose a small collectedPickups snapshot off engine (or director) for the view layer to read.
 10b. ~~Zone-state persistence~~ DONE cycle 34 (missingSearchers stash gap + build minification → audit-40 sweep items).
 - Build-time comment minification | polish | S | — | game.html crossed 1MB; strip comments at build (never tests); measure savings.
 11. ~~Items/CQC/tranq~~ DONE c16-c19 (throw variant + guard box-memory spun off as separate items below).
 - Per-guard box memory | feature | S | Tension | a guard who saw the box move stays suspicious of it (extraMult 0.5 not 0.05 for that guard, decays with CAUTION).
-- Radar hidden/dragging states | polish | S | Readability | radarModel gains playerHidden/dragging; player triangle dims in locker (packet omission from c18).
+- ~~Radar hidden/dragging states~~ DONE cycle 38.
 - ~~Locker checks during EVASION~~ DONE cycle 35.
 - ~~CQC throw variant~~ DONE cycle 37.
-- Title legend: Q tap/hold hint | polish | S | Readability | controls legend should say "Q choke / hold throw"; batch with next boot.js touch.
+- ~~Q legend hint~~ DONE cycle 38.
 - Aim line while F held | polish | S | Readability | faint ray preview so ranged darts are judgeable.
 12. ~~Codec~~ DONE cycle 26 (frequency-dial input + easter-egg calls → wells).
 - Defer non-critical codec calls while ALERT/EVASION | polish | S | Tension | firstBody/lowDarts queue until phase cools; firstAlert plays immediately (it's about the alert).

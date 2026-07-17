@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.37 (cycle 37 — CQC throw variant)
+**Version:** v0.38 (cycle 38 — radar/camera readability batch)
 
 ## Module status
 
@@ -38,6 +38,8 @@
 
 ## Changelog (last 5)
 
+- cycle 38: polish — radar hidden/dragging, camera cyan→amber→red meter ramp
+  (shared pure helper, both views), Q legend (247/247, 25/25)
 - cycle 37: CQC throw — Q hold: 2m wall-safe toss, 5s STUNNED (wakes
   SUSPICIOUS), thud noise; stunned chokeable/not re-throwable (242/242,
   25/25)

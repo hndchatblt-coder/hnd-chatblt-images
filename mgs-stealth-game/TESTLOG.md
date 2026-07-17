@@ -1,5 +1,24 @@
 # TESTLOG.md
 
+## Cycle 38 (polish: radar states + camera meter ramp + legend)
+
+247/247; 25/25; 5/5 shots + warehouse evidence shot verified (near camera
+amber at meter 0.456, far camera cyan — ramp reads in both views). Radar
+shows hidden (dim blink) and dragging (trailing dot); shared pure
+radarCameraColor helper drives both 2D and 3D cones; jam still empties
+cameras (pinned). Legend: "Q choke · hold Q throw".
+
+**Problems:** (1) render camera actors moved to per-instance materials —
+tiny GC cost, fine at 3 cameras/zone; note for a future 10-camera zone.
+(2) guard detection meter and camera ramp use different visual languages
+(bar vs cone color) — consistent enough, revisit if playtests confuse.
+(3) evidence-shot workflow is manual each time — a "06-warehouse-cams"
+permanent scene would automate it; consider at next screenshot touch.
+
+**Delight:** cameras warming up amber before they catch you turns the Lab's
+camera lanes from memorization into live risk reading — Readability pillar
+serving Tension directly.
+
 ## Cycle 37 (CQC throw variant)
 
 242/242; 25/25; 5/5 shots + stun-visual evidence checked. Q tap = silent

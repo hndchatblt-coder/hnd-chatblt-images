@@ -761,7 +761,7 @@
       "<div>self-test: " + results.length + "/" + results.length + " passed</div>" +
       "<div style='margin-top:28px;font-size:22px;letter-spacing:0.2em'>PRESS ENTER</div>" +
       "<div style='margin-top:14px;color:#5a7;font-size:12px;letter-spacing:0.15em'>" +
-      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q tap choke / hold throw &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
+      "WASD move &middot; SHIFT run &middot; C crouch &middot; Z crawl &middot; E knock &middot; F tranq &middot; Q choke &middot; hold Q throw &middot; G drag/locker &middot; B box &middot; R ration &middot; X chaff &middot; F5 save &middot; F9 load</div>";
     rootEl.appendChild(title);
 
     function onEnter(e) {

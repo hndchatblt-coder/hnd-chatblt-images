@@ -93,15 +93,28 @@
 //   src/engine.js's BOX VERB contract for the actual perception-discount
 //   mechanics this has no bearing on.
 //
-//   SECURITY CAMERAS (new — director cycle, see src/director.js contract):
-//   each engine.director.cameraStates() entry gets a small dark wall-mounted
+//   SECURITY CAMERAS (director cycle, see src/director.js contract): each
+//   engine.director.cameraStates() entry gets a small dark wall-mounted
 //   housing (never re-posed — cameras are fixed hardware) plus a pivoting
 //   cone fan, same raycast-clipped-fan technique as a guard's own vision
-//   cone (see updateCameraCone below), recolored every frame: pale cyan
-//   normally, red once meter >= Game.VISION.SUSPICIOUS_AT, grey/dim while
-//   camState.disabled (chaff) — see cameraStyleKey. Rebuilt/disposed on a
-//   zone change exactly like guard actors (disposeCameraActors, called
-//   alongside disposeGuardActors — see ZONE CHANGES below).
+//   cone (see updateCameraCone below), recolored every frame. NEW
+//   (readability polish, cycle 18 backlog item — camera meter visibility):
+//   grey/dim while camState.disabled (chaff), otherwise a CONTINUOUS cyan ->
+//   amber -> red ramp keyed by camState.meter, via the SAME pure helper
+//   Game.radarCameraColor(meter) src/radar.js's own 2D camera cone/dot uses
+//   (radar.js loads before render.js in both build.js's ORDER and test.js's
+//   LOGIC_ORDER — see both files' own module lists — so Game.
+//   radarCameraColor is always defined here) — replaces the old 3-state
+//   discrete NORMAL/ALERT/DISABLED palette (pale cyan / red / grey) with a
+//   continuously-interpolated color, so a camera visibly warming up toward a
+//   sighting reads exactly like the radar's own meter does, not just a
+//   binary flip once SUSPICIOUS_AT is crossed. Each camera actor now owns
+//   its OWN cone/edge materials (rather than sharing one of three fixed
+//   materials keyed by state) since a continuous ramp means every camera can
+//   sit at its own distinct color at any given frame — see
+//   ensureCameraActor/updateCameraCone below. Rebuilt/disposed on a zone
+//   change exactly like guard actors (disposeCameraActors, called alongside
+//   disposeGuardActors — see ZONE CHANGES below).
 //
 //   DOORS / LASERS / PICKUPS (new — Laboratory cycle, see src/world.js's
 //   doors/lasers/pickups schema notes and src/engine.js's own DOORS/PICKUPS
@@ -318,20 +331,17 @@
     var CAMERA_HOUSING_W = 0.35;
     var CAMERA_HOUSING_H = 0.28;
     var CAMERA_MOUNT_Y = 2.0; // world units — wall-mounted height, above head height
-    // Palette per SPEC: pale cyan normally, red once meter >= SUSPICIOUS_AT,
-    // grey/off while disabled (chaff) — three states, keyed by a small
-    // camState string this file derives per-camera each frame (see
-    // cameraStyleKey below), NOT guard.state (cameras have no FSM).
-    var CAMERA_CONE_STYLE = {
-      NORMAL: { color: 0x80deea, opacity: 0.26 },
-      ALERT: { color: 0xff5252, opacity: 0.42 },
-      DISABLED: { color: 0x666666, opacity: 0.1 },
-    };
-    var CAMERA_EDGE_STYLE = {
-      NORMAL: { color: 0xb2ebf2, opacity: 0.8 },
-      ALERT: { color: 0xff8a80, opacity: 0.95 },
-      DISABLED: { color: 0x888888, opacity: 0.35 },
-    };
+    // DISABLED-only style (dead hardware while chaffed, no ramp) — the
+    // NORMAL/ALERT case is no longer a discrete style: it's the continuous
+    // Game.radarCameraColor(meter) ramp applied directly to each camera
+    // actor's OWN cone/edge material every frame (see updateCameraCone
+    // below), replacing the old CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE 3-key
+    // maps + shared materials.
+    var CAMERA_CONE_DISABLED = { color: 0x666666, opacity: 0.1 };
+    var CAMERA_EDGE_DISABLED = { color: 0x888888, opacity: 0.35 };
+    var CAMERA_CONE_OPACITY = 0.3; // fixed fill alpha for the ramp (color carries the "how alarmed" signal, same convention as src/radar.js's CAMERA_CONE_ALPHA)
+    var CAMERA_EDGE_OPACITY = 0.9;
+    var CAMERA_EDGE_LIGHTEN = 0.35; // edge is a brightened (toward-white) tint of the same ramp color, for a crisp glow outline distinct from the additive fill
 
     // DOORS / LASERS / PICKUPS (new — Laboratory cycle, see file header).
     var DOOR_HEIGHT = 2.0; // world units — reads as a full slab, distinct from a low wall
@@ -569,33 +579,41 @@
       });
     });
 
-    // CAMERA cone/edge materials (see file header CAMERAS note) — same
-    // additive-blend / crisp-outline recipe as CONE_MATERIALS/EDGE_MATERIALS
-    // above, keyed by CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's NORMAL/ALERT/
-    // DISABLED states instead of a guard's FSM state.
-    var CAMERA_CONE_MATERIALS = {};
-    Object.keys(CAMERA_CONE_STYLE).forEach(function (key) {
-      var s = CAMERA_CONE_STYLE[key];
-      CAMERA_CONE_MATERIALS[key] = new THREE.MeshBasicMaterial({
-        color: s.color,
+    // CAMERA cone/edge materials (see file header CAMERAS note): UNLIKE
+    // CONE_MATERIALS/EDGE_MATERIALS above, these are NOT a shared
+    // state-keyed map — the continuous meter ramp means each camera actor
+    // needs its OWN mutable material instance (color/opacity written fresh
+    // every frame in updateCameraCone below, not swapped between fixed
+    // materials). See ensureCameraActor for where these get created, one
+    // pair per camera.
+    function makeCameraConeMaterial() {
+      return new THREE.MeshBasicMaterial({
+        color: 0x80deea,
         transparent: true,
-        opacity: s.opacity,
+        opacity: CAMERA_CONE_OPACITY,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
       });
-    });
-
-    var CAMERA_EDGE_MATERIALS = {};
-    Object.keys(CAMERA_EDGE_STYLE).forEach(function (key) {
-      var s = CAMERA_EDGE_STYLE[key];
-      CAMERA_EDGE_MATERIALS[key] = new THREE.LineBasicMaterial({
-        color: s.color,
+    }
+    function makeCameraEdgeMaterial() {
+      return new THREE.LineBasicMaterial({
+        color: 0xb2ebf2,
         transparent: true,
-        opacity: s.opacity,
+        opacity: CAMERA_EDGE_OPACITY,
         depthWrite: false,
       });
-    });
+    }
+    // Brightens an {r,g,b} (0..255) toward white by `amount` (0..1) — used to
+    // derive the camera cone edge's crisp glow-outline tint from the SAME
+    // ramp color as its fill, instead of a second independent palette.
+    function lightenTowardWhite(rgb, amount) {
+      return {
+        r: Math.round(rgb.r + (255 - rgb.r) * amount),
+        g: Math.round(rgb.g + (255 - rgb.g) * amount),
+        b: Math.round(rgb.b + (255 - rgb.b) * amount),
+      };
+    }
 
     // ---- static scene (built once per zone) -------------------------------------
 
@@ -903,10 +921,15 @@
       housing.rotation.y = -cam.panAngle;
       scene.add(housing);
 
-      var coneMesh = new THREE.Mesh(new THREE.BufferGeometry(), CAMERA_CONE_MATERIALS.NORMAL);
+      // NEW (readability polish, cycle 18 backlog item): each camera actor
+      // gets its OWN cone/edge material instance (not a shared state-keyed
+      // one) since the continuous meter ramp means any two cameras can be
+      // sitting at different colors on the same frame — see
+      // updateCameraCone below, which mutates these in place every call.
+      var coneMesh = new THREE.Mesh(new THREE.BufferGeometry(), makeCameraConeMaterial());
       scene.add(coneMesh);
 
-      var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), CAMERA_EDGE_MATERIALS.NORMAL);
+      var coneEdge = new THREE.LineLoop(new THREE.BufferGeometry(), makeCameraEdgeMaterial());
       scene.add(coneEdge);
 
       var actor = { housing: housing, cone: coneMesh, coneEdge: coneEdge };
@@ -918,10 +941,10 @@
     // file header) — same rationale as disposeGuardActors above: a zone
     // change means a different (possibly empty) camera roster, so nothing
     // from the old zone should linger. Housing geometry/material and cone/
-    // coneEdge geometry are each owned exclusively by their actor; cone/
-    // coneEdge MATERIALS come from the shared CAMERA_CONE_MATERIALS/
-    // CAMERA_EDGE_MATERIALS maps (reused across every camera/zone) and must
-    // NOT be disposed here.
+    // coneEdge geometry AND materials are each owned exclusively by their
+    // own actor now (see ensureCameraActor's own note above — no more shared
+    // state-keyed material maps to leave untouched), so every one of them is
+    // disposed here.
     function disposeCameraActors() {
       Object.keys(cameraActors).forEach(function (index) {
         var actor = cameraActors[index];
@@ -929,21 +952,11 @@
         actor.housing.geometry.dispose();
         actor.housing.material.dispose();
         actor.cone.geometry.dispose();
+        actor.cone.material.dispose();
         actor.coneEdge.geometry.dispose();
+        actor.coneEdge.material.dispose();
       });
       cameraActors = {};
-    }
-
-    // Which of CAMERA_CONE_STYLE/CAMERA_EDGE_STYLE's three keys a camera
-    // reads as this frame — SPEC palette: pale cyan normally, red once the
-    // meter reaches SUSPICIOUS_AT (an early "it's noticing you" cue, not
-    // just at full ALERT), grey/off while disabled (chaff) — disabled wins
-    // over everything else (a jammed camera reads as dead hardware
-    // regardless of whatever stale meter value it's frozen at).
-    function cameraStyleKey(camState) {
-      if (camState.disabled) return "DISABLED";
-      if (camState.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
-      return "NORMAL";
     }
 
     // Rebuilds a camera's vision-cone geometry this frame, same
@@ -953,9 +966,25 @@
     // director.cameraStates() instead of a guard's live facing/CAUTION
     // widening.
     function updateCameraCone(actor, camState, world) {
-      var key = cameraStyleKey(camState);
-      actor.cone.material = CAMERA_CONE_MATERIALS[key];
-      actor.coneEdge.material = CAMERA_EDGE_MATERIALS[key];
+      // COLOR (new — readability polish, cycle 18 backlog item): dark grey
+      // while disabled (chaff — dead hardware regardless of whatever stale
+      // meter value it's frozen at), otherwise the continuous
+      // Game.radarCameraColor(meter) ramp — see file header CAMERAS note.
+      // Mutated in place on this actor's OWN material every frame (no more
+      // swapping between shared state-keyed materials).
+      if (camState.disabled) {
+        actor.cone.material.color.setHex(CAMERA_CONE_DISABLED.color);
+        actor.cone.material.opacity = CAMERA_CONE_DISABLED.opacity;
+        actor.coneEdge.material.color.setHex(CAMERA_EDGE_DISABLED.color);
+        actor.coneEdge.material.opacity = CAMERA_EDGE_DISABLED.opacity;
+      } else {
+        var rgb = Game.radarCameraColor(camState.meter);
+        actor.cone.material.color.setRGB(rgb.r / 255, rgb.g / 255, rgb.b / 255);
+        actor.cone.material.opacity = CAMERA_CONE_OPACITY;
+        var edgeRgb = lightenTowardWhite(rgb, CAMERA_EDGE_LIGHTEN);
+        actor.coneEdge.material.color.setRGB(edgeRgb.r / 255, edgeRgb.g / 255, edgeRgb.b / 255);
+        actor.coneEdge.material.opacity = CAMERA_EDGE_OPACITY;
+      }
 
       var halfFov = (camState.fovDeg * Math.PI) / 180 / 2;
       var range = camState.range;

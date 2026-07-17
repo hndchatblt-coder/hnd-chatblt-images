@@ -8,7 +8,19 @@
 //       SWEEP_PERIOD_S: 2.6,    // seconds per background scan-line sweep cycle
 //       STATIC_CELL: 9,         // css px, jammed-state noise cell size
 //       BLINK_TICKS: 18,        // engine ticks per jammed "ALERT" text blink half-cycle
+//       PLAYER_HIDDEN_BLINK_TICKS: 30, // engine ticks per hidden-player triangle blink half-cycle
+//       PLAYER_HIDDEN_DIM_ALPHA: 0.4,  // hidden triangle's alpha during the blink's "on" half
+//       DRAG_DOT_DIST: 0.9,     // world meters, dragged-body dot distance behind player facing
 //     }
+//
+//   Game.radarCameraColor(meter) -> { r, g, b } (0..255 ints, no alpha) --
+//   PURE function of meter alone, no engine/DOM/THREE/Math.random anywhere.
+//   Continuous cyan (meter 0) -> amber (meter >= Game.VISION.SUSPICIOUS_AT)
+//   -> red (meter ~1.0) ramp, shared by this file's own 2D camera cone/dot
+//   AND src/render.js's 3D camera cone/edge materials (radar.js loads before
+//   render.js in both build.js's ORDER and test.js's LOGIC_ORDER, so this is
+//   always defined by the time render.js runs). See its own comment at the
+//   definition site (below) for the exact color stops/interpolation.
 //
 //   Game.radarModel(engine) -> plain, JSON-safe object (no functions, no
 //   undefined fields anywhere in the tree — every field is a primitive, a
@@ -43,6 +55,28 @@
 //       walls: [ {x,y,w,h}, ... ],      // engine.zone.walls, copied
 //       darkZones: [ {x,y,w,h}, ... ],  // engine.zone.darkZones, copied
 //       exit: { x, y, w, h },           // engine.zone.exit, copied
+//       playerHidden: boolean, // NEW (readability polish, cycle 18 backlog
+//                             // item) -- !!engine.playerHidden, read fresh
+//                             // every model() call. View draws the player
+//                             // triangle dim + slow-blinking (tickCount-
+//                             // driven, deterministic) while true, matching
+//                             // the file's existing "no Math.random/Date"
+//                             // blink convention (see drawBlinkText's own
+//                             // BLINK_TICKS). engine.playerHidden may be
+//                             // absent on a bespoke pre-cycle test engine --
+//                             // falls back to false via `!!`, never throws.
+//       dragging: boolean,    // NEW (readability polish, cycle 18 backlog
+//                             // item) -- !!engine.dragging (engine.dragging
+//                             // itself is a guardId|null, NOT a boolean --
+//                             // coerced here since the view only ever needs
+//                             // "is something being dragged right now", the
+//                             // same posture as every other boolean flag in
+//                             // this model). View draws a small second dot
+//                             // trailing the player triangle (the dragged
+//                             // body) while true -- see DRAG_DOT_DIST below
+//                             // for the position math. engine.dragging may
+//                             // be absent on a bespoke pre-cycle test engine
+//                             // -- falls back to false via `!!`.
 //       player: { x, y, facing, stance },
 //       guards: [ { id, x, y, facing, state, fovDeg, range }, ... ]
 //         // EMPTY when jammed (the model must not leak guard positions
@@ -72,11 +106,18 @@
 //         // here IS that contract's `panAngle` -- the camera's CURRENT pan
 //         // direction, not its static mount-center facing, since that's
 //         // what the view actually draws the wedge along). `disabled` and
-//         // `meter` are exposed so the view can pick NORMAL/ALERT/DISABLED
-//         // styling exactly like src/render.js's own cameraStyleKey (pale
-//         // cyan normally, red once meter >= VISION.SUSPICIOUS_AT, dark grey
-//         // while disabled) -- kept as an honest per-camera field rather
-//         // than folded into `jammed` because a real future desync between
+//         // `meter` are exposed so the view can pick this cone's color: dark
+//         // grey while disabled, otherwise a CONTINUOUS ramp (cyan at
+//         // meter 0 -> amber at meter >= VISION.SUSPICIOUS_AT -> red near
+//         // meter 1.0) computed by the shared pure helper Game.
+//         // radarCameraColor(meter) below -- see its own comment for the
+//         // exact stops/interpolation. src/render.js's 3D camera cones
+//         // consume the SAME helper (radar.js loads before render.js in both
+//         // build.js's ORDER and test.js's LOGIC_ORDER, so Game.
+//         // radarCameraColor is always defined by the time render.js runs)
+//         // so the 2D radar wedge and the 3D cone always agree on what
+//         // "warming up" looks like -- kept as an honest per-camera field
+//         // rather than folded into `jammed` because a real future desync between
 //         // chaffUntil-driven camera disable and squad-phase jam is exactly
 //         // what this field exists to represent, even though with the
 //         // current director both conditions happen to coincide today.
@@ -131,12 +172,22 @@
 //         - exit: pulsing bright block, driven by engine.time (deterministic
 //           sine, no Date) so it reads as "active" without ever flashing
 //           erratically
-//         - player: white triangle pointing along facing
+//         - player: white triangle pointing along facing. NEW (readability
+//           polish, cycle 18 backlog item): while model.playerHidden, the
+//           triangle dims and slow-blinks instead (tickCount-driven,
+//           deterministic -- see RADAR.PLAYER_HIDDEN_BLINK_TICKS/
+//           PLAYER_HIDDEN_DIM_ALPHA); while model.dragging, a small second
+//           dot trails the triangle at RADAR.DRAG_DOT_DIST behind its facing
+//           (the dragged body).
 //         - guards: red-orange triangles, each with its vision cone drawn as
 //           a translucent filled arc using THAT guard's own fovDeg/range
 //           from the model (never re-derived here) and colored by state
 //           (PATROL green / SUSPICIOUS yellow / INVESTIGATE orange / CAUTION
 //           amber, matching src/render.js's CONE_STYLE palette)
+//         - cameras: cone wedge + dot colored by radarCameraColor(meter) --
+//           a continuous cyan -> amber -> red ramp (dark grey while
+//           disabled) -- so a camera visibly warming up toward a sighting
+//           reads exactly like a guard's own SUSPICIOUS/ALERT meter does.
 //         - a faint background scan-line sweep for texture, driven by
 //           engine.time (deterministic, purely cosmetic, never obscures
 //           entities)
@@ -171,6 +222,29 @@
     SWEEP_PERIOD_S: 2.6,
     STATIC_CELL: 9,
     BLINK_TICKS: 18,
+    // NEW (readability polish, cycle 18 backlog item) -- see file header
+    // playerHidden/dragging notes.
+    PLAYER_HIDDEN_BLINK_TICKS: 30, // slower than the jam static's own
+                                   // BLINK_TICKS (18) -- a hidden player
+                                   // should read as "concealed", not
+                                   // "urgent", so it blinks more lazily.
+    PLAYER_HIDDEN_DIM_ALPHA: 0.4,  // the triangle's alpha during the blink's
+                                   // "on" half -- always dimmer than the
+                                   // normal fully-opaque player triangle,
+                                   // even while visible, so a hidden player
+                                   // never reads as bright/alert on the
+                                   // radar the way an active one does.
+    // Mirrors src/engine.js's own DRAG_FOLLOW_DIST (0.9m, see its DRAG VERB
+    // contract) -- the fixed distance behind the player's facing a dragged
+    // body is held at every tick. NOT re-derived from engine internals
+    // (engine.js is out of scope for this module to import/modify) -- same
+    // "mirror, not re-derivation" posture this file's own guards.fovDeg/
+    // range CAUTION-widening mirror already documents above (see this
+    // file's header): if engine.js's DRAG_FOLLOW_DIST ever changes, this
+    // must change with it. Purely cosmetic (the trailing dot's exact
+    // position is not gameplay-critical, just a "you're dragging something"
+    // cue), so the small sync risk is an accepted tradeoff.
+    DRAG_DOT_DIST: 0.9,
   };
 
   var CONE_STYLE = {
@@ -182,14 +256,68 @@
     CAUTION: "rgba(255, 143, 0, 0.35)",
   };
 
-  // CAMERA cone palette (see file header cameras note) -- pale cyan
-  // normally, red once meter reaches SUSPICIOUS_AT, dark grey while
-  // disabled -- matching src/render.js's CAMERA_CONE_STYLE 3-state scheme.
-  var CAMERA_CONE_STYLE = {
-    NORMAL: "rgba(128, 222, 234, 0.32)",
-    ALERT: "rgba(255, 82, 82, 0.42)",
-    DISABLED: "rgba(102, 102, 102, 0.18)",
-  };
+  // CAMERA cone palette (see file header cameras note): dark grey while
+  // disabled (dead hardware, no ramp); otherwise a CONTINUOUS cyan -> amber
+  // -> red ramp keyed by meter -- see radarCameraColor below, the shared
+  // pure helper both this file's 2D wedge/dot AND src/render.js's 3D cone/
+  // edge consume. CAMERA_DISABLED_* below replace the old 3-state NORMAL/
+  // ALERT/DISABLED enum -- NORMAL/ALERT are no longer discrete steps, they're
+  // just the two ends of the ramp (meter 0 and meter ~1.0 respectively).
+  var CAMERA_DISABLED_CONE = "rgba(102, 102, 102, 0.18)";
+  var CAMERA_DISABLED_DOT = "rgba(102, 102, 102, 0.7)";
+  var CAMERA_CONE_ALPHA = 0.38; // fixed fill alpha for the ramp (color itself carries the "how alarmed" signal)
+
+  // Ramp color stops (plain {r,g,b} 0..255 objects, no alpha -- alpha is
+  // applied separately by each caller since the 2D canvas view and the 3D
+  // THREE materials each own their own opacity conventions). CYAN matches
+  // the old CAMERA_CONE_STYLE.NORMAL/src/render.js's 0x80deea; RED matches
+  // the old CAMERA_CONE_STYLE.ALERT/src/render.js's 0xff5252 -- AMBER is new,
+  // the midpoint "it's noticing you" color the continuous ramp needed that
+  // the old 2-color (cyan/red) scheme never had a slot for. Deliberately
+  // R-monotonic non-decreasing cyan -> amber -> red (96 -> 214 -> 255) so a
+  // rising meter always reads as "hotter," never a step backward.
+  var CAMERA_COLOR_CYAN = { r: 96, g: 214, b: 230 };
+  var CAMERA_COLOR_AMBER = { r: 214, g: 168, b: 64 };
+  var CAMERA_COLOR_RED = { r: 255, g: 64, b: 64 };
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  // Game.radarCameraColor(meter) -> { r, g, b } (each 0..255 integer, no
+  // alpha) -- PURE function of `meter` alone (no engine/DOM/THREE/Math.random
+  // anywhere), so it's fully node-testable headless and safely shared by
+  // BOTH src/radar.js's 2D canvas view (below) and src/render.js's 3D camera
+  // cone materials (radar.js loads before render.js in both build.js's ORDER
+  // and test.js's LOGIC_ORDER -- see both files' own module lists -- so
+  // Game.radarCameraColor is always defined by the time render.js runs).
+  // Two linear segments, mirroring the SAME two-stage escalation
+  // src/vision.js's own SUSPICIOUS_AT/ALERT_AT thresholds already describe
+  // (a guard/camera's meter climbs through "noticing" well before it climbs
+  // to a full confirmed sighting): meter in [0, SUSPICIOUS_AT] interpolates
+  // CYAN -> AMBER; meter in [SUSPICIOUS_AT, 1] interpolates AMBER -> RED.
+  // meter is clamped to [0, 1] first (a frozen/disabled camera's stale meter
+  // or any future out-of-range value never produces a nonsense color).
+  function radarCameraColor(meter) {
+    var m = Math.max(0, Math.min(1, meter || 0));
+    var susAt = Game.VISION.SUSPICIOUS_AT;
+    var from, to, t;
+    if (m <= susAt) {
+      from = CAMERA_COLOR_CYAN;
+      to = CAMERA_COLOR_AMBER;
+      t = susAt > 0 ? m / susAt : 1;
+    } else {
+      from = CAMERA_COLOR_AMBER;
+      to = CAMERA_COLOR_RED;
+      t = susAt < 1 ? (m - susAt) / (1 - susAt) : 1;
+    }
+    t = Math.max(0, Math.min(1, t));
+    return {
+      r: Math.round(lerp(from.r, to.r, t)),
+      g: Math.round(lerp(from.g, to.g, t)),
+      b: Math.round(lerp(from.b, to.b, t)),
+    };
+  }
 
   // DOOR lock-color coding (new -- Laboratory cycle, see file header):
   // L1 blue, L2 amber, L3 red (escalating danger the deeper the
@@ -306,6 +434,12 @@
       jammed: jammed,
       phaseJam: phaseJam,
       chaffActive: chaffActive,
+      // NEW (readability polish, cycle 18 backlog item) -- see file header
+      // for the full rationale. Coerced with `!!` since engine.dragging is a
+      // guardId|null, not a boolean, and both may be absent on a bespoke
+      // pre-cycle test engine (falls back to false either way).
+      playerHidden: !!engine.playerHidden,
+      dragging: !!engine.dragging,
       zone: { w: zone.bounds.w, h: zone.bounds.h },
       walls: zone.walls.map(copyRect),
       darkZones: zone.darkZones.map(copyRect),
@@ -364,16 +498,17 @@
   }
 
   // CAMERA cone wedge -- same arc-fan draw as drawCone above, but keyed by
-  // the 3-state disabled/meter styling instead of a guard's FSM state (see
-  // file header CAMERA_CONE_STYLE / cameraRadarStyleKey).
-  function cameraRadarStyleKey(c) {
-    if (c.disabled) return "DISABLED";
-    if (c.meter >= Game.VISION.SUSPICIOUS_AT) return "ALERT";
-    return "NORMAL";
-  }
-
+  // disabled/meter instead of a guard's FSM state: dark grey while disabled,
+  // otherwise the continuous radarCameraColor ramp (see file header /
+  // radarCameraColor's own comment above).
   function drawCameraCone(ctx, scale, c) {
-    var fill = CAMERA_CONE_STYLE[cameraRadarStyleKey(c)];
+    var fill;
+    if (c.disabled) {
+      fill = CAMERA_DISABLED_CONE;
+    } else {
+      var rgb = radarCameraColor(c.meter);
+      fill = "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + CAMERA_CONE_ALPHA + ")";
+    }
     var halfFov = ((c.fovDeg * Math.PI) / 180) / 2;
     var r = c.range * scale;
     var cx = c.x * scale;
@@ -388,10 +523,16 @@
 
   // CAMERA dot -- a small square marker (distinct from the guard/player
   // triangles: a camera is fixed hardware, not a moving actor with a facing
-  // "point"), dimmed to a dark grey while disabled, cyan/red otherwise
-  // matching the cone's own NORMAL/ALERT split.
-  function drawCameraDot(ctx, cx, cy, size, disabled, alerted) {
-    ctx.fillStyle = disabled ? "rgba(102,102,102,0.7)" : alerted ? "#ff5252" : "#80deea";
+  // "point"), dimmed to a dark grey while disabled, otherwise the SAME
+  // continuous ramp color as its own cone (full opacity, since a small dot
+  // needs to read clearly at a glance).
+  function drawCameraDot(ctx, cx, cy, size, disabled, meter) {
+    if (disabled) {
+      ctx.fillStyle = CAMERA_DISABLED_DOT;
+    } else {
+      var rgb = radarCameraColor(meter);
+      ctx.fillStyle = "rgb(" + rgb.r + "," + rgb.g + "," + rgb.b + ")";
+    }
     ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
   }
 
@@ -550,7 +691,7 @@
         drawCameraCone(ctx, scale, c);
       });
       model.cameras.forEach(function (c) {
-        drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter >= Game.VISION.SUSPICIOUS_AT);
+        drawCameraDot(ctx, c.x * scale, c.y * scale, 6, c.disabled, c.meter);
       });
 
       // LASERS (new -- Laboratory cycle, see file header): bright red beam
@@ -575,7 +716,42 @@
       model.guards.forEach(function (g) {
         drawTriangle(ctx, g.x * scale, g.y * scale, g.facing, 5, "#ff5a1f");
       });
-      drawTriangle(ctx, model.player.x * scale, model.player.y * scale, model.player.facing, 5.5, "#ffffff");
+
+      // DRAGGING (new -- readability polish, cycle 18 backlog item): a small
+      // second dot trailing the player triangle, at the SAME fixed
+      // DRAG_DOT_DIST behind the player's own facing engine.js's real drag
+      // follow uses (see RADAR.DRAG_DOT_DIST's own comment above) -- drawn
+      // BEFORE the triangle so the triangle stays visually on top of it.
+      if (model.dragging) {
+        var dragX = model.player.x - Math.cos(model.player.facing) * RADAR.DRAG_DOT_DIST;
+        var dragY = model.player.y - Math.sin(model.player.facing) * RADAR.DRAG_DOT_DIST;
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.beginPath();
+        ctx.arc(dragX * scale, dragY * scale, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // PLAYER HIDDEN (new -- readability polish, cycle 18 backlog item): the
+      // triangle dims and slow-blinks (tickCount-driven, deterministic --
+      // same "no Math.random/Date" posture as drawBlinkText's jam-state
+      // blink) instead of drawing at full brightness every frame. During the
+      // blink's "off" half the triangle is skipped entirely (matching
+      // drawBlinkText's own on/off toggle convention).
+      if (model.playerHidden) {
+        var hiddenOn = Math.floor(engine.tickCount / RADAR.PLAYER_HIDDEN_BLINK_TICKS) % 2 === 0;
+        if (hiddenOn) {
+          drawTriangle(
+            ctx,
+            model.player.x * scale,
+            model.player.y * scale,
+            model.player.facing,
+            5.5,
+            "rgba(255,255,255," + RADAR.PLAYER_HIDDEN_DIM_ALPHA + ")"
+          );
+        }
+      } else {
+        drawTriangle(ctx, model.player.x * scale, model.player.y * scale, model.player.facing, 5.5, "#ffffff");
+      }
     }
 
     return { render: render, canvas: canvas };
@@ -584,8 +760,9 @@
   Game.RADAR = RADAR;
   Game.radarModel = radarModel;
   Game.createRadar = createRadar;
+  Game.radarCameraColor = radarCameraColor;
   if (typeof module !== "undefined")
-    module.exports = { radarModel: radarModel, createRadar: createRadar, RADAR: RADAR };
+    module.exports = { radarModel: radarModel, createRadar: createRadar, RADAR: RADAR, radarCameraColor: radarCameraColor };
 })(typeof window !== "undefined"
   ? (window.Game = window.Game || {})
   : (global.Game = global.Game || {}));
