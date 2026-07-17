@@ -65,3 +65,6 @@ _One line per judgment call: decision + why. Maintained by the build session._
   the unicorn stands above it; the rainbow meter hides in places (it is a question-time thing).
 - New tools/phone-audit.cjs harness: three iPhone viewports, screenshots + programmatic checks
   for clipped answers, viewport overflow, sub-60px map targets and chrome collisions.
+- Painted zone backgrounds (user-generated sheet) sliced 2x3 into per-zone JPEGs (~28KB each),
+  embedded by build-game.js like the voice pack; procedural scenes remain the fallback when
+  assets/scenes/ is absent. Cell seams dropped via a 6px inset during slicing.
