@@ -76,7 +76,7 @@ content rotation) take over. L items must be split before selection.
 ## Graphics arc (added cycle 41 from human direction — weave into rotation after B1/B3)
 
 - ~~G1: Humanoid silhouettes~~ DONE cycle 44 (G5 should evaluate camera zoom — figures small at current distance).
-- G2: Procedural canvas textures | polish | M | Tension | floor grain, container ridges, per-zone palettes (dock rust, lab cold, tower night); zero external assets.
+- ~~G2: Procedural textures~~ DONE cycle 45. NEXT WHEN RESUMED: G3 lighting pass.
 - G3: Lighting pass | polish | M | Readability | shadow-casting spotlights + darker ambient; dark zones as real shadow pools; keep cone honesty.
 - G4: CRT post-effect | polish | S | Tension | scanlines + vignette shader quad; toggleable.
 - G5: Peek camera rotation (SPEC) | feature | M | Expression | hold-key ~30° camera swing; revisits the top-down vs isometric drift.

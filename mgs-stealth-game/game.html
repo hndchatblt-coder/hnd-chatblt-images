@@ -5475,6 +5475,41 @@
     var WALL_INTERIOR_COLOR = 0x4d6152;
     var WALL_EDGE_COLOR = 0x11150f;
     var EXIT_COLOR = 0x00ff66;
+
+    var DEFAULT_PALETTE = {
+      floor: FLOOR_COLOR,
+      wallPerimeter: WALL_PERIMETER_COLOR,
+      wallInterior: WALL_INTERIOR_COLOR,
+      edge: WALL_EDGE_COLOR,
+    };
+    var ZONE_PALETTES = {
+      loadingDock: {
+        floor: 0x2b241c,
+        wallPerimeter: 0x4a3a2c,
+        wallInterior: 0x6e4a2a,
+        edge: 0x1c130a,
+      },
+      warehouse: {
+        floor: 0x1b2126,
+        wallPerimeter: 0x39434a,
+        wallInterior: 0x46545c,
+        edge: 0x10151a,
+      },
+      laboratory: {
+        floor: 0x232b33,
+        wallPerimeter: 0x4d6472,
+        wallInterior: 0x5d7986,
+        edge: 0x121a20,
+      },
+      commsTower: {
+        floor: 0x141018,
+        wallPerimeter: 0x241a2c,
+        wallInterior: 0x4a2230,
+        edge: 0x0a0610,
+      },
+    };
+    var HAZARD_COLOR_A = 0xffb300;
+    var HAZARD_COLOR_B = 0x1c1c1c;
     var PLAYER_COLOR = 0x4682b4; // steel blue
     var GUARD_COLOR = 0x6b8e23; // olive drab
     var BOX_COLOR = 0x8b5a2b;
@@ -5632,6 +5667,163 @@
       return tex;
     }
 
+    var TEXTURE_SIZE = 256;
+    var TEXTURE_TILE_METERS = 4; // world meters one texture tile covers before repeat
+
+    function hashSeed(str) {
+      var h = 0;
+      for (var i = 0; i < str.length; i++) {
+        h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
+      }
+      return h >>> 0;
+    }
+
+    function hexToRgb(hex) {
+      return { r: (hex >> 16) & 0xff, g: (hex >> 8) & 0xff, b: hex & 0xff };
+    }
+    function rgbCss(rgb, alpha) {
+      return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + (alpha == null ? 1 : alpha) + ")";
+    }
+    function shadeRgb(rgb, delta) {
+      return {
+        r: Math.max(0, Math.min(255, rgb.r + delta)),
+        g: Math.max(0, Math.min(255, rgb.g + delta)),
+        b: Math.max(0, Math.min(255, rgb.b + delta)),
+      };
+    }
+
+    var textureCache = {};
+
+    function cachedTexture(kind, cacheColor, seed, painter) {
+      var key = kind + "|" + cacheColor + "|" + (seed || 0);
+      var existing = textureCache[key];
+      if (existing) return existing;
+      var canvas = document.createElement("canvas");
+      canvas.width = TEXTURE_SIZE;
+      canvas.height = TEXTURE_SIZE;
+      var ctx = canvas.getContext("2d");
+      painter(ctx, TEXTURE_SIZE, Game.createRng((seed || 0) >>> 0));
+      var tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.needsUpdate = true;
+      textureCache[key] = tex;
+      return tex;
+    }
+
+    function concreteTexture(baseColor, seed) {
+      return cachedTexture("concrete", baseColor, seed, function (ctx, size, rng) {
+        var base = hexToRgb(baseColor);
+        ctx.fillStyle = rgbCss(base);
+        ctx.fillRect(0, 0, size, size);
+
+        var grains = 2200;
+        for (var i = 0; i < grains; i++) {
+          var gx = rng.next() * size;
+          var gy = rng.next() * size;
+          var shade = (rng.next() - 0.5) * 34;
+          ctx.fillStyle = rgbCss(shadeRgb(base, shade), 0.5);
+          ctx.fillRect(gx, gy, 1.4, 1.4);
+        }
+
+        var blotches = 5;
+        for (var b = 0; b < blotches; b++) {
+          var bx = rng.next() * size;
+          var by = rng.next() * size;
+          var br = 14 + rng.next() * 26;
+          var grad = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+          grad.addColorStop(0, "rgba(0,0,0,0.22)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        var cracks = 4;
+        for (var c = 0; c < cracks; c++) {
+          ctx.strokeStyle = "rgba(0,0,0,0.28)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          var cx = rng.next() * size;
+          var cy = rng.next() * size;
+          ctx.moveTo(cx, cy);
+          var segs = 3 + Math.floor(rng.next() * 3);
+          for (var s = 0; s < segs; s++) {
+            cx += (rng.next() - 0.5) * 46;
+            cy += (rng.next() - 0.5) * 46;
+            ctx.lineTo(cx, cy);
+          }
+          ctx.stroke();
+        }
+      });
+    }
+
+    function metalTexture(baseColor, seed) {
+      return cachedTexture("metal", baseColor, seed, function (ctx, size, rng) {
+        var base = hexToRgb(baseColor);
+        ctx.fillStyle = rgbCss(base);
+        ctx.fillRect(0, 0, size, size);
+
+        var ridgeGap = size / 10;
+        for (var x = ridgeGap * 0.5; x < size; x += ridgeGap) {
+          var jitter = (rng.next() - 0.5) * 3;
+          ctx.strokeStyle = rgbCss(shadeRgb(base, 26), 0.55);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + jitter, 0);
+          ctx.lineTo(x + jitter, size);
+          ctx.stroke();
+          ctx.strokeStyle = rgbCss(shadeRgb(base, -28), 0.5);
+          ctx.beginPath();
+          ctx.moveTo(x + jitter + 1.5, 0);
+          ctx.lineTo(x + jitter + 1.5, size);
+          ctx.stroke();
+        }
+
+        var scratches = 10;
+        for (var i = 0; i < scratches; i++) {
+          var sx = rng.next() * size;
+          var sy = rng.next() * size;
+          var len = 10 + rng.next() * 24;
+          var ang = (rng.next() - 0.5) * 0.9;
+          ctx.strokeStyle = rgbCss(shadeRgb(base, 45), 0.3);
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+          ctx.stroke();
+        }
+      });
+    }
+
+    function hazardStripes(colorA, colorB) {
+      return cachedTexture("hazard", colorA + "_" + colorB, 0, function (ctx, size) {
+        ctx.fillStyle = rgbCss(hexToRgb(colorB));
+        ctx.fillRect(0, 0, size, size);
+        ctx.save();
+        ctx.translate(size / 2, size / 2);
+        ctx.rotate(Math.PI / 4);
+        ctx.translate(-size, -size);
+        ctx.fillStyle = rgbCss(hexToRgb(colorA));
+        var stripeW = size / 8;
+        for (var x = -size; x < size * 3; x += stripeW * 2) {
+          ctx.fillRect(x, -size, stripeW, size * 4);
+        }
+        ctx.restore();
+      });
+    }
+
+    function cloneTiled(baseTex, worldW, worldH) {
+      var tex = baseTex.clone();
+      tex.needsUpdate = true;
+      tex.repeat.set(
+        Math.max(1, Math.round(worldW / TEXTURE_TILE_METERS)),
+        Math.max(1, Math.round(worldH / TEXTURE_TILE_METERS))
+      );
+      return tex;
+    }
+
     var MARKER_TEXTURES = {
       SUSPICIOUS: makeGlyphTexture("?", "#f9a825"),
       ALERT: makeGlyphTexture("!", "#e53935"),
@@ -5740,6 +5932,12 @@
 
     var built = false;
     var staticObjects = [];
+    var staticTextures = [];
+
+    function trackTexture(tex) {
+      staticTextures.push(tex);
+      return tex;
+    }
 
     function buildFlatQuad(x, y, w, h, yOffset, material) {
       var geo = new THREE.PlaneGeometry(w, h);
@@ -5756,7 +5954,13 @@
     }
 
     function buildStatic() {
-      var floorMat = new THREE.MeshLambertMaterial({ color: FLOOR_COLOR });
+      var palette = ZONE_PALETTES[zone.id] || DEFAULT_PALETTE;
+      var seed = hashSeed(zone.id || "default");
+
+      var floorTex = trackTexture(
+        cloneTiled(concreteTexture(palette.floor, seed), zone.bounds.w, zone.bounds.h)
+      );
+      var floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: floorTex });
       addStatic(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
 
       var darkMat = new THREE.MeshLambertMaterial({ color: DARKZONE_COLOR });
@@ -5764,12 +5968,35 @@
         addStatic(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
       });
 
+      var interiorWalls = (zone.walls || []).filter(function (w) {
+        return !isPerimeterWall(w);
+      });
+      var hazardSet = interiorWalls
+        .slice()
+        .sort(function (a, b) {
+          return a.w * a.h - b.w * b.h;
+        })
+        .slice(0, 2)
+        .filter(function (w) {
+          return w.w * w.h <= 12;
+        });
+
       (zone.walls || []).forEach(function (wall) {
         var perimeter = isPerimeterWall(wall);
         var h = perimeter ? PERIMETER_H : INTERIOR_H;
         var geo = new THREE.BoxGeometry(wall.w, h, wall.h);
+
+        var wallTex;
+        if (perimeter) {
+          wallTex = concreteTexture(palette.wallPerimeter, seed + 1);
+        } else if (hazardSet.indexOf(wall) !== -1) {
+          wallTex = hazardStripes(HAZARD_COLOR_A, HAZARD_COLOR_B);
+        } else {
+          wallTex = metalTexture(palette.wallInterior, seed + 2);
+        }
         var mat = new THREE.MeshLambertMaterial({
-          color: perimeter ? WALL_PERIMETER_COLOR : WALL_INTERIOR_COLOR,
+          color: 0xffffff,
+          map: trackTexture(cloneTiled(wallTex, wall.w, wall.h)),
         });
         var mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
@@ -5778,7 +6005,7 @@
         var edges = new THREE.EdgesGeometry(geo);
         var line = new THREE.LineSegments(
           edges,
-          new THREE.LineBasicMaterial({ color: WALL_EDGE_COLOR })
+          new THREE.LineBasicMaterial({ color: palette.edge })
         );
         line.position.copy(mesh.position);
         addStatic(line);
@@ -5802,6 +6029,10 @@
         if (obj.material) obj.material.dispose();
       });
       staticObjects = [];
+      staticTextures.forEach(function (tex) {
+        tex.dispose();
+      });
+      staticTextures = [];
     }
 
     function makeActor(bodyColor, visorColor) {

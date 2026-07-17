@@ -1,5 +1,14 @@
 # TESTLOG.md
 
+## Cycle 45 (graphics G2: procedural textures + zone palettes)
+
+263/263; 25/25; 5/5 shots inspected (dock: warm rust concrete + grain,
+metal-ridged containers, hazard-stripe accents; warehouse/lab evidence
+shots verified distinct by the builder). Deterministic canvas textures
+(zone-id-seeded rng), cached bases + per-surface tiled clones with correct
+dispose. Dark zones, exit, doors, lasers, pickups untouched — functional
+colors preserved. LOOP PAUSED after this cycle at human request.
+
 ## Cycle 44 (graphics G1: humanoid silhouettes)
 
 263/263; 25/25; 5/5 shots inspected + crouch/crawl/sleep/stun evidence

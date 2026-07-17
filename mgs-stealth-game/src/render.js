@@ -325,6 +325,60 @@
     var WALL_INTERIOR_COLOR = 0x4d6152;
     var WALL_EDGE_COLOR = 0x11150f;
     var EXIT_COLOR = 0x00ff66;
+
+    // PER-ZONE PALETTES (materials/atmosphere cycle, Readability + Consequence
+    // pillars — a zone should read as itself at a glance, not just "the same
+    // grey box with different guards in it"): floor base / structural
+    // (perimeter) wall base / interior-wall (container/crate) variant / the
+    // EdgesGeometry outline color, per zone.id. Only these 4 slots are
+    // themed — darkZones, the exit quad, doors, lasers, and pickups keep
+    // their own fixed functional colors untouched everywhere below (lock
+    // colors stay color-coded, exit stays green — see file header). Unknown
+    // zone ids (defensive only; every real zone in src/world.js has an
+    // entry here) fall back to DEFAULT_PALETTE, i.e. the original flat
+    // colors this file used before this cycle.
+    var DEFAULT_PALETTE = {
+      floor: FLOOR_COLOR,
+      wallPerimeter: WALL_PERIMETER_COLOR,
+      wallInterior: WALL_INTERIOR_COLOR,
+      edge: WALL_EDGE_COLOR,
+    };
+    var ZONE_PALETTES = {
+      // loadingDock — rusty/warm grays + amber accent (shipping-yard grime).
+      loadingDock: {
+        floor: 0x2b241c,
+        wallPerimeter: 0x4a3a2c,
+        wallInterior: 0x6e4a2a,
+        edge: 0x1c130a,
+      },
+      // warehouse — neutral industrial, cooler shadows than the dock.
+      warehouse: {
+        floor: 0x1b2126,
+        wallPerimeter: 0x39434a,
+        wallInterior: 0x46545c,
+        edge: 0x10151a,
+      },
+      // laboratory — cold blue-white walls, cleaner (less grimy) floor.
+      laboratory: {
+        floor: 0x232b33,
+        wallPerimeter: 0x4d6472,
+        wallInterior: 0x5d7986,
+        edge: 0x121a20,
+      },
+      // commsTower — darker night-navy + red accent (interior partitions
+      // carry the red into the crate/container variant).
+      commsTower: {
+        floor: 0x141018,
+        wallPerimeter: 0x241a2c,
+        wallInterior: 0x4a2230,
+        edge: 0x0a0610,
+      },
+    };
+    // Hazard-stripe accent colors (see hazardStripes below) — a fixed
+    // caution amber/near-black pair, same convention regardless of zone
+    // (real-world hazard tape doesn't change color by room).
+    var HAZARD_COLOR_A = 0xffb300;
+    var HAZARD_COLOR_B = 0x1c1c1c;
     var PLAYER_COLOR = 0x4682b4; // steel blue
     var GUARD_COLOR = 0x6b8e23; // olive drab
     // CARDBOARD BOX (new — box/chaff/ration cycle, see file header BOX
@@ -545,6 +599,208 @@
       return tex;
     }
 
+    // ---- procedural canvas textures (materials/atmosphere cycle) -------------
+    // Zero external assets: every "material" below is a small (256px) 2D
+    // canvas drawn once and wrapped in a THREE.CanvasTexture, RepeatWrapping
+    // so it tiles across a floor/wall's world footprint (see cloneTiled).
+    // Deterministic: noise/cracks/scratches are seeded from a fixed hash of
+    // the zone id (hashSeed below) plus a small per-texture-kind offset —
+    // NEVER Math.random, same "no wall clock / no nondeterminism" rule this
+    // file already follows for animation (engine.time-driven, not Date.now).
+    // CACHED by (kind, baseColor, seed) in textureCache so every surface
+    // that wants "concrete, loadingDock's rust-grey" shares one drawn
+    // canvas — buildStatic clones the cached texture per surface (cheap:
+    // shares the canvas image, only gets its own .repeat) so grain density
+    // stays consistent regardless of that surface's size; only those
+    // per-surface CLONES are disposed on a zone change (see staticTextures/
+    // disposeStatic below) — the cached base textures live for the
+    // renderer's lifetime, same posture as MARKER_TEXTURES/CONE_MATERIALS
+    // elsewhere in this file (shared, built lazily, never torn down since
+    // this module has no explicit "destroy renderer" hook).
+    var TEXTURE_SIZE = 256;
+    var TEXTURE_TILE_METERS = 4; // world meters one texture tile covers before repeat
+
+    // Deterministic string -> uint32 hash (a fixed function of the zone id —
+    // "loadingDock" always seeds the same grain/crack/scratch layout every
+    // run; not a source of randomness, just a stable seed derivation).
+    function hashSeed(str) {
+      var h = 0;
+      for (var i = 0; i < str.length; i++) {
+        h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
+      }
+      return h >>> 0;
+    }
+
+    function hexToRgb(hex) {
+      return { r: (hex >> 16) & 0xff, g: (hex >> 8) & 0xff, b: hex & 0xff };
+    }
+    function rgbCss(rgb, alpha) {
+      return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + (alpha == null ? 1 : alpha) + ")";
+    }
+    function shadeRgb(rgb, delta) {
+      return {
+        r: Math.max(0, Math.min(255, rgb.r + delta)),
+        g: Math.max(0, Math.min(255, rgb.g + delta)),
+        b: Math.max(0, Math.min(255, rgb.b + delta)),
+      };
+    }
+
+    var textureCache = {};
+
+    function cachedTexture(kind, cacheColor, seed, painter) {
+      var key = kind + "|" + cacheColor + "|" + (seed || 0);
+      var existing = textureCache[key];
+      if (existing) return existing;
+      var canvas = document.createElement("canvas");
+      canvas.width = TEXTURE_SIZE;
+      canvas.height = TEXTURE_SIZE;
+      var ctx = canvas.getContext("2d");
+      painter(ctx, TEXTURE_SIZE, Game.createRng((seed || 0) >>> 0));
+      var tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.needsUpdate = true;
+      textureCache[key] = tex;
+      return tex;
+    }
+
+    // concreteTexture(baseColor, seed): subtle noise grain + a few darker
+    // blotches (stains) + faint hairline cracks — used for the floor and
+    // perimeter (structural) walls.
+    function concreteTexture(baseColor, seed) {
+      return cachedTexture("concrete", baseColor, seed, function (ctx, size, rng) {
+        var base = hexToRgb(baseColor);
+        ctx.fillStyle = rgbCss(base);
+        ctx.fillRect(0, 0, size, size);
+
+        var grains = 2200;
+        for (var i = 0; i < grains; i++) {
+          var gx = rng.next() * size;
+          var gy = rng.next() * size;
+          var shade = (rng.next() - 0.5) * 34;
+          ctx.fillStyle = rgbCss(shadeRgb(base, shade), 0.5);
+          ctx.fillRect(gx, gy, 1.4, 1.4);
+        }
+
+        var blotches = 5;
+        for (var b = 0; b < blotches; b++) {
+          var bx = rng.next() * size;
+          var by = rng.next() * size;
+          var br = 14 + rng.next() * 26;
+          var grad = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+          grad.addColorStop(0, "rgba(0,0,0,0.22)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        var cracks = 4;
+        for (var c = 0; c < cracks; c++) {
+          ctx.strokeStyle = "rgba(0,0,0,0.28)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          var cx = rng.next() * size;
+          var cy = rng.next() * size;
+          ctx.moveTo(cx, cy);
+          var segs = 3 + Math.floor(rng.next() * 3);
+          for (var s = 0; s < segs; s++) {
+            cx += (rng.next() - 0.5) * 46;
+            cy += (rng.next() - 0.5) * 46;
+            ctx.lineTo(cx, cy);
+          }
+          ctx.stroke();
+        }
+      });
+    }
+
+    // metalTexture(baseColor, seed): vertical ridge lines (shipping-
+    // container/crate panelling) + a few subtle scratches — used for
+    // interior walls, which per src/world.js's own wall comments ARE the
+    // containers/crates/shelving ("shipping container, west", "center
+    // crate stack", ...) — the only boxy geometry in this game big enough
+    // to read as "container", distinct from the perimeter's structural
+    // concrete.
+    function metalTexture(baseColor, seed) {
+      return cachedTexture("metal", baseColor, seed, function (ctx, size, rng) {
+        var base = hexToRgb(baseColor);
+        ctx.fillStyle = rgbCss(base);
+        ctx.fillRect(0, 0, size, size);
+
+        var ridgeGap = size / 10;
+        for (var x = ridgeGap * 0.5; x < size; x += ridgeGap) {
+          var jitter = (rng.next() - 0.5) * 3;
+          ctx.strokeStyle = rgbCss(shadeRgb(base, 26), 0.55);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + jitter, 0);
+          ctx.lineTo(x + jitter, size);
+          ctx.stroke();
+          ctx.strokeStyle = rgbCss(shadeRgb(base, -28), 0.5);
+          ctx.beginPath();
+          ctx.moveTo(x + jitter + 1.5, 0);
+          ctx.lineTo(x + jitter + 1.5, size);
+          ctx.stroke();
+        }
+
+        var scratches = 10;
+        for (var i = 0; i < scratches; i++) {
+          var sx = rng.next() * size;
+          var sy = rng.next() * size;
+          var len = 10 + rng.next() * 24;
+          var ang = (rng.next() - 0.5) * 0.9;
+          ctx.strokeStyle = rgbCss(shadeRgb(base, 45), 0.3);
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+          ctx.stroke();
+        }
+      });
+    }
+
+    // hazardStripes(colorA, colorB): 45-degree diagonal caution stripes —
+    // NOT seeded (a striped pattern, not noise; deterministic by
+    // construction already) — applied sparingly (see buildStatic's
+    // hazard-wall selection below) to a couple of low crates per zone, a
+    // small accent, never to functional elements (exit/doors keep their
+    // own color-coded materials untouched — see file header).
+    function hazardStripes(colorA, colorB) {
+      return cachedTexture("hazard", colorA + "_" + colorB, 0, function (ctx, size) {
+        ctx.fillStyle = rgbCss(hexToRgb(colorB));
+        ctx.fillRect(0, 0, size, size);
+        ctx.save();
+        ctx.translate(size / 2, size / 2);
+        ctx.rotate(Math.PI / 4);
+        ctx.translate(-size, -size);
+        ctx.fillStyle = rgbCss(hexToRgb(colorA));
+        var stripeW = size / 8;
+        for (var x = -size; x < size * 3; x += stripeW * 2) {
+          ctx.fillRect(x, -size, stripeW, size * 4);
+        }
+        ctx.restore();
+      });
+    }
+
+    // Clones a cached base texture and gives the clone its own .repeat,
+    // scaled to the world-space footprint it's about to cover — so grain/
+    // ridge/stripe density stays visually consistent whether it's tiling
+    // across a 40x30 floor or a 3x3 crate, instead of one giant stretched
+    // texel. The clone shares the base's canvas image (cheap); callers are
+    // responsible for tracking + disposing the clone (see trackTexture /
+    // disposeStatic below) since, unlike the cached base, it's genuinely
+    // per-zone-build.
+    function cloneTiled(baseTex, worldW, worldH) {
+      var tex = baseTex.clone();
+      tex.needsUpdate = true;
+      tex.repeat.set(
+        Math.max(1, Math.round(worldW / TEXTURE_TILE_METERS)),
+        Math.max(1, Math.round(worldH / TEXTURE_TILE_METERS))
+      );
+      return tex;
+    }
+
     var MARKER_TEXTURES = {
       SUSPICIOUS: makeGlyphTexture("?", "#f9a825"),
       ALERT: makeGlyphTexture("!", "#e53935"),
@@ -674,6 +930,18 @@
     // + dispose them all without hunting through `scene.children` (see
     // disposeStatic below and the ZONE CHANGES note in the file header).
     var staticObjects = [];
+    // Every per-surface texture CLONE cloneTiled() produced this build (see
+    // procedural canvas textures note above) — the cached BASE textures in
+    // textureCache are intentionally not tracked/disposed here (shared
+    // across zones, live for the renderer's lifetime); only these clones,
+    // which exist solely to carry one surface's own .repeat, are torn down
+    // on a zone change.
+    var staticTextures = [];
+
+    function trackTexture(tex) {
+      staticTextures.push(tex);
+      return tex;
+    }
 
     function buildFlatQuad(x, y, w, h, yOffset, material) {
       var geo = new THREE.PlaneGeometry(w, h);
@@ -690,34 +958,86 @@
     }
 
     function buildStatic() {
-      var floorMat = new THREE.MeshLambertMaterial({ color: FLOOR_COLOR });
+      // PER-ZONE PALETTE (see ZONE_PALETTES above) + a fixed seed derived
+      // from the zone id — every texture drawn below for THIS zone uses it
+      // (offset per texture kind so floor/perimeter/interior don't all draw
+      // the identical grain), so re-entering a zone (or a fresh renderer)
+      // always regenerates byte-identical canvases; no Math.random anywhere
+      // in this file.
+      var palette = ZONE_PALETTES[zone.id] || DEFAULT_PALETTE;
+      var seed = hashSeed(zone.id || "default");
+
+      var floorTex = trackTexture(
+        cloneTiled(concreteTexture(palette.floor, seed), zone.bounds.w, zone.bounds.h)
+      );
+      var floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: floorTex });
       addStatic(buildFlatQuad(0, 0, zone.bounds.w, zone.bounds.h, 0, floorMat));
 
+      // Dark zones stay flat/untextured on purpose (see file header): they
+      // must read as SHADOW at a glance, not decoration — grain here would
+      // fight that readability job, so no palette/texture involvement.
       var darkMat = new THREE.MeshLambertMaterial({ color: DARKZONE_COLOR });
       (zone.darkZones || []).forEach(function (dz) {
         addStatic(buildFlatQuad(dz.x, dz.y, dz.w, dz.h, 0.01, darkMat));
       });
 
+      // Hazard-striped crates (see hazardStripes above): the one or two
+      // SMALLEST interior walls (area-sorted, capped at a "small crate"
+      // footprint) read as low, caution-taped crates instead of plain
+      // metal — "use sparingly, 1-2 accents per zone", never the big
+      // shipping-container-sized walls.
+      var interiorWalls = (zone.walls || []).filter(function (w) {
+        return !isPerimeterWall(w);
+      });
+      var hazardSet = interiorWalls
+        .slice()
+        .sort(function (a, b) {
+          return a.w * a.h - b.w * b.h;
+        })
+        .slice(0, 2)
+        .filter(function (w) {
+          return w.w * w.h <= 12;
+        });
+
       (zone.walls || []).forEach(function (wall) {
         var perimeter = isPerimeterWall(wall);
         var h = perimeter ? PERIMETER_H : INTERIOR_H;
         var geo = new THREE.BoxGeometry(wall.w, h, wall.h);
+
+        var wallTex;
+        if (perimeter) {
+          // Structural walls: same concrete family as the floor, tinted to
+          // this zone's wall base.
+          wallTex = concreteTexture(palette.wallPerimeter, seed + 1);
+        } else if (hazardSet.indexOf(wall) !== -1) {
+          wallTex = hazardStripes(HAZARD_COLOR_A, HAZARD_COLOR_B);
+        } else {
+          // Interior obstacles are the containers/crates (see world.js's
+          // own "shipping container"/"crate" wall comments) — metal ridges.
+          wallTex = metalTexture(palette.wallInterior, seed + 2);
+        }
         var mat = new THREE.MeshLambertMaterial({
-          color: perimeter ? WALL_PERIMETER_COLOR : WALL_INTERIOR_COLOR,
+          color: 0xffffff,
+          map: trackTexture(cloneTiled(wallTex, wall.w, wall.h)),
         });
         var mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
         addStatic(mesh);
 
+        // Edge-line treatment carries the readability (see file header) —
+        // kept exactly as before, just recolored per palette.edge instead
+        // of the old fixed WALL_EDGE_COLOR.
         var edges = new THREE.EdgesGeometry(geo);
         var line = new THREE.LineSegments(
           edges,
-          new THREE.LineBasicMaterial({ color: WALL_EDGE_COLOR })
+          new THREE.LineBasicMaterial({ color: palette.edge })
         );
         line.position.copy(mesh.position);
         addStatic(line);
       });
 
+      // Exit quad is a FUNCTIONAL element (do not retheme — see file
+      // header): stays the same green regardless of zone palette.
       if (zone.exit) {
         var exitMat = new THREE.MeshLambertMaterial({
           color: 0x003318,
@@ -739,6 +1059,13 @@
         if (obj.material) obj.material.dispose();
       });
       staticObjects = [];
+      // Per-surface texture CLONES only (see trackTexture above) — the
+      // cached base textures in textureCache are shared across zones and
+      // deliberately NOT disposed here.
+      staticTextures.forEach(function (tex) {
+        tex.dispose();
+      });
+      staticTextures = [];
     }
 
     // ---- dynamic actors (player, guards) ---------------------------------------

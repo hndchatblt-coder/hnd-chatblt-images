@@ -1,6 +1,7 @@
 # PROGRESS.md
 
-**Version:** v0.44 (cycle 44 — humanoid silhouettes)
+**Version:** v0.45 (cycle 45 — procedural textures; LOOP PAUSED by human —
+resume protocol: CLAUDE.md top)
 
 ## Module status
 
@@ -36,6 +37,9 @@
 
 ## Changelog (last 5)
 
+- cycle 45: graphics G2 — procedural concrete/metal/hazard textures,
+  per-zone palettes (dock rust / warehouse neutral / lab cold / tower
+  night) (263/263, 25/25)
 - cycle 44: graphics G1 — humanoid silhouettes (distance-driven walk cycle,
   stance poses, prone crawl/sleep, body-orientation facing) (263/263, 25/25)
 - cycle 43: polish — codec firstBody/lowDarts defer during ALERT/EVASION
