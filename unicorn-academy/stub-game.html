@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stub</title>
+<style>body{font-family:sans-serif;margin:0;padding:20px}button{min-width:80px;min-height:80px;margin:6px;font-size:20px}.screen{display:none}.screen.active{display:block}</style>
+</head><body>
+<!-- Sprite pack: derived from OpenMoji (openmoji.org, CC BY-SA 4.0), palette-harmonised. -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="p-cat" viewBox="0 0 72 72"><circle cx="36" cy="36" r="20" fill="#f9c784"/></symbol>
+<symbol id="p-carrot" viewBox="0 0 72 72"><rect x="20" y="20" width="32" height="32" fill="#ffa"/></symbol>
+</svg>
+<div class="screen active" id="s-start"><button data-testid="start-button" onclick="go('s-colour')">Start</button></div>
+<div class="screen" id="s-colour">
+  <button data-testid="unicorn-colour-1" onclick="go('s-mane')">pink</button>
+  <button data-testid="unicorn-colour-2" onclick="go('s-mane')">blue</button>
+</div>
+<div class="screen" id="s-mane">
+  <button data-testid="mane-colour-1" onclick="go('s-uname')">lilac</button>
+</div>
+<div class="screen" id="s-uname">
+  <button data-testid="unicorn-name-option" onclick="go('s-name')">Sparkle</button>
+</div>
+<div class="screen" id="s-name">
+  <div data-testid="name-keyboard"><button>A</button><button>B</button></div>
+  <button data-testid="name-done" onclick="go('s-story')">✓</button>
+</div>
+<div class="screen" id="s-story">
+  <p>story…</p><button data-testid="story-skip" onclick="go('s-map')">✨ skip</button>
+</div>
+<div class="screen" id="s-map" data-testid="map">
+  <button data-testid="zone-letter-meadow" onclick="go('s-activity')">Letter Meadow</button>
+  <button data-testid="zone-number-mountain" onclick="go('s-activity')">Number Mountain</button>
+  <button data-testid="zone-memory-clouds" onclick="go('s-activity')">Memory Clouds</button>
+  <span data-testid="rainbow-meter"></span><span data-testid="gem-counter">0</span>
+  <button data-testid="boutique">🎀</button>
+</div>
+<div class="screen" id="s-activity" data-testid="activity">
+  <button data-testid="hear-again">🔊</button>
+  <button data-testid="answer-option" onclick="answer()">A</button>
+  <button data-testid="answer-option" onclick="answer()">B</button>
+  <button data-testid="answer-option" onclick="answer()">C</button>
+  <button data-testid="home-button" onclick="go('s-map')">🏠</button>
+</div>
+<div id="devwrap" style="display:none">
+  <div data-testid="dev-panel">
+    <button data-testid="dev-jump">jump</button><button data-testid="dev-bot-correct">bot+</button>
+    <button data-testid="dev-bot-wrong">bot-</button><button data-testid="dev-skip-celebrations">skip</button>
+    <button data-testid="dev-tts-mute">mute</button>
+  </div>
+</div>
+<script>
+console.info('TTS voice: ' + (speechSynthesis && speechSynthesis.getVoices().length ? 'available' : 'no voices available'));
+function go(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function answer(){try{localStorage.setItem('ua-save',JSON.stringify({v:1,zone:'letter-meadow',gems:2}));}catch(e){}}
+if(new URLSearchParams(location.search).get('dev')==='1')document.getElementById('devwrap').style.display='block';
+try{if(localStorage.getItem('ua-save'))go('s-map');}catch(e){}
+</script>
+</body></html>
