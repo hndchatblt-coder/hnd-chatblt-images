@@ -54,7 +54,7 @@ content rotation) take over. L items must be split before selection.
 - B7: asymptotic-wedge oscillation regression | polish | S | Consequence | build the oscillating-corner scenario the claim rests on.
 - B8: missingSearchers gap — confirmed benign, stays documented (no action).
 - B9: PROGRESS module-status table stale ~20 cycles | polish | S | Readability | sync or retire (changelog is the trusted ledger).
-- B10: codec pause mid-chase (Tension violation, aged 13 cycles) | polish | S | Tension | PROMOTED — defer firstBody/lowDarts during ALERT/EVASION; firstAlert stays immediate.
+- ~~B10~~ FIXED cycle 43.
 - B11: guard-bar vs camera-ramp dual encoding | polish | S | Readability | consider unifying; low priority.
 - B12: pillar-citation discipline: add a "meta/tooling" lane to DESIGN.md or retrofit citations | polish | S | — | fix the constitution gap the audit found in the process itself.
 - B13: loader-order parity unenforced (node vs browser module order differs; harmless today) | polish | S | — (meta) | add a test asserting no module reads sibling Game.* at load time, or align the orders.

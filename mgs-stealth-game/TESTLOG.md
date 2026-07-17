@@ -1,5 +1,13 @@
 # TESTLOG.md
 
+## Cycle 43 (polish: B10 codec deferral)
+
+263/263; 25/25; 5/5 shots. firstBody/lowDarts queue during ALERT/EVASION and
+emerge (priority-ordered, one-shot preserved) when the phase cools;
+missionOpen/firstAlert stay immediate; undefined phase pins legacy behavior.
+The 13-cycle-old Tension violation is closed — chases no longer freeze for
+non-critical radio chatter.
+
 ## Cycle 42 (polish: B3 build-time comment stripping)
 
 257/257 node AND in-browser (verified: title reads 257/257); 25/25; 5/5

@@ -569,7 +569,7 @@
         // silently dropped because there was nowhere to put it — see
         // src/codec.js's own PRIORITY / QUEUE contract for why a same-tick
         // collision still resolves correctly across later frames either way.
-        var codecCall = codecDirector.update(engine.events, { darts: engine.inventory.darts });
+        var codecCall = codecDirector.update(engine.events, { darts: engine.inventory.darts }, engine.squad.phase);
         if (codecCall) codec.open(codecCall);
       }
 

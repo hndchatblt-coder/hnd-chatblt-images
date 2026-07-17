@@ -4909,10 +4909,33 @@
     var firedFirstBody = false;
     var firedLowDarts = false;
     var queue = []; // same-tick-collision buffer only -- see file header
+    var deferredFirstBody = false; // queued for release when phase clears
+    var deferredLowDarts = false; // queued for release when phase clears
+    var lastPhase = undefined; // tracks phase transitions
 
-    function update(events, state) {
+    function isPhaseHighTension(phase) {
+      return phase === "ALERT" || phase === "EVASION";
+    }
+
+    function update(events, state, squadPhase) {
       events = events || [];
       state = state || {};
+
+      if (
+        lastPhase !== undefined &&
+        isPhaseHighTension(lastPhase) &&
+        !isPhaseHighTension(squadPhase)
+      ) {
+        if (deferredFirstBody) {
+          deferredFirstBody = false;
+          queue.push(buildCall("firstBody"));
+        }
+        if (deferredLowDarts) {
+          deferredLowDarts = false;
+          queue.push(buildCall("lowDarts"));
+        }
+      }
+      lastPhase = squadPhase;
 
       if (!firedMissionOpen) {
         firedMissionOpen = true;
@@ -4924,11 +4947,19 @@
       }
       if (!firedFirstBody && eventsHasBody(events)) {
         firedFirstBody = true;
-        queue.push(buildCall("firstBody"));
+        if (isPhaseHighTension(squadPhase)) {
+          deferredFirstBody = true;
+        } else {
+          queue.push(buildCall("firstBody"));
+        }
       }
       if (!firedLowDarts && typeof state.darts === "number" && state.darts <= 3) {
         firedLowDarts = true;
-        queue.push(buildCall("lowDarts"));
+        if (isPhaseHighTension(squadPhase)) {
+          deferredLowDarts = true;
+        } else {
+          queue.push(buildCall("lowDarts"));
+        }
       }
 
       if (queue.length === 0) return null;
@@ -7411,6 +7442,126 @@ Game.selfTests.push({
     var director = Game.createCodecDirector();
     var call = director.update();
     assertValidCall(call, "missionOpen");
+  },
+});
+
+})(typeof window !== "undefined" ? window : global);
+// ==== tests/codecDefer.test.js ====
+(function (global) {
+
+const Game = global.Game;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || "assertion failed");
+}
+
+function assertValidCall(call, expectedId) {
+  assert(call !== null && typeof call === "object", "call should be an object");
+  assert(call.id === expectedId, "expected id " + expectedId + ", got " + call.id);
+}
+
+Game.selfTests.push({
+  name: "codec: firstBody is DEFERRED while squadPhase is ALERT",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    director.update([], {}, "INFILTRATION"); // missionOpen fires
+
+    var duringAlert = director.update([{ type: "cqc", guardId: "g1" }], {}, "ALERT");
+    assert(duringAlert === null, "firstBody should be deferred during ALERT, no call returned");
+
+    var stillAlert = director.update([], {}, "ALERT");
+    assert(stillAlert === null, "nothing should be queued while still in ALERT");
+
+    var afterAlert = director.update([], {}, "INFILTRATION");
+    assertValidCall(afterAlert, "firstBody");
+
+    var again = director.update([], {}, "INFILTRATION");
+    assert(again === null, "firstBody must not re-fire after being released");
+  },
+});
+
+Game.selfTests.push({
+  name: "codec: lowDarts is DEFERRED while squadPhase is EVASION",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    director.update([], {}, "INFILTRATION"); // missionOpen fires
+
+    var duringEvasion = director.update([], { darts: 2 }, "EVASION");
+    assert(duringEvasion === null, "lowDarts should be deferred during EVASION, no call returned");
+
+    var stillEvasion = director.update([], { darts: 2 }, "EVASION");
+    assert(stillEvasion === null, "nothing should be queued while still in EVASION");
+
+    var afterEvasion = director.update([], { darts: 2 }, "CAUTION");
+    assertValidCall(afterEvasion, "lowDarts");
+
+    var again = director.update([], { darts: 1 }, "CAUTION");
+    assert(again === null, "lowDarts must not re-fire after being released");
+  },
+});
+
+Game.selfTests.push({
+  name: "codec: firstAlert fires IMMEDIATELY during ALERT phase, never deferred",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    director.update([], {}, "INFILTRATION"); // missionOpen fires
+
+    var call = director.update([{ type: "phaseChange", from: "INFILTRATION", to: "ALERT" }], {}, "ALERT");
+    assertValidCall(call, "firstAlert");
+
+    var next = director.update([], {}, "ALERT");
+    assert(next === null, "nothing else queued after firstAlert");
+  },
+});
+
+Game.selfTests.push({
+  name: "codec: undefined phase (legacy mode) fires all calls immediately",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    director.update([], {}); // missionOpen fires, no phase arg
+
+    var body = director.update([{ type: "cqc", guardId: "g1" }], {});
+    assertValidCall(body, "firstBody");
+
+    var darts = director.update([], { darts: 3 });
+    assertValidCall(darts, "lowDarts");
+
+    var final = director.update([], {});
+    assert(final === null, "all triggers fired in legacy mode");
+  },
+});
+
+Game.selfTests.push({
+  name: "codec: both firstBody and lowDarts deferred, released in priority order",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    director.update([], {}, "INFILTRATION"); // missionOpen fires
+
+    director.update([{ type: "cqc", guardId: "g1" }], { darts: 1 }, "ALERT");
+
+    var check1 = director.update([], {}, "ALERT");
+    assert(check1 === null, "nothing queued while in ALERT");
+
+    var first = director.update([], { darts: 1 }, "INFILTRATION");
+    assertValidCall(first, "firstBody");
+
+    var second = director.update([], { darts: 1 }, "INFILTRATION");
+    assertValidCall(second, "lowDarts");
+
+    var final = director.update([], {}, "INFILTRATION");
+    assert(final === null, "queue empty after both released");
+  },
+});
+
+Game.selfTests.push({
+  name: "codec: missionOpen fires immediately on first update, regardless of phase",
+  fn: function () {
+    var director = Game.createCodecDirector();
+    var call = director.update([], {}, "ALERT");
+    assertValidCall(call, "missionOpen");
+
+    var next = director.update([], {}, "ALERT");
+    assert(next === null, "nothing queued after missionOpen in ALERT phase");
   },
 });
 
@@ -16231,7 +16382,7 @@ Game.selfTests.push({
           acc -= DT;
         }
 
-        var codecCall = codecDirector.update(engine.events, { darts: engine.inventory.darts });
+        var codecCall = codecDirector.update(engine.events, { darts: engine.inventory.darts }, engine.squad.phase);
         if (codecCall) codec.open(codecCall);
       }
 

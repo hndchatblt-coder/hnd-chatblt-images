@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-**Version:** v0.42 (cycle 42 — artifact halved via comment stripping)
+**Version:** v0.43 (cycle 43 — codec deferral)
 
 ## Module status
 
@@ -36,6 +36,8 @@
 
 ## Changelog (last 5)
 
+- cycle 43: polish — codec firstBody/lowDarts defer during ALERT/EVASION
+  (263/263, 25/25)
 - cycle 42: polish — build strips comment-only lines: game.html 1.19MB →
   577KB (−51.6%); in-browser 257/257 is the gate
 - cycle 41: CRITICAL fix — reinforcement guards reconstruct on restore via

@@ -11,10 +11,13 @@
 //
 //   ---- PURE SIDE (node-testable, no DOM/canvas/WebAudio/Date/Math.random) --
 //
-//   Game.createCodecDirector() -> director, { update(events, state) -> call|null }
+//   Game.createCodecDirector() -> director, { update(events, state, squadPhase?) -> call|null }
 //     events: engine.events for THIS tick (an array; [] / undefined treated
 //       as no events). state: { darts: number, ... } — currently only
-//       `darts` is read (pass engine.inventory.darts). The director owns ALL
+//       `darts` is read (pass engine.inventory.darts). squadPhase (optional,
+//       backward-compatible): engine.squad.phase ("INFILTRATION" | "CAUTION" |
+//       "ALERT" | "EVASION"), passed as third argument; undefined = legacy
+//       behavior (all calls fire immediately). The director owns ALL
 //       one-shot memory internally in closure vars — each of the 4 triggers
 //       below fires AT MOST ONCE per director instance (i.e. once per
 //       playthrough, since src/boot.js's runGame() creates a fresh director
@@ -23,15 +26,20 @@
 //     Triggers, in priority order:
 //       1. "missionOpen" — the very FIRST update() call this director
 //          instance ever receives (t≈0), unconditionally. COMMANDER mission
-//          briefing.
+//          briefing. Always plays immediately regardless of phase.
 //       2. "firstAlert" — events contains a {type:"alert"} entry OR a
 //          {type:"phaseChange", to:"ALERT"} entry. COMMANDER: discipline +
-//          EVASION tactics reminder.
+//          EVASION tactics reminder. Always plays immediately regardless of
+//          phase (it IS about the alert itself).
 //       3. "firstBody" — events contains a {type:"cqc"} entry OR a
 //          {type:"tranqFired", hit:true} entry (a miss, hit:false/undefined,
-//          does NOT qualify). MEI: body-management briefing.
+//          does NOT qualify). MEI: body-management briefing. DEFERRED if
+//          squadPhase is "ALERT" or "EVASION" — queued internally, released
+//          when phase changes to "INFILTRATION", "CAUTION", or undefined.
 //       4. "lowDarts" — state.darts is a number and <= 3. MEI: ammo
-//          discipline + CQC-as-alternative briefing.
+//          discipline + CQC-as-alternative briefing. DEFERRED if squadPhase
+//          is "ALERT" or "EVASION" — queued internally, released when phase
+//          changes to "INFILTRATION", "CAUTION", or undefined.
 //     PRIORITY / QUEUE: update() returns AT MOST ONE call per invocation. If
 //     more than one trigger newly qualifies on the SAME update() call (e.g.
 //     an engine that somehow reports an alert event on its very first tick),
@@ -43,8 +51,12 @@
 //     trigger has fired it can never re-fire (that's the only thing the
 //     internal fired-flags do — the queue itself is just a same-tick-
 //     collision buffer, since after the first check the flags already
-//     prevent duplicate pushes on later calls). Returns `null` when nothing
-//     new qualified and the queue is empty.
+//     prevent duplicate pushes on later calls). Deferred calls maintain
+//     one-shot semantics and priority order: a deferred call that never
+//     qualifies during the deferral window is released as-is when the window
+//     closes, and a deferral window that closes with multiple deferred calls
+//     waiting releases them in priority order on consecutive update() calls.
+//     Returns `null` when nothing new qualified and the queue is empty.
 //     Return shape (JSON-serializable — no functions/undefined anywhere):
 //       { id: string,       // "missionOpen" | "firstAlert" | "firstBody" | "lowDarts"
 //         freq: number,     // Game.CODEC.FREQ[speaker]
@@ -275,10 +287,37 @@
     var firedFirstBody = false;
     var firedLowDarts = false;
     var queue = []; // same-tick-collision buffer only -- see file header
+    var deferredFirstBody = false; // queued for release when phase clears
+    var deferredLowDarts = false; // queued for release when phase clears
+    var lastPhase = undefined; // tracks phase transitions
 
-    function update(events, state) {
+    function isPhaseHighTension(phase) {
+      // High-tension phases where codec calls should be deferred
+      return phase === "ALERT" || phase === "EVASION";
+    }
+
+    function update(events, state, squadPhase) {
       events = events || [];
       state = state || {};
+
+      // PHASE TRANSITIONS: check if we're exiting a high-tension phase.
+      // If so, release any deferred calls that were queued during the window.
+      if (
+        lastPhase !== undefined &&
+        isPhaseHighTension(lastPhase) &&
+        !isPhaseHighTension(squadPhase)
+      ) {
+        // Exiting high-tension. Release deferred calls in priority order.
+        if (deferredFirstBody) {
+          deferredFirstBody = false;
+          queue.push(buildCall("firstBody"));
+        }
+        if (deferredLowDarts) {
+          deferredLowDarts = false;
+          queue.push(buildCall("lowDarts"));
+        }
+      }
+      lastPhase = squadPhase;
 
       // 1. missionOpen -- unconditional on this director's very first call.
       if (!firedMissionOpen) {
@@ -290,15 +329,23 @@
         firedFirstAlert = true;
         queue.push(buildCall("firstAlert"));
       }
-      // 3. firstBody
+      // 3. firstBody -- DEFERRED if in high-tension phase, otherwise immediate.
       if (!firedFirstBody && eventsHasBody(events)) {
         firedFirstBody = true;
-        queue.push(buildCall("firstBody"));
+        if (isPhaseHighTension(squadPhase)) {
+          deferredFirstBody = true;
+        } else {
+          queue.push(buildCall("firstBody"));
+        }
       }
-      // 4. lowDarts
+      // 4. lowDarts -- DEFERRED if in high-tension phase, otherwise immediate.
       if (!firedLowDarts && typeof state.darts === "number" && state.darts <= 3) {
         firedLowDarts = true;
-        queue.push(buildCall("lowDarts"));
+        if (isPhaseHighTension(squadPhase)) {
+          deferredLowDarts = true;
+        } else {
+          queue.push(buildCall("lowDarts"));
+        }
       }
 
       if (queue.length === 0) return null;
