@@ -1,0 +1,22 @@
+{
+  "name": "@high-n-dry/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless idle + active-layer engine for High N' Dry: Global Domination. Pure TS, zero DOM imports.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "sim:assert": "tsx sim/assert.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

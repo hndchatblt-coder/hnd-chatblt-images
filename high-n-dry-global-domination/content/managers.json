@@ -1,0 +1,25 @@
+{
+  "comment": "Manager generation pool. hustle/consistency 1-10. Quirks are flavour + one small modifier, dry delivery, never wacky. Modifiers must stay within ±8% of any single stat.",
+  "managers": [
+    { "name": "Archie T.", "hustle": 9, "consistency": 9, "quirk": "Builds the roster three weeks out. Nobody knows how. Nobody asks.", "modifier": { "wagesSkim": -0.03 } },
+    { "name": "Kimberley R.", "hustle": 8, "consistency": 9, "quirk": "Has never once run out of brioche. Suppliers fear her.", "modifier": { "supplyBuffer": 0.05 } },
+    { "name": "Deano", "hustle": 9, "consistency": 4, "quirk": "Gun on the grill. Availability described as 'spiritual'.", "modifier": { "peakCapacity": 0.08, "offlineRate": -0.05 } },
+    { "name": "Soph M.", "hustle": 7, "consistency": 8, "quirk": "Replies to every review within the hour, including the unhinged ones.", "modifier": { "repGain": 0.06 } },
+    { "name": "Trung N.", "hustle": 8, "consistency": 7, "quirk": "Runs the pass like air traffic control. Headset optional but preferred.", "modifier": { "registerThroughput": 0.05 } },
+    { "name": "Bec W.", "hustle": 6, "consistency": 9, "quirk": "Slow. Reliable. Has closed every Sunday for four years without comment.", "modifier": { "offlineRate": 0.05 } },
+    { "name": "Jonno", "hustle": 8, "consistency": 5, "quirk": "Over-orders buns every single week. Also never 86'd a burger during a rush.", "modifier": { "margin": -0.02, "peakCapacity": 0.05 } },
+    { "name": "Priya K.", "hustle": 7, "consistency": 8, "quirk": "Keeps a spreadsheet of which regulars order what. It is 40 tabs deep.", "modifier": { "repGain": 0.04 } },
+    { "name": "Macca", "hustle": 5, "consistency": 7, "quirk": "17 years in hospo. Moves at one speed. It is the correct speed.", "modifier": { "consistencyFloor": 0.05 } },
+    { "name": "Ellie F.", "hustle": 9, "consistency": 6, "quirk": "Invented three specials that went on the permanent menu. Takes full credit. Fair enough.", "modifier": { "specialAffinity": 0.07 } },
+    { "name": "Hass", "hustle": 8, "consistency": 8, "quirk": "Can smell a health inspector from the car park.", "modifier": { "eventMitigation": 0.06 } },
+    { "name": "Georgia P.", "hustle": 6, "consistency": 8, "quirk": "Trains every new starter the same way: quietly, properly, once.", "modifier": { "staffQuality": 0.05 } },
+    { "name": "Vinnie", "hustle": 7, "consistency": 6, "quirk": "Negotiates with the delivery drivers like it's a hostage situation. Wait times down 20%.", "modifier": { "deliveryMargin": 0.04 } },
+    { "name": "Tash L.", "hustle": 8, "consistency": 7, "quirk": "The fryer section has never once beaten her. The fryer section has tried.", "modifier": { "ticketBonus": 0.03 } },
+    { "name": "Robbo", "hustle": 5, "consistency": 5, "quirk": "Cheapest hire on the board. You get exactly what you pay for, on time, every time.", "modifier": { "hireCost": -0.08 } },
+    { "name": "Chen W.", "hustle": 7, "consistency": 9, "quirk": "Does the stocktake to two decimal places. Found the till discrepancy from 2024.", "modifier": { "wagesSkim": -0.02 } },
+    { "name": "Freya D.", "hustle": 9, "consistency": 5, "quirk": "Doubles output during a rush. Requires a debrief afterwards.", "modifier": { "peakCapacity": 0.08, "offPeakRate": -0.03 } },
+    { "name": "Sammy O.", "hustle": 6, "consistency": 7, "quirk": "Knows every regular's order and exactly one fact about their dog.", "modifier": { "repGain": 0.05 } },
+    { "name": "Kez", "hustle": 7, "consistency": 7, "quirk": "Locks up, sets the alarm, texts 'done'. Has never elaborated.", "modifier": { "offlineRate": 0.04 } },
+    { "name": "Dougie B.", "hustle": 8, "consistency": 6, "quirk": "Once catered a wedding out of the delivery window during a Friday service. Never again. Probably.", "modifier": { "eventUpside": 0.06 } }
+  ]
+}
