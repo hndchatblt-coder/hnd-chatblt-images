@@ -26,3 +26,14 @@ One line each: decision + why. Per CLAUDE.md — log judgment calls, don't stop 
   GAME_DESIGN.md and PROTOTYPE_NOTES.md (nor the stale pacing-target mismatch in
   `sim/sanity_sim.py`, see PROGRESS.md). Both are explicitly Ben's calls per the design docs'
   own feel-gate process, not something to guess at without a playtest.
+- **M2 built as a standalone bright Canvas2D playtest build (`ui/play.html`), not yet wired to
+  the engine.** Feel iteration needs fast turnaround on a hosted URL; wiring every change through
+  the TS engine would slow the loop. The engine (M1) remains the path for the real app; the
+  prototype's numbers are mirrored back into `economy.config.json` so the source of truth stays
+  honest.
+- **Art direction: bright warm burger-joint + hand-drawn Canvas2D characters/food**, replacing
+  the dark night-kitchen and all emoji game art — per Ben's feel-gate ("a bit doom and gloom",
+  "draw characters instead of emojis").
+- **Balance (Ben's feel-gate call): Deano/burger hire $900 → $600; Boost Socials $200/×1.3 →
+  $150/×1.25.** Mirrored into economy.config.json. These are active-layer feel knobs (config
+  marks them provisional/playtest-gated), so they don't touch the sim-asserted idle pacing.

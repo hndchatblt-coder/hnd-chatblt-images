@@ -276,7 +276,7 @@
       },
       "burger": {
         "name": "Deano",
-        "cost": 900
+        "cost": 600
       },
       "order": "cheapest lane first \u2014 three separate relief moments"
     },
@@ -314,8 +314,8 @@
         "burnsPerItem": 1
       },
       "socialAds": {
-        "baseCost": 200,
-        "costGrowthPerUse": 1.3,
+        "baseCost": 150,
+        "costGrowthPerUse": 1.25,
         "surgeSec": 45,
         "cooldownSec": 60,
         "designNote": "break-even only if the wave is served well \u2014 skill-gated marketing"
