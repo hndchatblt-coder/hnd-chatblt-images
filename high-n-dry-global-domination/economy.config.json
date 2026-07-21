@@ -1,0 +1,340 @@
+{
+  "version": "0.3.0",
+  "comment": "SINGLE SOURCE OF TRUTH for all balance numbers. Fable must never hardcode economy values in engine code. All values provisional until the simulation assertion suite passes.",
+  "time": {
+    "realSecondsPerGameMinute": 0.5,
+    "gameMinutesPerDay": 1440,
+    "comment": "1 real second = 2 game minutes. One game day = 12 real minutes. One game week = 84 real minutes."
+  },
+  "demand": {
+    "baseCustomersPerGameMinute": 0.8,
+    "hourMultipliers": {
+      "0-6": 0.05,
+      "7-10": 0.3,
+      "11-14": 2.5,
+      "15-17": 0.8,
+      "18-21": 4.0,
+      "22-23": 1.2
+    },
+    "dayMultipliers": {
+      "mon": 0.8,
+      "tue": 0.8,
+      "wed": 1.0,
+      "thu": 1.1,
+      "fri": 1.8,
+      "sat": 1.6,
+      "sun": 1.2
+    },
+    "reputationMultiplier": "1 + (rep / 100), rep starts at 0, max 400"
+  },
+  "revenue": {
+    "avgTicketDollars": 18,
+    "grossMarginPct": 0.55,
+    "wagesSkimPct": 0.2,
+    "comment": "Profit per served customer = ticket * margin * (1 - wagesSkim) = $7.92 at start"
+  },
+  "stations": {
+    "grill": {
+      "baseCost": 80,
+      "costGrowth": 1.15,
+      "capacityPerUnit": 1.0,
+      "unit": "customers/game-min"
+    },
+    "fryer": {
+      "baseCost": 120,
+      "costGrowth": 1.15,
+      "effect": "+$3 avg ticket per fryer tier, max 4 tiers"
+    },
+    "register": {
+      "baseCost": 60,
+      "costGrowth": 1.15,
+      "capacityPerUnit": 2.0,
+      "unit": "customers/game-min"
+    },
+    "prepBench": {
+      "baseCost": 200,
+      "costGrowth": 1.18,
+      "effect": "+15% grill capacity per unit"
+    },
+    "deliveryWindow": {
+      "baseCost": 500,
+      "costGrowth": 1.2,
+      "effect": "unlocks platform demand stream, +40% demand, -25% margin on that stream"
+    }
+  },
+  "milestoneBonuses": {
+    "comment": "AdCap-style ownership milestones per station type",
+    "thresholds": [
+      10,
+      25,
+      50,
+      100
+    ],
+    "multiplierPerMilestone": 2.0
+  },
+  "venues": {
+    "comment": "Venue N cost grows steeply \u2014 venues are the tier generators",
+    "baseCost": 50000,
+    "costGrowth": 3.5,
+    "newVenueStartsWith": "1 grill, 1 register, rep 0, inherits 10% of empire rep"
+  },
+  "managers": {
+    "venueManager": {
+      "cost": 12000,
+      "currency": "cash",
+      "effect": "automates station purchasing + keeps venue earning offline"
+    },
+    "areaManager": {
+      "cost": 150,
+      "currency": "reputation",
+      "effect": "automates a region: venue managers auto-hired, specials auto-chosen at 70% efficacy"
+    },
+    "empireOperator": {
+      "cost": 500,
+      "currency": "influence",
+      "effect": "automates a country: full economic autopilot incl. war logistics resupply"
+    }
+  },
+  "offline": {
+    "model": "capacity cap (Egg Inc silo model). No losses ever. Earnings accrue at 100% rate until cap hit, then stop.",
+    "baseCapGameHours": 8,
+    "capUpgrade": {
+      "name": "Cold Storage",
+      "baseCost": 2000,
+      "costGrowth": 1.6,
+      "hoursPerLevel": 4,
+      "maxGameHours": 96
+    },
+    "comment": "96 game hours = 48 real minutes of accrual, generous for a check-in cadence of 2-3x/day"
+  },
+  "reputation": {
+    "sources": "successful specials, review events, peak-hour service quality",
+    "weeklySpecial": {
+      "successRepGain": 12,
+      "flopRepGain": 2,
+      "comment": "player picks 1 of 3 generated specials each game-week; hidden demand affinity per tile demographic"
+    }
+  },
+  "influence": {
+    "formula": "floor(150 * sqrt(lifetimeEmpireProfit / 1e6)) - influenceAlreadyGranted",
+    "comment": "Continuous accrual, NO reset required. Sqrt takes the log-like bite out of exponential growth per the Angels/Soul Eggs pattern.",
+    "spentOn": [
+      "permanent global multipliers (+10% empire profit per tier, cost growth 1.5x)",
+      "war assets"
+    ]
+  },
+  "war": {
+    "comment": "One-directional conquest. Attacks can FAIL (resources lost) but owned territory can NEVER be lost.",
+    "tileCaptureCost": "tile.defenseRating * regionCostScalar, paid in cash + influence",
+    "battleResolution": "deterministic score = (localCapacity + marketing + supplyLine) vs tile.defense, with visible pre-battle win estimate. No RNG below 100% shown as risk of wasted resources, not lost ground.",
+    "escalationPhases": [
+      {
+        "phase": 1,
+        "name": "Suburb Wars",
+        "weapons": [
+          "street teams",
+          "letterbox flyers",
+          "undercutting"
+        ]
+      },
+      {
+        "phase": 2,
+        "name": "City Domination",
+        "weapons": [
+          "billboards",
+          "review ops",
+          "staff poaching",
+          "lease sniping"
+        ]
+      },
+      {
+        "phase": 3,
+        "name": "National Campaign",
+        "weapons": [
+          "TV blitz",
+          "supply chain control",
+          "hostile franchise buyouts"
+        ]
+      },
+      {
+        "phase": 4,
+        "name": "Global Conquest",
+        "weapons": [
+          "burger drones",
+          "patty-fed armies",
+          "propaganda blimps",
+          "annexation"
+        ]
+      }
+    ]
+  },
+  "pacingTargets": {
+    "comment": "Assertion suite for the IDLE economy (gmin clock). Active-layer feel targets are NOT sim-verifiable \u2014 they gate on Ben's playtest sign-off (see CLAUDE.md feel gates).",
+    "firstManagerRealMinutes": [
+      20,
+      40
+    ],
+    "secondVenueRealMinutes": [
+      50,
+      90
+    ],
+    "firstRivalContactRealMinutes": [
+      90,
+      150
+    ],
+    "firstTileCaptureRealHours": [
+      2.5,
+      5
+    ],
+    "cityDominationRealHours": [
+      8,
+      20
+    ],
+    "day14EmpireProfitPerSecGrowthVsDay1": [
+      50,
+      5000
+    ],
+    "noSingleStationDominates": "no station type should account for >65% of profit growth at any point after minute 30",
+    "offlineCapNeverExceeds": "50% of expected daily active earnings at equivalent progression"
+  },
+  "venueSizes": {
+    "comment": "Physical station caps per venue size. Renovations raise ALL caps and visibly widen the venue. Every upgrade maxes out; bigger venues max higher. Verified v2 pacing: manager 21.9min, venue2 59.1min.",
+    "tiers": [
+      {
+        "name": "Shopfront",
+        "cost": 0,
+        "caps": {
+          "grill": 6,
+          "register": 3,
+          "prep": 1,
+          "fryer": 2
+        }
+      },
+      {
+        "name": "Corner Site",
+        "cost": 2500,
+        "caps": {
+          "grill": 12,
+          "register": 6,
+          "prep": 2,
+          "fryer": 3
+        }
+      },
+      {
+        "name": "Flagship",
+        "cost": 9000,
+        "caps": {
+          "grill": 20,
+          "register": 10,
+          "prep": 4,
+          "fryer": 4
+        }
+      }
+    ]
+  },
+  "activeLayer": {
+    "comment": "THE EXPEDITOR \u2014 real-time active play layer, validated through prototypes v1-v7 (see PROTOTYPE_NOTES.md). Feel values are provisional pending Ben's playtest sign-off at every milestone. Two-clock model: gmin economy clock drives idle sim + daypart intensity; active layer runs in real seconds.",
+    "designPrinciple": "Every attention state needs a verb: rush = triage + restock boosts; lull = prep, flyers, research; always = coins. Active levers amplify skill, never print money.",
+    "items": {
+      "burger": {
+        "price": 12,
+        "baseCookSec": 4.0
+      },
+      "chips": {
+        "price": 5,
+        "baseCookSec": 3.0
+      },
+      "drink": {
+        "price": 3,
+        "baseCookSec": 2.0
+      }
+    },
+    "orderMix": "balanced: ~50% of orders contain a burger, 25% chips-led, 20% drink-only, 25% full combo; tradie crew (rare): 3-5 burgers, short fuse, price tag shown",
+    "serving": {
+      "verb": "tap customer in scene",
+      "tipPct": 0.25,
+      "tipWindow": "patience > 0.6",
+      "netRate": 0.44,
+      "insufficientStock": "customer shakes, missing items flash \u2014 no penalty"
+    },
+    "stations": {
+      "model": "self-produce into stock buffers; tap pad adds 0.34 progress; staff multiply auto rate x3; buffers capped by venue size + upgrades",
+      "baseStock": {
+        "burger": 3,
+        "chips": 4,
+        "drink": 5
+      }
+    },
+    "hires": {
+      "drink": {
+        "name": "Sammy",
+        "cost": 150
+      },
+      "chips": {
+        "name": "Tash",
+        "cost": 250
+      },
+      "burger": {
+        "name": "Deano",
+        "cost": 600
+      },
+      "order": "cheapest lane first \u2014 three separate relief moments"
+    },
+    "wavePacing": {
+      "model": "decoupled from economy clock; human-scale bursts",
+      "gapSec": "max(4, 16 - intensity*10) + rand(6)",
+      "sizeFn": "1 + rand(1 + round(intensity*2.6))",
+      "intensityByDaypart": {
+        "lunch": 0.85,
+        "dinner": 1.0,
+        "arvo": 0.35,
+        "morning": 0.3,
+        "night": 0.15,
+        "friSatMult": 1.15
+      },
+      "surgeIntensity": 1.2
+    },
+    "patienceSec": 24,
+    "downtimeVerbs": {
+      "research": {
+        "tapsToComplete": 35,
+        "bangerChance": 0.2,
+        "bangerSurgeSec": 60,
+        "bangerOrderBias": "surge customers order bigger",
+        "flopCash": 25,
+        "flopIsHumourEngine": true
+      },
+      "prep": {
+        "capBySize": [
+          15,
+          25,
+          40
+        ],
+        "cookSpeedBoost": 1.6,
+        "burnsPerItem": 1
+      },
+      "socialAds": {
+        "baseCost": 150,
+        "costGrowthPerUse": 1.25,
+        "surgeSec": 45,
+        "cooldownSec": 60,
+        "designNote": "break-even only if the wave is served well \u2014 skill-gated marketing"
+      },
+      "flyers": {
+        "verb": "tap passerby",
+        "convertChance": 0.55
+      },
+      "coins": {
+        "dropChance": 0.3,
+        "value": "2-5",
+        "lifeSec": 4
+      }
+    },
+    "startingCash": 260,
+    "openQuestions": [
+      "verb count: cut any verb Ben ignores in playtests",
+      "active vs idle yield ratio target ~2-3x at equal progression \u2014 needs sim work",
+      "tip window and patience values are pure feel \u2014 playtest gated"
+    ]
+  }
+}

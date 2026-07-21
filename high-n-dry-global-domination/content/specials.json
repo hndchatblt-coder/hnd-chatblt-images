@@ -1,0 +1,25 @@
+{
+  "comment": "Weekly specials assemble as patty + sauce + gimmick. Affinity vectors per demographic, -1 to +1. Special's tile score = dot(sum of component affinities, tile demographics). Hidden from player until resolved.",
+  "patties": [
+    { "id": "flame-classic", "name": "Flame-Grilled Classic", "affinity": { "families": 0.6, "office": 0.4, "students": 0.2, "lateNight": 0.3 } },
+    { "id": "double-smash", "name": "Double Smash", "affinity": { "families": 0.1, "office": 0.3, "students": 0.7, "lateNight": 0.6 } },
+    { "id": "korean-fried", "name": "Korean Fried Chicken", "affinity": { "families": 0.2, "office": 0.5, "students": 0.8, "lateNight": 0.5 } },
+    { "id": "plant-stack", "name": "Plant Stack", "affinity": { "families": 0.3, "office": 0.5, "students": 0.6, "lateNight": -0.1 } },
+    { "id": "brisket-slow", "name": "12-Hour Brisket", "affinity": { "families": 0.7, "office": 0.4, "students": 0.1, "lateNight": 0.4 } }
+  ],
+  "sauces": [
+    { "id": "chipotle-mayo", "name": "Chipotle Mayo", "affinity": { "families": 0.3, "office": 0.4, "students": 0.5, "lateNight": 0.4 } },
+    { "id": "irish-curry", "name": "Irish Curry Sauce", "affinity": { "families": 0.4, "office": 0.2, "students": 0.6, "lateNight": 0.8 } },
+    { "id": "gochujang-glaze", "name": "Gochujang Glaze", "affinity": { "families": 0.1, "office": 0.4, "students": 0.7, "lateNight": 0.5 } },
+    { "id": "truffle-aioli", "name": "Truffle Aioli", "affinity": { "families": 0.5, "office": 0.7, "students": 0.1, "lateNight": 0.2 } },
+    { "id": "house-bbq", "name": "House Char BBQ", "affinity": { "families": 0.7, "office": 0.3, "students": 0.3, "lateNight": 0.4 } }
+  ],
+  "gimmicks": [
+    { "id": "spice-bag", "name": "Comes with an Irish Spice Bag", "affinity": { "families": 0.2, "office": 0.2, "students": 0.7, "lateNight": 0.9 } },
+    { "id": "kids-eat-free", "name": "Kids Eat Free Tuesday", "affinity": { "families": 0.9, "office": -0.2, "students": -0.3, "lateNight": -0.4 } },
+    { "id": "lunch-deal", "name": "$15 Lunch Combo", "affinity": { "families": 0.1, "office": 0.9, "students": 0.5, "lateNight": -0.2 } },
+    { "id": "midnight-menu", "name": "Midnight Menu", "affinity": { "families": -0.5, "office": -0.1, "students": 0.6, "lateNight": 1.0 } },
+    { "id": "gauntlet", "name": "The Gauntlet Scratchie", "affinity": { "families": 0.4, "office": 0.3, "students": 0.6, "lateNight": 0.5 } },
+    { "id": "loaded-fries", "name": "Loaded Fries Upgrade", "affinity": { "families": 0.5, "office": 0.4, "students": 0.7, "lateNight": 0.6 } }
+  ]
+}

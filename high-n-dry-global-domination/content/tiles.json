@@ -1,0 +1,15 @@
+{
+  "comment": "Seed tile set. Demographics must sum to 1.0. defense 0 = player start. Leichhardt is tile #1 always.",
+  "tiles": [
+    { "id": "syd-leichhardt", "name": "Leichhardt", "region": "inner-west", "demographics": { "families": 0.45, "office": 0.15, "students": 0.15, "lateNight": 0.25 }, "baseDemandMult": 1.0, "defense": 0, "owner": "player", "notes": "The flagship. Where it all started." },
+    { "id": "syd-rosebery", "name": "Rosebery", "region": "south-east", "demographics": { "families": 0.20, "office": 0.60, "students": 0.05, "lateNight": 0.15 }, "baseDemandMult": 1.1, "defense": 12, "owner": "neutral", "notes": "Office lunch trade. Dead on weekends, printing money Tue-Fri 12-2." },
+    { "id": "syd-neutralbay", "name": "Neutral Bay", "region": "lower-north", "demographics": { "families": 0.55, "office": 0.25, "students": 0.05, "lateNight": 0.15 }, "baseDemandMult": 1.15, "defense": 18, "owner": "neutral", "notes": "Affluent families. High ticket, low tolerance for a soggy chip." },
+    { "id": "syd-newtown", "name": "Newtown", "region": "inner-west", "demographics": { "families": 0.10, "office": 0.10, "students": 0.45, "lateNight": 0.35 }, "baseDemandMult": 1.2, "defense": 20, "owner": "neutral", "notes": "Students and 1am trade. Locked until a student-affinity special is proven." },
+    { "id": "syd-marrickville", "name": "Marrickville", "region": "inner-west", "demographics": { "families": 0.30, "office": 0.10, "students": 0.30, "lateNight": 0.30 }, "baseDemandMult": 1.1, "defense": 15, "owner": "neutral", "butcherNode": true, "notes": "THE butcher tile. Control this and the whole inner-west supply line hums." },
+    { "id": "syd-surryhills", "name": "Surry Hills", "region": "city-east", "demographics": { "families": 0.10, "office": 0.45, "students": 0.15, "lateNight": 0.30 }, "baseDemandMult": 1.25, "defense": 25, "owner": "neutral", "notes": "Office by day, bar crawl by night. Two peaks, one venue." },
+    { "id": "syd-glebe", "name": "Glebe", "region": "inner-west", "demographics": { "families": 0.25, "office": 0.10, "students": 0.45, "lateNight": 0.20 }, "baseDemandMult": 1.0, "defense": 14, "owner": "neutral", "notes": "Student-heavy, market crowd Saturdays." },
+    { "id": "syd-haberfield", "name": "Haberfield", "region": "inner-west", "demographics": { "families": 0.70, "office": 0.05, "students": 0.05, "lateNight": 0.20 }, "baseDemandMult": 0.9, "defense": 10, "owner": "neutral", "notes": "Quiet family suburb. Easy first capture, modest ceiling." },
+    { "id": "syd-parramatta", "name": "Parramatta", "region": "west", "demographics": { "families": 0.40, "office": 0.40, "students": 0.10, "lateNight": 0.10 }, "baseDemandMult": 1.3, "defense": 35, "owner": "neutral", "notes": "The second CBD. Big prize, big defense. Opens the western corridor." },
+    { "id": "syd-bondi", "name": "Bondi", "region": "city-east", "demographics": { "families": 0.30, "office": 0.15, "students": 0.20, "lateNight": 0.35 }, "baseDemandMult": 1.35, "defense": 40, "owner": "neutral", "notes": "Tourist demand bonus in summer game-months. Everyone wants Bondi. That's the problem." }
+  ]
+}
