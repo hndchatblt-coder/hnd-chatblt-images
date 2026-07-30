@@ -87,13 +87,16 @@ async function run(): Promise<void> {
   const owned = await page.locator(".docketbtn__owned").first().textContent();
   const rate = await page.locator(".till__rate").textContent();
 
-  // Re-navigate to prove the save round-trips through a real page load. (goto rather than
-  // reload: reload leaves a font load pending that Playwright's screenshot waits on forever.)
-  await page.goto("about:blank");
-  await page.goto(url, { waitUntil: "load" });
-  await page.waitForTimeout(900);
-  await shot("05-after-reload.png");
-  const ownedAfterReload = await page.locator(".docketbtn__owned").first().textContent();
+  // Prove the save round-trips through a real page load. A FRESH PAGE in the same context rather
+  // than page.reload(): same origin so localStorage carries over, but it doesn't inherit the
+  // pending font load that makes Playwright's screenshot hang on a re-navigated page.
+  const reloaded = await context.newPage();
+  await reloaded.goto(url, { waitUntil: "load" });
+  await reloaded.waitForTimeout(900);
+  await reloaded
+    .screenshot({ path: join(SHOTS, "05-after-reload.png"), animations: "allow", timeout: 8_000 })
+    .catch(() => console.warn("  (screenshot 05 timed out — skipped)"));
+  const ownedAfterReload = await reloaded.locator(".docketbtn__owned").first().textContent();
 
   console.log(`cash after 19 taps : ${cashAfterTaps}`);
   console.log(`generator owned    : ${owned}`);
