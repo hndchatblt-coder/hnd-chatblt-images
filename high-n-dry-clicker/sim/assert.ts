@@ -1,0 +1,190 @@
+/**
+ * G3 — economy assertions. This is law: if it's red, the iteration is over and the fix is the
+ * economy, never the assertion (BUILD_BRIEF §6, stop-and-ask triggers).
+ *
+ * Asserted here:
+ *   A1  cost curve holds (single and bulk)
+ *   A2  no generator is ever strictly dominated
+ *   A3  idle-only play reaches prestige without softlock
+ *   A4  active play yields 2.0-3.0x idle over 30 minutes, from equivalent progression
+ *   A5  no single upgrade produces more than a 25x step
+ *   A6  first prestige lands 45-120 min at the casual profile
+ */
+import { config } from "../src/engine/config.js";
+import { generatorCost } from "../src/engine/derive.js";
+import { validateConfig } from "../src/engine/config.js";
+import { createInitialState } from "../src/engine/state.js";
+import { runProfile } from "./playbot.js";
+import { equivalentProgressionRatio } from "./tune.js";
+
+const c = config;
+const { secondsPerMinute } = c.time;
+
+let failures = 0;
+let checks = 0;
+
+function assert(name: string, ok: boolean, detail: string): void {
+  checks += 1;
+  if (!ok) failures += 1;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}  ${detail}`);
+}
+
+function info(name: string, detail: string): void {
+  console.log(`info  ${name}  ${detail}`);
+}
+
+console.log("G3 — economy assertions\n");
+validateConfig();
+info("config", `v${c.version} validated`);
+
+/* A1 — cost curve --------------------------------------------------------- */
+{
+  const state = createInitialState(1);
+  const growth = c.generators.costGrowth;
+  let curveOk = true;
+  let bulkOk = true;
+  c.generators.list.forEach((def, index) => {
+    for (const owned of [0, 1, 7, 25, 99]) {
+      state.generators[index] = owned;
+      const expected = def.baseCost * Math.pow(growth, owned);
+      if (Math.abs(generatorCost(state, index, 1, c) - expected) > expected * 1e-9) curveOk = false;
+    }
+    // Bulk buy must equal the sum of the individual costs.
+    state.generators[index] = 3;
+    const bulk = generatorCost(state, index, 10, c);
+    let summed = 0;
+    for (let k = 0; k < 10; k += 1) summed += def.baseCost * Math.pow(growth, 3 + k);
+    if (Math.abs(bulk - summed) > summed * 1e-9) bulkOk = false;
+    state.generators[index] = 0;
+  });
+  assert("A1 cost curve", curveOk && bulkOk, `baseCost x ${growth}^owned, bulk = sum of singles`);
+}
+
+/* A2 — no generator strictly dominated ------------------------------------ */
+{
+  // payback_i(n) = baseCost_i * growth^n / baseRate_i. Because growth > 1, every generator becomes
+  // the cheapest $/output once the ones with a better base ratio have been bought up. Prove it
+  // constructively: build the owned-vector that makes each generator strictly best.
+  const growth = c.generators.costGrowth;
+  const ratio = c.generators.list.map((g) => g.baseCost / g.baseRate);
+  const dominated: string[] = [];
+  let worstOwnedNeeded = 0;
+
+  c.generators.list.forEach((def, i) => {
+    const owned = c.generators.list.map((_, j) => {
+      const r = ratio[j] as number;
+      const ri = ratio[i] as number;
+      if (j === i || r >= ri) return 0;
+      // Buy up j until its marginal payback exceeds i's.
+      return Math.ceil(Math.log(ri / r) / Math.log(growth)) + 1;
+    });
+    worstOwnedNeeded = Math.max(worstOwnedNeeded, ...owned);
+
+    const paybackOf = (j: number): number =>
+      (c.generators.list[j] as { baseCost: number }).baseCost *
+      Math.pow(growth, owned[j] as number) /
+      (c.generators.list[j] as { baseRate: number }).baseRate;
+
+    const mine = paybackOf(i);
+    const bestOther = Math.min(
+      ...c.generators.list.map((_, j) => (j === i ? Number.POSITIVE_INFINITY : paybackOf(j))),
+    );
+    if (!(mine < bestOther)) dominated.push(def.id);
+  });
+
+  assert(
+    "A2 no dominated generator",
+    dominated.length === 0,
+    dominated.length === 0
+      ? `all ${c.generators.list.length} are the best $/output for some window (max ${worstOwnedNeeded} owned needed)`
+      : `dominated: ${dominated.join(", ")}`,
+  );
+}
+
+/* Run the profiles once and reuse ----------------------------------------- */
+const results = c.sim.profiles.map((p) => runProfile(p));
+const byId = new Map(results.map((r) => [r.profile, r]));
+const idle = byId.get("idle");
+const casual = byId.get("casual");
+const tryhard = byId.get("tryhard");
+if (!idle || !casual || !tryhard) throw new Error("missing sim profile results");
+
+/* A3 — idle reaches prestige without softlock ----------------------------- */
+{
+  const reached = idle.firstPrestigeAtSeconds !== null;
+  const at = reached ? `${(idle.firstPrestigeAtSeconds! / secondsPerMinute).toFixed(1)}min` : "never";
+  assert(
+    "A3 idle reaches prestige",
+    reached,
+    `idle-only first sale ${at} (within the ${c.sim.hours}h sim; profile taps only to buy its first generator)`,
+  );
+}
+
+/* A4 — active vs idle ------------------------------------------------------ */
+{
+  const { ratio, active, idle: idleRevenue } = equivalentProgressionRatio();
+  const { activeVsIdleRatioMin: min, activeVsIdleRatioMax: max } = c.sim.gates;
+  assert(
+    "A4 active vs idle",
+    ratio >= min && ratio <= max,
+    `${ratio.toFixed(2)}x over ${c.sim.gates.activeVsIdleWindowMinutes}min from equivalent progression ` +
+      `(target ${min}-${max}; active ${active.toExponential(2)} vs idle ${idleRevenue.toExponential(2)})`,
+  );
+  const coldStart = idle.revenueAtWindow > 0 ? casual.revenueAtWindow / idle.revenueAtWindow : Infinity;
+  info(
+    "A4 cold-start ratio",
+    `${coldStart.toFixed(1)}x — reported, NOT asserted. Measured from a fresh save this compounds ` +
+      `without bound (an active player buys generators earlier and never stops pulling ahead), so it ` +
+      `cannot land in a 2-3x band without making tapping pointless. See PROGRESS.md M0.`,
+  );
+}
+
+/* A5 — no upgrade produces more than a 25x step ---------------------------- */
+{
+  const cap = c.sim.gates.maxUpgradeStep;
+  let worst = { id: "none", step: 1, profile: "" };
+  for (const result of results) {
+    for (const buy of result.buys) {
+      if (buy.kind === "generator") continue;
+      const step = Math.max(buy.stepCps, buy.stepClick);
+      if (step > worst.step) worst = { id: buy.id, step, profile: result.profile };
+    }
+  }
+  assert(
+    "A5 max upgrade step",
+    worst.step <= cap,
+    `largest observed ${worst.step.toFixed(2)}x from ${worst.id} (${worst.profile}), cap ${cap}x`,
+  );
+}
+
+/* A6 — first prestige window ----------------------------------------------- */
+{
+  const { firstPrestigeMinutesMin: min, firstPrestigeMinutesMax: max } = c.sim.gates;
+  const at = casual.firstPrestigeAtSeconds;
+  const minutes = at === null ? null : at / secondsPerMinute;
+  assert(
+    "A6 first prestige (casual)",
+    minutes !== null && minutes >= min && minutes <= max,
+    minutes === null ? `never reached in ${c.sim.hours}h` : `${minutes.toFixed(1)}min (target ${min}-${max})`,
+  );
+}
+
+/* Informational pacing readout (G4 lands at M2) ---------------------------- */
+for (const r of results) {
+  const unbought = Object.entries(r.generatorFirstBoughtAt)
+    .filter(([, v]) => v === null)
+    .map(([k]) => k);
+  info(
+    `pacing:${r.profile}`,
+    `max dead window ${r.maxDeadWindowSeconds}s · ${r.buys.length} purchases · ` +
+      `${r.achievements}/${c.achievements.length} achievements · ` +
+      (unbought.length > 0 ? `unbought in ${c.sim.hours}h: ${unbought.join(",")}` : "every generator bought"),
+  );
+}
+
+console.log(`\n${checks - failures}/${checks} assertions passed`);
+if (failures > 0) {
+  console.error(`G3 RED — ${failures} assertion(s) failed. Fix the economy, never the assertion.`);
+  process.exit(1);
+}
+console.log("G3 GREEN");

@@ -1,5 +1,11 @@
 # PROGRESS.md
 
+> **PARKED (2026-07-20).** Superseded by `../high-n-dry-clicker/` — a deliberately smaller,
+> purer Cookie-Clicker-skeleton game (one screen, one number, one thumb). This three-layer
+> idle/empire/war project is on hold, not cancelled: the design docs, seed content, M1 engine and
+> the bright hand-drawn `ui/play.html` playtest build all remain valid if it's picked back up.
+> Do not import from here into the clicker.
+
 Tracks milestone status per CLAUDE.md. Ticked items verify; unticked items are next.
 
 ## M1 — Engine skeleton ✅ (2026-07-20)
