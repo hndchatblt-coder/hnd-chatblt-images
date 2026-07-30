@@ -283,3 +283,49 @@ tap rate, the remaining gap being the player's aim, not a system cap. Arrivals a
 **Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · G4 1/4 (B1/B2/B4 unchanged — still waiting on the
 B2 direction call in SCALE_PLAN.md §3). Touch playtest clean: no console errors, no external
 requests, save survives reload.
+
+---
+
+## Pass 3 — the line, not the cookie
+
+Ben: *"I want everything to look a lot better. Why is the patty so stupidly large. Look to other
+idle games for inspiration. I think cookie clicker was the wrong direction."*
+
+He's right, and right about the cause rather than the symptom. Full reasoning and the new palette
+are in **DESIGN_TOKENS.md pass 3**; the short version:
+
+**Why the patty was that big.** It was Cookie Clicker's cookie with a burger skin on it — the
+click target the whole screen was composed around (pass 1 literally spec'd `THE PATTY — hero,
+thumb zone`). The reframe moved tapping onto customers and *nobody took it off the stage*, so for
+two milestones the largest, best-lit object on screen has been doing nothing at all.
+
+**The redirect.** The screen is now a burger bar's **line**, cut away side-on, running left to
+right the way food does. References taken deliberately: **Idle Miner Tycoon** for the side-cut
+with workers at stations (the closest fit to what the shop was already trying to be, and the
+reason a mascot object had to go — in a good idle game the screen is a *process*), **Egg, Inc.**
+for the place physically growing, **AdVenture Capitalist** for the idea that throughput needs a
+visible cycle rather than a number.
+
+**What changed:**
+
+1. **The giant patty is deleted.** Five to six small ones sizzling on the grill instead, each on
+   its own cook clock so they come along rare-to-charred rather than pulsing in unison.
+2. **Burgers travel the line.** Every serve, yours *or* your staff's, puts a burger on the pass
+   and arcs it to the customer who ordered it. Your $/sec is now a visible rate of food leaving
+   the kitchen — the single change that does the most work.
+3. **The room warmed up.** Cream subway tile is the ground; the bench is stainless *accent*; the
+   counter is timber with panelling and a kick rail; the dining floor is warm quarry tile in
+   perspective. The old ground was grey-blue steel filling most of the frame, which is why the
+   scene read cold no matter how many warm lamps were hung on it.
+4. **The DOM chrome followed.** Warm charcoal, not blue steel — with the scene warm, the chrome
+   was the last cold block and the split was obvious.
+5. Staff got aprons and an edge (whites vanished into a light bench), NOW TRADING became an
+   actual chalkboard, and the queue settles ~2× faster because a constantly-served front left
+   people permanently overlapping.
+
+**Floor perspective, worth writing down:** the first attempt drew parallel vertical joints and it
+read unmistakably as a *brick wall behind the customers*. Joints have to run to a vanishing point
+before a floor reads as a floor.
+
+**Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · G4 1/4 (B1/B2/B4 unchanged — this pass was
+entirely presentational; no config, no engine). Touch playtest clean.

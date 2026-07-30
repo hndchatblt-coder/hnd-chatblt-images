@@ -1,12 +1,13 @@
 /*
- * DESIGN_TOKENS.md, pass 2. Brushed steel ground, heat-lamp amber accent, thermal-paper dockets.
+ * DESIGN_TOKENS.md, pass 3 — the ground warmed up. Pass 2 made brushed steel the ground and
+ * the whole app read cold; steel is an accent now and the chrome sits in warm charcoal.
  * Two button objects only: a docket (paper, torn top, monospace price) and a steel plate.
  * Nothing rounder than a steel edge (radius <= 3px). No gradient pills, no starbursts.
  */
 :root {
-  --steel: #8a9199;
-  --steel-dark: #4a5158;
-  --steel-deep: #3a4046;
+  --steel: #a8afb6;
+  --steel-dark: #4a403a;
+  --steel-deep: #2e2724;
   --char: #241f1c;
   --lamp: #ff9e1b;
   --sear: #e2401c;
@@ -45,7 +46,7 @@ body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #545c64, var(--steel-deep) 320px);
+  background: linear-gradient(180deg, #4c423b, var(--steel-deep) 320px);
 }
 
 button {
@@ -72,7 +73,7 @@ button {
   font-size: 15px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #c8cdd2;
+  color: #d3c7b7;
   font-weight: 700;
 }
 
@@ -96,7 +97,7 @@ button {
 .till__rate {
   font-family: var(--font-num);
   font-size: 11px;
-  color: #b9c0c7;
+  color: #c4b8a8;
   font-variant-numeric: tabular-nums;
   margin-top: 4px;
 }
@@ -111,8 +112,8 @@ button {
   height: 38px;
   display: grid;
   place-items: center;
-  background: #333940;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 0 #23272c;
+  background: #3a322d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 0 #241e1b;
   border-radius: var(--radius);
   font-size: 15px;
 }
@@ -199,7 +200,7 @@ button {
   font-size: 9.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #99a1a9;
+  color: #a89b8c;
 }
 
 /* A docket: thermal paper, torn top edge, monospace price. One of only two button objects. */
@@ -303,7 +304,7 @@ button {
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #8c949c;
+  color: #9b8f81;
   text-align: center;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
@@ -317,12 +318,12 @@ button {
   padding: 0 4px;
   font-family: var(--font-num);
   font-size: 9.5px;
-  color: #868e96;
+  color: #968a7d;
   font-variant-numeric: tabular-nums;
 }
 
 .stats b {
-  color: #b9c0c7;
+  color: #c4b8a8;
   font-weight: 700;
 }
 
@@ -382,13 +383,13 @@ button {
   position: relative;
   padding: 11px 8px;
   border-radius: var(--radius);
-  background: #333940;
-  color: #aab2ba;
+  background: #3a322d;
+  color: #c3b7a8;
   font-family: var(--font-num);
   font-size: 10.5px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #23272c;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
 }
 
 .tab--on {
@@ -427,8 +428,8 @@ button {
 .bulk__btn {
   padding: 3px 8px;
   border-radius: var(--radius);
-  background: #333940;
-  color: #aab2ba;
+  background: #3a322d;
+  color: #c3b7a8;
   font-family: var(--font-num);
   font-size: 10px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -474,13 +475,13 @@ button {
 .zoom__btn {
   padding: 8px 6px;
   border-radius: var(--radius);
-  background: #333940;
-  color: #aab2ba;
+  background: #3a322d;
+  color: #c3b7a8;
   font-family: var(--font-num);
   font-size: 9.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #23272c;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
   line-height: 1;
 }
 

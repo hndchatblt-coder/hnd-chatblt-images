@@ -12,7 +12,12 @@
 const W = 390;
 const H = 330;
 
-const STEEL = "#8A9199";
+/* DESIGN_TOKENS.md pass 3 — "the line". Cream tile is the ground; steel is an accent. */
+const TILE = "#EDE4D3";
+const GROUT = "#CFC3AC";
+const TIMBER = "#8A5A32";
+const STEEL = "#A8AFB6";
+const STEEL_DARK = "#7C848C";
 
 const LAMP_BAR_Y = 20;
 const LAMP_BULB_Y = 38;
@@ -21,18 +26,19 @@ const BENCH_TOP = 112;
 const GRATE_TOP = 126;
 const GRATE_HEIGHT = 36;
 const COUNTER_TOP = 172;
-const COUNTER_H = 20;
+const COUNTER_H = 30;
 /** Customers stand on this line, in front of the counter. */
 const FLOOR_Y = 268;
 const QUEUE_X = 68;
 const QUEUE_STEP = 46;
 const MAX_QUEUE = 7;
 
-const PATTY_X = 88;
-const PATTY_Y = 140;
-const PATTY_RX = 40;
-const PATTY_RY = 17;
-const PATTY_SIDE = 12;
+/** Where food is made — the sizzle, the smoke and the grease all come off here. */
+const GRILL_X = 14;
+const GRILL_RIGHT = 162;
+const PATTY_Y = GRATE_TOP + 16;
+/** Small ones, several of them. The single giant patty was Cookie Clicker's cookie (pass 3). */
+const PATTY_R = 9;
 
 const SKIN = ["#F2CBA3", "#E5B183", "#CE9463", "#A9714A", "#835434", "#FBDDBC"];
 const HAIR = ["#2C1D12", "#4A2E19", "#6E4626", "#7C2E2E", "#3A3A3A", "#C8A24E", "#584070", "#D8D2C6"];
@@ -74,6 +80,20 @@ interface Smoke {
   life: number;
   max: number;
   r: number;
+}
+
+/**
+ * Food leaving the kitchen. Every serve — yours or your staff's — puts one of these on the pass
+ * and flies it to the customer who ordered it, so your $/sec reads as a visible rate of burgers
+ * going out rather than only as a number climbing. DESIGN_TOKENS pass 3, stolen from the way
+ * Idle Miner Tycoon makes throughput physical.
+ */
+interface Burger {
+  fromX: number;
+  toX: number;
+  toY: number;
+  t: number;
+  spin: number;
 }
 
 interface RisingNumber {
@@ -122,6 +142,7 @@ export class Scene {
   private grease: Grease[] = [];
   private smoke: Smoke[] = [];
   private rising: RisingNumber[] = [];
+  private burgers: Burger[] = [];
   private view: View = 0;
   private prevView: View = 0;
   /** 1 = settled on `view`; counts down from 0 during a pull-back. */
@@ -252,7 +273,21 @@ export class Scene {
   private serve(customer: Customer, auto: boolean): void {
     customer.state = "served";
     customer.pop = 1;
-    this.lastServedX = this.place(customer).x;
+    const spot = this.place(customer);
+    this.lastServedX = spot.x;
+
+    // The burger flies at the counter only — from the footpath you can't see the pass, and a
+    // burger crossing the strip would be a mile wide.
+    if (this.view === 0 && this.burgers.length < 24) {
+      this.burgers.push({
+        fromX: GRILL_X + 40 + Math.random() * 70,
+        toX: spot.x,
+        toY: spot.y - 46,
+        t: 0,
+        spin: (Math.random() - 0.5) * 1.4,
+      });
+    }
+
     if (auto) {
       customer.autoT = 0.9;
       return;
@@ -270,7 +305,7 @@ export class Scene {
       const angle = Math.PI + Math.random() * Math.PI;
       const speed = 55 + Math.random() * 120;
       this.grease.push({
-        x: PATTY_X + (Math.random() - 0.5) * PATTY_RX,
+        x: GRILL_X + 30 + Math.random() * 90,
         y: PATTY_Y - 4,
         vx: Math.cos(angle) * speed * 0.7,
         vy: Math.sin(angle) * speed,
@@ -280,7 +315,7 @@ export class Scene {
       });
     }
     this.smoke.push({
-      x: PATTY_X + (Math.random() - 0.5) * 24,
+      x: GRILL_X + 40 + Math.random() * 70,
       y: PATTY_Y - 18,
       vy: -20 - Math.random() * 14,
       life: 1,
@@ -333,7 +368,9 @@ export class Scene {
       if (c.state === "in" || c.state === "wait") {
         c.targetX = QUEUE_X + slot * QUEUE_STEP;
         slot += 1;
-        const speed = c.state === "in" ? 5 : 12;
+        // The front of the queue is consumed constantly once staff are serving, so the whole line
+        // is always shuffling up. Slow easing here leaves people permanently overlapping.
+        const speed = c.state === "in" ? 5 : 20;
         c.x += (c.targetX - c.x) * Math.min(1, dt * speed);
         if (c.state === "in" && Math.abs(c.x - c.targetX) < 4) c.state = "wait";
       } else if (c.state === "served") {
@@ -363,6 +400,9 @@ export class Scene {
       s.life -= dt;
     }
     this.smoke = this.smoke.filter((s) => s.life > 0).slice(-12);
+
+    for (const b of this.burgers) b.t += dt * 1.6;
+    this.burgers = this.burgers.filter((b) => b.t < 1);
 
     if (this.viewT < 1) this.viewT = Math.min(1, this.viewT + dt * 1.15);
     for (const r of this.rising) r.t += dt * 1.35;
@@ -437,13 +477,14 @@ export class Scene {
     this.drawLamp(t);
     this.drawBench();
     this.drawGrill(t);
-    this.drawPatty(t);
+    this.drawPatties(t);
     this.drawStations(t);
     this.drawSmoke();
     this.drawGrease();
     this.drawCounter();
     this.drawCounterProps();
     this.drawCustomers(t);
+    this.drawBurgers();
     this.drawRisingNumbers();
   }
 
@@ -731,46 +772,74 @@ export class Scene {
 
   private drawRoom(t: number): void {
     const ctx = this.ctx;
-    const wall = ctx.createLinearGradient(0, 0, 0, H);
-    wall.addColorStop(0, "#5A626A");
-    wall.addColorStop(0.4, "#4A5158");
-    wall.addColorStop(1, "#2F343A");
+
+    // Cream subway tile, not grey steel. The old ground filled most of the frame and read cold
+    // no matter how many warm lamps were hung on it (DESIGN_TOKENS pass 3).
+    const wall = ctx.createLinearGradient(0, 0, 0, BENCH_TOP);
+    wall.addColorStop(0, "#D8CDB8");
+    wall.addColorStop(0.45, TILE);
+    wall.addColorStop(1, "#E4DAC7");
     ctx.fillStyle = wall;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, W, BENCH_TOP);
 
-    ctx.globalAlpha = 0.05;
-    ctx.strokeStyle = "#FFFFFF";
-    ctx.lineWidth = 1;
-    for (let y = 6; y < BENCH_TOP; y += 7) {
-      ctx.beginPath();
-      ctx.moveTo(0, y + Math.sin((y + t * 3) * 0.4) * 0.5);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-
-    // The customer side of the counter. Without this it's a grey void where the queue stands.
-    const floor = ctx.createLinearGradient(0, COUNTER_TOP + COUNTER_H, 0, H);
-    floor.addColorStop(0, "#333940");
-    floor.addColorStop(1, "#22272C");
-    ctx.fillStyle = floor;
-    ctx.fillRect(0, COUNTER_TOP + COUNTER_H, W, H - COUNTER_TOP - COUNTER_H);
-
-    // Tiles in perspective — the spacing opens up as the floor comes towards you.
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
-    ctx.lineWidth = 1;
-    let gap = 5;
-    for (let y = COUNTER_TOP + COUNTER_H + gap; y < H; y += gap) {
+    const tileW = 34;
+    const tileH = 17;
+    ctx.strokeStyle = GROUT;
+    ctx.lineWidth = 1.5;
+    for (let row = 0, y = 0; y < BENCH_TOP; row += 1, y += tileH) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(W, y);
       ctx.stroke();
-      gap += 2.2;
+      const offset = row % 2 === 0 ? 0 : tileW / 2;
+      for (let x = offset; x <= W; x += tileW) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, Math.min(y + tileH, BENCH_TOP));
+        ctx.stroke();
+      }
     }
 
-    // Warm spill from the pass, pooling on the floor in front of the counter.
-    const spill = ctx.createRadialGradient(W / 2, COUNTER_TOP, 10, W / 2, COUNTER_TOP, 210);
-    spill.addColorStop(0, "rgba(255,158,27,0.2)");
+    // The lamp lands on the tile — this is where the warmth in the room comes from.
+    const wash = ctx.createRadialGradient(W / 2, LAMP_BULB_Y, 10, W / 2, LAMP_BULB_Y, 240);
+    wash.addColorStop(0, `rgba(255,158,27,${0.16 + this.lampPulse * 0.1})`);
+    wash.addColorStop(1, "rgba(255,158,27,0)");
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, W, BENCH_TOP);
+    void t;
+
+    // The customer side: dim, but warm-dim. It was blue-grey, which split the scene in half —
+    // a warm lit kitchen sitting on top of a cold empty room.
+    const floorTop = COUNTER_TOP + COUNTER_H;
+    const floor = ctx.createLinearGradient(0, floorTop, 0, H);
+    floor.addColorStop(0, "#54423A");
+    floor.addColorStop(0.5, "#40322C");
+    floor.addColorStop(1, "#2E2420");
+    ctx.fillStyle = floor;
+    ctx.fillRect(0, floorTop, W, H - floorTop);
+
+    // Quarry tile in perspective. The courses open up as the floor comes towards you, and the
+    // joints run to a vanishing point — parallel verticals here read as a brick wall, not a floor.
+    ctx.strokeStyle = "rgba(255,222,180,0.07)";
+    ctx.lineWidth = 1;
+    let gap = 6;
+    for (let y = floorTop + gap; y < H; y += gap) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      gap += 2.4;
+    }
+    for (let i = -4; i <= 4; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(W / 2 + i * 22, floorTop);
+      ctx.lineTo(W / 2 + i * 96, H);
+      ctx.stroke();
+    }
+
+    // Warm spill off the pass, pooling on the floor where the queue stands.
+    const spill = ctx.createRadialGradient(W / 2, floorTop, 10, W / 2, floorTop, 230);
+    spill.addColorStop(0, `rgba(255,158,27,${0.2 + this.business.busy * 0.08})`);
     spill.addColorStop(1, "rgba(255,158,27,0)");
     ctx.fillStyle = spill;
     ctx.fillRect(0, COUNTER_TOP, W, H - COUNTER_TOP);
@@ -852,8 +921,11 @@ export class Scene {
     const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
     const listed = venues.filter((_, i) => this.owned(5 + i) > 0);
     if (listed.length > 0) {
-      ctx.fillStyle = "rgba(20,18,16,0.55)";
-      ctx.fillRect(10, 50, 126, 12 + listed.length * 11);
+      const boardH = 14 + listed.length * 11;
+      ctx.fillStyle = "#6B4526";
+      ctx.fillRect(8, 48, 130, boardH + 4);
+      ctx.fillStyle = "#2A2622";
+      ctx.fillRect(11, 51, 124, boardH - 2);
       ctx.fillStyle = "rgba(255,190,110,0.85)";
       ctx.font = "700 7px ui-monospace, monospace";
       ctx.textAlign = "left";
@@ -926,10 +998,16 @@ export class Scene {
     const ctx = this.ctx;
     const bob = Math.sin(t * 3 + phase) * 1.2;
     const y = groundY + bob;
+    // Whites on a light stainless bench need an edge or they dissolve into it.
+    ctx.fillStyle = "rgba(40,30,22,0.3)";
+    ctx.fillRect(x - 10.5, y - 23, 21, 23);
     ctx.fillStyle = whites;
     ctx.fillRect(x - 9, y - 22, 18, 22);
-    ctx.fillStyle = "rgba(0,0,0,0.08)";
-    ctx.fillRect(x - 9, y - 9, 18, 9);
+    // Apron, in the house red.
+    ctx.fillStyle = "#B44A32";
+    ctx.fillRect(x - 8, y - 11, 16, 11);
+    ctx.fillStyle = "rgba(0,0,0,0.16)";
+    ctx.fillRect(x - 8, y - 11, 16, 1.5);
     ctx.fillStyle = "#E5B183";
     ctx.beginPath();
     ctx.arc(x, y - 28, 7, 0, Math.PI * 2);
@@ -963,11 +1041,13 @@ export class Scene {
   private drawBench(): void {
     const ctx = this.ctx;
     const bench = ctx.createLinearGradient(0, BENCH_TOP, 0, COUNTER_TOP);
-    bench.addColorStop(0, "#767E86");
-    bench.addColorStop(1, STEEL);
+    bench.addColorStop(0, "#C3C9CF");
+    bench.addColorStop(0.5, STEEL);
+    bench.addColorStop(1, STEEL_DARK);
     ctx.fillStyle = bench;
     ctx.fillRect(0, BENCH_TOP, W, COUNTER_TOP - BENCH_TOP);
-    ctx.fillStyle = "rgba(255,214,160,0.22)";
+    // Lamplight catching the front lip of the stainless.
+    ctx.fillStyle = "rgba(255,214,160,0.5)";
     ctx.fillRect(0, BENCH_TOP, W, 2);
   }
 
@@ -1009,69 +1089,135 @@ export class Scene {
     }
   }
 
-  /** The patty still cooks — it's the anchor, just no longer the button. */
-  private drawPatty(t: number): void {
+  /**
+   * Patties. Plural, and small.
+   *
+   * This used to be one 80px disc in the middle of the screen — Cookie Clicker's cookie with a
+   * burger skin on it. It was the click target until the reframe moved tapping onto customers,
+   * and then it just sat there being the largest, best-lit object on screen doing nothing. Ben
+   * called it: "why is the patty so stupidly large". Now it's a row of them cooking, and how
+   * many are down depends on how hard the shop is going.
+   */
+  private drawPatties(t: number): void {
     const ctx = this.ctx;
-    const squashAmount = this.squash * 0.22;
-    const rx = PATTY_RX * (1 + squashAmount * 0.5);
-    const ry = PATTY_RY * (1 - squashAmount);
-    const side = PATTY_SIDE * (1 - squashAmount);
-    const cy = PATTY_Y + Math.sin(t * 1.3) * 0.4;
+    const count = Math.min(6, 2 + Math.round(this.business.busy * 4));
+    const span = GRILL_RIGHT - GRILL_X - 28;
 
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.beginPath();
-    ctx.ellipse(PATTY_X, cy + side + 5, rx * 0.9, ry * 0.4, 0, 0, Math.PI * 2);
-    ctx.fill();
+    for (let i = 0; i < count; i += 1) {
+      const x = GRILL_X + 16 + (span * i) / Math.max(1, count - 1);
+      // Each one is on its own clock, so the grill never pulses in unison.
+      const cook = (t * 0.55 + i * 0.37) % 1;
+      const sizzle = Math.sin(t * 9 + i * 2.3) * 0.5 + 0.5;
+      const r = PATTY_R * (1 - this.squash * 0.12);
+      const y = PATTY_Y + sizzle * 0.7;
 
-    ctx.fillStyle = "#4A2A16";
-    ctx.beginPath();
-    ctx.ellipse(PATTY_X, cy + side, rx, ry, 0, 0, Math.PI);
-    ctx.rect(PATTY_X - rx, cy, rx * 2, side);
-    ctx.fill();
-
-    const top = ctx.createRadialGradient(PATTY_X - rx * 0.3, cy - ry * 0.5, 2, PATTY_X, cy, rx * 1.2);
-    top.addColorStop(0, "#9A6136");
-    top.addColorStop(0.6, "#6E3F1F");
-    top.addColorStop(1, "#4A2714");
-    ctx.fillStyle = top;
-    ctx.beginPath();
-    ctx.ellipse(PATTY_X, cy, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(26,18,12,0.7)";
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    for (let i = -1; i <= 1; i += 1) {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
       ctx.beginPath();
-      ctx.ellipse(PATTY_X, cy + i * ry * 0.5, rx * 0.7, ry * 0.18, 0, Math.PI * 0.1, Math.PI * 0.9);
+      ctx.ellipse(x, y + 4, r * 0.95, r * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rare to charred across the cook cycle — you can see them come along.
+      const done = 0.35 + cook * 0.45;
+      const top = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 1, x, y, r * 1.25);
+      top.addColorStop(0, `rgb(${Math.round(168 - done * 70)},${Math.round(104 - done * 46)},${Math.round(60 - done * 28)})`);
+      top.addColorStop(1, `rgb(${Math.round(96 - done * 40)},${Math.round(54 - done * 22)},${Math.round(30 - done * 12)})`);
+      ctx.fillStyle = top;
+      ctx.beginPath();
+      ctx.ellipse(x, y, r, r * 0.62, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Two bar marks, because that's what a grate leaves.
+      ctx.strokeStyle = "rgba(24,16,10,0.6)";
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = "round";
+      for (let m = -1; m <= 1; m += 2) {
+        ctx.beginPath();
+        ctx.ellipse(x, y + m * r * 0.22, r * 0.62, r * 0.1, 0, Math.PI * 0.12, Math.PI * 0.88);
+        ctx.stroke();
+      }
+      ctx.lineCap = "butt";
+
+      // Fat catching the lamp along the near edge.
+      ctx.strokeStyle = `rgba(255,196,110,${0.3 + sizzle * 0.25 + this.flare * 0.35})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(x, y, r - 0.8, r * 0.62 - 0.8, 0, Math.PI * 1.05, Math.PI * 1.95);
       ctx.stroke();
     }
-    ctx.lineCap = "butt";
+  }
 
-    ctx.strokeStyle = `rgba(255,196,110,${0.35 + this.flare * 0.5})`;
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.ellipse(PATTY_X, cy, rx - 1, ry - 1, 0, Math.PI * 1.05, Math.PI * 1.95);
-    ctx.stroke();
+  /** A burger crossing from the pass to whoever ordered it — throughput you can watch. */
+  private drawBurgers(): void {
+    const ctx = this.ctx;
+    for (const b of this.burgers) {
+      const e = b.t;
+      const x = b.fromX + (b.toX - b.fromX) * e;
+      // An arc, so it reads as handed over rather than dragged along a rail.
+      const y = PATTY_Y + (b.toY - PATTY_Y) * e - Math.sin(e * Math.PI) * 34;
+      const fade = e > 0.82 ? 1 - (e - 0.82) / 0.18 : 1;
+
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.translate(x, y);
+      ctx.rotate(b.spin * e);
+
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.beginPath();
+      ctx.ellipse(0, 7, 8, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Bottom bun, patty, cheese, top bun. Small, but unmistakably a burger.
+      ctx.fillStyle = "#C98F4E";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 8, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#6E3F1F";
+      ctx.fillRect(-8, -0.5, 16, 4);
+      ctx.fillStyle = "#E0B23A";
+      ctx.beginPath();
+      ctx.moveTo(-8, 0);
+      ctx.lineTo(8, 0);
+      ctx.lineTo(5, 3.5);
+      ctx.lineTo(-5, 3.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#E0A868";
+      ctx.beginPath();
+      ctx.ellipse(0, -1, 8.5, 6, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      for (let i = 0; i < 3; i += 1) {
+        ctx.fillRect(-4 + i * 3.4, -4.6 + (i % 2) * 1.4, 1.4, 1.4);
+      }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   private drawCounter(): void {
     const ctx = this.ctx;
+    // Timber counter front — the warm mass the customers stand at.
     const g = ctx.createLinearGradient(0, COUNTER_TOP, 0, COUNTER_TOP + COUNTER_H);
-    g.addColorStop(0, "#9AA2AA");
-    g.addColorStop(1, "#5F676E");
+    g.addColorStop(0, "#A26E3E");
+    g.addColorStop(1, TIMBER);
     ctx.fillStyle = g;
     ctx.fillRect(0, COUNTER_TOP, W, COUNTER_H);
-    ctx.fillStyle = "rgba(255,255,255,0.28)";
-    ctx.fillRect(0, COUNTER_TOP, W, 2);
-    ctx.fillStyle = "rgba(0,0,0,0.28)";
-    ctx.fillRect(0, COUNTER_TOP + COUNTER_H - 2, W, 2);
-    // Floor.
-    const floor = ctx.createLinearGradient(0, COUNTER_TOP + COUNTER_H, 0, H);
-    floor.addColorStop(0, "#393F45");
-    floor.addColorStop(1, "#282D32");
-    ctx.fillStyle = floor;
-    ctx.fillRect(0, COUNTER_TOP + COUNTER_H, W, H - COUNTER_TOP - COUNTER_H);
+    // Stainless pass edge along the top of it, lit.
+    ctx.fillStyle = "#C8CED4";
+    ctx.fillRect(0, COUNTER_TOP, W, 4);
+    ctx.fillStyle = "rgba(255,214,160,0.55)";
+    ctx.fillRect(0, COUNTER_TOP, W, 1.5);
+    // Panelled front and a kick rail, so it's a piece of joinery rather than a brown stripe.
+    ctx.strokeStyle = "rgba(58,34,18,0.5)";
+    ctx.lineWidth = 1.5;
+    for (let x = 26; x < W; x += 72) {
+      ctx.strokeRect(x, COUNTER_TOP + 9, 52, COUNTER_H - 18);
+    }
+    ctx.fillStyle = "rgba(255,214,160,0.1)";
+    ctx.fillRect(0, COUNTER_TOP + 6, W, 1);
+    ctx.fillStyle = "#5E3D22";
+    ctx.fillRect(0, COUNTER_TOP + COUNTER_H - 4, W, 4);
+    ctx.fillStyle = "rgba(0,0,0,0.34)";
+    ctx.fillRect(0, COUNTER_TOP + COUNTER_H - 1, W, 1);
   }
 
   /** The counter was a blank steel band. Real things live on a pass. */

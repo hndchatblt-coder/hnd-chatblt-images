@@ -141,3 +141,66 @@ there are no hairline broadsheet rules — divisions are steel seams and perfora
 Screenshot at 390×844 and look at it — every iteration, per brief §4. The rubric the auditor will
 use: does the hero earn the screen, is the type doing work, is there a single memorable thing,
 would a screenshot stop a thumb.
+
+---
+
+## PASS 3 — "The line" (Ben, after Phase D)
+
+> *"Why is the patty so stupidly large. Look to other idle games for inspiration. I think cookie
+> clicker was the wrong direction."*
+
+**Pass 3 supersedes pass 2.** Where they differ, build pass 3.
+
+### What was wrong
+
+Pass 1 built the screen around **THE PATTY — hero, thumb zone, lamp-lit**. That was Cookie
+Clicker's cookie with a burger skin on it: one giant clickable object, and a list of things to buy
+underneath. When the reframe moved the tap onto **customers**, the patty stopped being a button —
+but nobody took it off the stage. So the largest, best-lit object on screen has been doing nothing
+for two milestones. Ben is right, and he's right about the cause, not just the symptom.
+
+The deeper problem: Cookie Clicker is *deliberately* plain. It's a spreadsheet that respects you.
+Copying its skeleton got us its looks as well, and its looks are not what this game wants.
+
+### The new direction: a working line, seen in cross-section
+
+The screen is a burger bar's **line**, cut away side-on, running left to right the way the food
+does: **grill → fryer → pass → register → customer.** Nothing on it is decorative. Every station
+is a generator you bought, staffed by a person with a name, and **the food physically moves**.
+
+### What we're stealing, and from where
+
+- **Idle Miner Tycoon** — the side-cut shaft with workers walking between stations. This is the
+  single closest fit to what our shop is already trying to be, and it's the reason the giant
+  patty has to go: in a good idle game the screen is a *process*, not a mascot. Every upgrade
+  visibly staffs the process.
+- **Egg, Inc.** — the place physically grows, and the camera pulls back as it does. We already
+  built the pull-back in Phase D; this makes the near view worth pulling back *from*.
+- **AdVenture Capitalist** — the reason it reads as making money is that you can see each
+  business *filling*. Throughput needs a visible cycle, not just a number going up.
+
+### The concrete changes
+
+1. **The giant patty is deleted.** In its place, **five small patties sizzling on the grill** —
+   more appetising, and it scales: a busier shop puts more down.
+2. **Burgers travel the line.** Every serve — yours *or* your staff's — spawns a burger at the
+   pass that flies to the customer who ordered it. Your cash-per-second becomes a *visible rate
+   of food leaving the kitchen*. This is the whole idea in one mechanic.
+3. **The room warms up.** The old ground was `--steel` — a grey-blue bench filling most of the
+   frame, which is why the scene read cold no matter how many warm lamps were hung on it. Cream
+   subway tile becomes the ground; steel is demoted to bench-and-appliance accent.
+
+### Colour — pass 3
+
+| Token | Hex | Role |
+|---|---|---|
+| `--tile` | `#EDE4D3` | Cream subway tile — **the new ground** |
+| `--grout` | `#CFC3AC` | Tile grout, soft edges |
+| `--timber` | `#8A5A32` | Counter front, warm mass |
+| `--sear` | `#C6402B` | House red — awning, trays, brand |
+| `--lamp` | `#FF9E1B` | Heat-lamp amber — the light itself |
+| `--char` | `#241F1C` | Grill bars, char, type on light |
+| `--steel` | `#A8AFB6` | Bench and appliances — **accent, no longer ground** |
+
+Unchanged from pass 2: type roles, radius ≤ 3px, two button objects (docket + steel plate), no
+gradient pills, no starbursts, no emoji in game copy.
