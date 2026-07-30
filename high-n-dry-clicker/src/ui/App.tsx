@@ -132,7 +132,13 @@ export default function App(): JSX.Element {
       tick(state, dt, config);
       const d = derive(state, config);
       const busy = Math.min(1, Math.log10(1 + d.cps) / 4);
-      sceneRef.current?.setBusy(busy);
+      // The shop is the readout: push what's owned so the scene can show the business.
+      // autoServesPerSecond is presentation only — the cash itself comes from the engine tick.
+      sceneRef.current?.setBusiness({
+        generators: state.generators,
+        busy,
+        autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
+      });
       audio.setBusy(busy);
       sinceSave += dt;
       if (sinceSave >= config.save.autosaveSeconds) {
@@ -169,9 +175,10 @@ export default function App(): JSX.Element {
   const onScenePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     audio.init();
     const scene = sceneRef.current;
-    if (!scene || !scene.hitsPatty(event.clientX, event.clientY)) return;
+    // Only a real customer pays. Tapping empty air does nothing, so the queue is the target.
+    if (!scene || !scene.tapAt(event.clientX, event.clientY)) return;
     const result = engineTap(stateRef.current, config);
-    scene.tap(formatCash(result.earned));
+    scene.showSale(formatCash(result.earned));
     audio.sear();
     navigator.vibrate?.(8);
     force((v) => v + 1);
@@ -279,11 +286,11 @@ export default function App(): JSX.Element {
         <canvas
           ref={canvasRef}
           width={390}
-          height={328}
+          height={360}
           onPointerDown={onScenePointerDown}
-          aria-label="The grill. Tap the patty to sell a burger."
+          aria-label="The shop. Tap a customer at the counter to serve them."
         />
-        {state.taps === 0 && <div className="scene__hint">tap the patty</div>}
+        {state.taps === 0 && <div className="scene__hint">tap a customer to serve them</div>}
       </div>
 
       <nav className="tabs" role="tablist">

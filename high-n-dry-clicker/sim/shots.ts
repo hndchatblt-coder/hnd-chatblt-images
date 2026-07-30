@@ -63,15 +63,19 @@ async function run(): Promise<void> {
   const box = await page.locator(".scene canvas").boundingBox();
   if (!box) throw new Error("no canvas");
   const px = box.x + box.width / 2;
-  const py = box.y + box.height * 0.6;
+  // Customers stand low in the frame — tap where they actually are, not the counter.
+  const py = box.y + box.height * 0.83;
 
+  // Give the first customers time to walk in before tapping.
+  await page.waitForTimeout(2500);
   await page.touchscreen.tap(px, py);
-  await page.waitForTimeout(90);
+  await page.waitForTimeout(120);
   await shot("02-the-sear.png");
 
-  for (let i = 0; i < 18; i += 1) {
-    await page.touchscreen.tap(px, py);
-    await page.waitForTimeout(70);
+  // Sweep the queue: customers occupy a spread of x positions, not one spot.
+  for (let i = 0; i < 24; i += 1) {
+    await page.touchscreen.tap(box.x + box.width * (0.16 + (i % 5) * 0.14), py);
+    await page.waitForTimeout(160);
   }
   await shot("03-rapid-taps.png");
 

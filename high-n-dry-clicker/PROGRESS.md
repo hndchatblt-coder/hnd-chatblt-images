@@ -164,3 +164,45 @@ So the three ways out, and I'm not picking one unilaterally because two of them 
 B1/B4 (idle dead windows) are a genuine economy problem and mine to fix — the idle profile catches
 no golden patties by definition, so a long save-up is dead air with nothing to break it. That's the
 next iteration once B2's direction is settled, since compressing the ladder would move it too.
+
+---
+
+## Reframe — customers in the shop · direction change, needs Ben's verdict
+
+**Finding (Ben):** *"I want this game to be better. You are just copying cookie clicker. Before we
+had customers coming to the shop and all kinds of cool stuff."*
+
+He's right, and the brief is partly why: it asked for Cookie Clicker's exact skeleton and said not
+to improve the loop. Followed literally, that produced something inert — you tap an abstract patty,
+and buying fifty pairs of tongs changes a number and **nothing on screen**.
+
+**Structural diagnosis.** In Cookie Clicker, buying a farm changes a number. In this game, buying a
+fryer should change *the shop*. The scene was scenery; it needed to be the readout.
+
+**The change:**
+- **Tapping serves a customer.** Customers walk in, queue at the counter, glow when they're ready.
+  Tapping empty air does nothing, so the queue is the target and the click has an object.
+- **Generators physically appear.** Tongs on the rail, a fryer that bubbles, staff standing at
+  their stations, a pickup hatch, and venues listed on a NOW TRADING board.
+- **Staff serve customers on their own** — idle income made visible, marked with a small green tick
+  so it reads without stealing focus.
+- **Traffic thickens as you grow.** More staff, busier shop.
+- Menu board added to the back wall; scene recomposed and tightened (H 440 → 330 across the pass).
+
+The economy is untouched: tap = serve = clickPower, staff = cps. **G3 stays 6/6 green.** The
+metaphor now matches the maths instead of fighting it.
+
+### Finding that fell out of it
+
+**Serving is throttled by arrivals.** With customers arriving every ~3s, 25 taps earned $3 — the
+player physically cannot tap at the ~2/sec the economy is tuned around. Arrival gap cut to ~1.2s
+(floor 0.35s) so there's always someone at the counter. Worth knowing that *arrival rate is now a
+real economic lever* — it caps click income. That's arguably a feature (it gives clicking a natural
+ceiling and makes idle matter), but it isn't modelled in the sim yet, and the playbot still assumes
+uncapped tapping.
+
+### Known and unfixed in this pass
+
+Composition is still sparse: the counter band is empty, the patty has lost its status in the
+corner, and the queue clips at the left edge. Deliberately not polished further — the direction
+needs Ben's verdict before more time goes into the pixels.
