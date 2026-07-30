@@ -60,8 +60,9 @@ that lesson carries.)
 
 ### Signature element: **The Sear**
 
-One tap = one sear. The patty squashes, flame licks around its edge, grease spits, the lamp
-flares, and **a docket prints and flicks up onto the ticket rail** carrying the sale amount.
+One tap = one sear. The patty squashes, flame licks around its edge, grease spits, the lamp flares,
+and the take rises off the patty. All of it happens in one place: where the thumb landed.
+(Pass 1 routed the number to a ticket rail instead — see revision 4 below for why that's gone.)
 
 ---
 
@@ -92,12 +93,28 @@ Revised, with two hard rules:
   kitchen: flame, grease, smoke, docket paper, or a coin. If it isn't in a burger bar, it isn't on
   screen.
 
-**4. The rising number is Cookie Clicker's default, not ours.**
-Revised: the tap feedback is the **docket flick** to the rail (pass 1's signature, now promoted to
-the primary number channel). Two reasons it's better than a floating `+$1`: it's specific to the
-subject, and the rail **accumulates a visible record of the session** — the screen physically fills
-with evidence of work, which is exactly what an incremental game wants. A small tabular number
-still rides the docket, so nothing is lost in legibility.
+**4. ~~The rising number is Cookie Clicker's default, not ours.~~ — REVERTED at FEEL GATE 1.**
+Pass 2 originally replaced the rising number with a **docket flick** to the ticket rail. Ben's
+verdict on the M1 build: *"the docket to rail is confusing."* He's right, and for a structural
+reason worth recording so it isn't reinvented:
+
+- **The metaphor was inverted.** A docket on a rail is an order *to be made*. Using it as a receipt
+  for a completed sale is backwards to anyone who has actually run a pass — which is the audience.
+- **It split the feedback from the action.** The tap happens at the patty; the payoff resolved at
+  the top of the screen. The eye can't be in both places, so the tap felt disconnected from its own
+  reward.
+- **The rail carried no information.** Eight identical `$1` dockets look like a readout that means
+  something. It didn't.
+- **It also contradicted the brief.** §2 lists "a rising number" as a required part of every tap. I
+  overrode an explicit requirement in my own design pass and called it a promotion.
+
+**Now: the rising number, at the patty.** Tabular monospace, dark backing so it stays legible over
+flame, steel and patty alike; fast out, slow drift, quick fade. The rail is gone entirely rather
+than left as decoration, and the scene reclaimed its vertical space.
+
+Dockets remain the right object for *shop buttons* (a price on thermal paper is exactly right) —
+just not for sales feedback. If they return to the scene later it will be with their real meaning:
+incoming orders.
 
 Also confirmed against the forbidden list: ground is mid-tone steel (**not** cream), there is **no
 serif anywhere**, the accent is heat-lamp amber (**not** terracotta), there is no acid green, and

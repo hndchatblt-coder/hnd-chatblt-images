@@ -44,14 +44,15 @@ async function run(): Promise<void> {
   });
 
   // The scene runs a permanent rAF loop; Playwright's default font/stability wait can hang on it.
+  // Screenshots are non-fatal. Playwright's capture waits on document.fonts.ready, which never
+  // settles after a second navigation in this headless build; a flaky capture must not block the
+  // assertions below, which are the part that actually verifies behaviour.
   const shot = async (name: string): Promise<void> => {
-    // Race the font wait — after a reload document.fonts.ready can never settle in headless,
-    // which hung this script until it was bounded.
-    await Promise.race([
-      page.evaluate(() => document.fonts.ready).catch(() => undefined),
-      page.waitForTimeout(1500),
-    ]);
-    await page.screenshot({ path: join(SHOTS, name), animations: "allow", timeout: 15_000 });
+    try {
+      await page.screenshot({ path: join(SHOTS, name), animations: "allow", timeout: 8_000 });
+    } catch {
+      console.warn(`  (screenshot ${name} timed out on the font wait — skipped)`);
+    }
   };
 
   await page.goto(url, { waitUntil: "load" });
@@ -72,7 +73,7 @@ async function run(): Promise<void> {
     await page.touchscreen.tap(px, py);
     await page.waitForTimeout(70);
   }
-  await shot("03-rail-filling.png");
+  await shot("03-rapid-taps.png");
 
   const cashAfterTaps = await page.locator(".till__cash").textContent();
 
@@ -86,9 +87,11 @@ async function run(): Promise<void> {
   const owned = await page.locator(".docketbtn__owned").textContent();
   const rate = await page.locator(".till__rate").textContent();
 
-  // Reload to prove the save round-trips through a real page load.
-  await page.reload({ waitUntil: "load" });
-  await page.waitForTimeout(700);
+  // Re-navigate to prove the save round-trips through a real page load. (goto rather than
+  // reload: reload leaves a font load pending that Playwright's screenshot waits on forever.)
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "load" });
+  await page.waitForTimeout(900);
   await shot("05-after-reload.png");
   const ownedAfterReload = await page.locator(".docketbtn__owned").textContent();
 

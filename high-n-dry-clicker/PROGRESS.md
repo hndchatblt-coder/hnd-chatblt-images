@@ -71,4 +71,37 @@ pass. Flag if you'd rather have all five tiers.
 
 ## M1 — one screen: patty, tap, cash, one generator, save/load · **FEEL GATE 1**
 
-Next. Stops for Ben. Question at the gate: **is the tap right?** Nothing else matters yet.
+Built: canvas scene (steel bench, heat lamp whose intensity tracks production, full-bleed grill,
+the patty as hero), "The Sear" tap feedback, eased till counter, ticker, one generator, autosave,
+offline settlement. 62 kB gzipped. Verified under iPhone touch emulation: taps register, purchase
+works, save survives a page load, no console errors, no external requests.
+
+### Iteration 1 — docket-to-rail removed, rising number restored
+
+**Finding (Ben, FEEL GATE 1):** "The docket to rail is confusing."
+
+**Diagnosis — structural, not a tune.** Four things wrong at once:
+1. The metaphor was inverted. A docket on a rail is an order *to be made*, not a sale completed.
+   Borrowing a real object from the subject's world and reversing its meaning reads wrong to
+   exactly the audience that knows it.
+2. It split the feedback from the action — tap at the patty, payoff at the top of the screen.
+3. The rail carried no information: eight identical `$1` dockets that look like a readout.
+4. It contradicted brief §2, which lists "a rising number" as a required part of every tap. I'd
+   overridden an explicit requirement in my own design pass.
+
+**Change (one):** removed the rail and the flying dockets; restored the rising number at the patty
+— tabular mono, dark backing for legibility over flame/steel/patty, fast out and quick fade. Scene
+reclaimed the rail's 44px, everything shifted up, canvas 372 → 328.
+
+**Gate deltas:** G1 clean · G2 35/35 · G3 6/6 GREEN (untouched — this was a presentation change,
+no economy values moved) · bundle 62.0 kB gzipped.
+
+**Tooling fix along the way:** `npm run shots` hung forever on Playwright's internal
+`document.fonts.ready` wait after any second navigation. Screenshots are now non-fatal and bounded,
+so a flaky capture can't block the assertions.
+
+### Still open for Ben
+
+- Q1 from PLAYTEST.md: is one tap worth $1, or should the first tap feel chunkier?
+- Q3 from PLAYTEST.md: is the patty the hero, or is the steel/lamp competing with it?
+- The two M0 findings above (active-vs-idle interpretation, and the 294× cliff fix).

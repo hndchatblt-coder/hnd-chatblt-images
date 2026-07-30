@@ -7,26 +7,24 @@
  * Canvas owns the scene and particles only. All chrome is DOM (BUILD_BRIEF §5).
  */
 const W = 390;
-const H = 372;
+const H = 328;
 
 // DESIGN_TOKENS.md palette. Lamp amber and sear red appear as gradient stops inline where their
 // alpha varies with intensity, so they aren't repeated as flat constants here.
 const STEEL = "#8A9199";
 const STEEL_DARK = "#4A5158";
-const CHAR = "#241F1C";
-const DOCKET = "#F6F1E4";
 
 const PATTY_X = W / 2;
-const PATTY_Y = 236;
+const PATTY_Y = 192;
 const PATTY_RX = 84;
 const PATTY_RY = 38;
 const PATTY_SIDE = 26;
 /** Where the back wall meets the bench. Above the patty so it reads as sitting ON the pass. */
-const BENCH_TOP = 196;
-const GRATE_TOP = 250;
+const BENCH_TOP = 152;
+const GRATE_TOP = 206;
 const GRATE_HEIGHT = 76;
-const RAIL_Y = 22;
-const MAX_RAIL_DOCKETS = 8;
+const LAMP_BAR_Y = 30;
+const LAMP_BULB_Y = 48;
 
 interface Grease {
   x: number;
@@ -47,21 +45,17 @@ interface Smoke {
   r: number;
 }
 
-interface FlyingDocket {
+/**
+ * The rising number. Was briefly a docket flicking onto a ticket rail; that read as confusing at
+ * FEEL GATE 1 — a docket on a rail is an order to MAKE, not a sale completed, and it moved the
+ * feedback away from the thing being tapped. Back to the rising number the brief specified.
+ */
+interface RisingNumber {
   x: number;
   y: number;
-  tx: number;
-  ty: number;
   t: number;
-  rot: number;
+  drift: number;
   text: string;
-}
-
-interface RailDocket {
-  slot: number;
-  text: string;
-  age: number;
-  rot: number;
 }
 
 export class Scene {
@@ -78,9 +72,7 @@ export class Scene {
 
   private grease: Grease[] = [];
   private smoke: Smoke[] = [];
-  private flying: FlyingDocket[] = [];
-  private rail: RailDocket[] = [];
-  private railSlot = 0;
+  private rising: RisingNumber[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -154,22 +146,15 @@ export class Scene {
       });
     }
 
-    const slot = this.railSlot % MAX_RAIL_DOCKETS;
-    this.railSlot += 1;
-    this.flying.push({
-      x: PATTY_X + (Math.random() - 0.5) * 30,
-      y: PATTY_Y - 20,
-      tx: this.slotX(slot),
-      ty: RAIL_Y + 20,
+    // Rises from the patty itself, where the eye already is.
+    this.rising.push({
+      x: PATTY_X + (Math.random() - 0.5) * 54,
+      y: PATTY_Y - PATTY_RY - 6,
       t: 0,
-      rot: (Math.random() - 0.5) * 0.5,
+      drift: (Math.random() - 0.5) * 22,
       text,
     });
-  }
-
-  private slotX(slot: number): number {
-    const gap = W / (MAX_RAIL_DOCKETS + 1);
-    return gap * (slot + 1);
+    if (this.rising.length > 24) this.rising.shift();
   }
 
   private frame = (now: number): void => {
@@ -203,16 +188,8 @@ export class Scene {
     }
     this.smoke = this.smoke.filter((s) => s.life > 0).slice(-14);
 
-    for (const d of this.flying) d.t += dt * 2.6;
-    const landed = this.flying.filter((d) => d.t >= 1);
-    for (const d of landed) {
-      const slot = Math.round((d.tx / (W / (MAX_RAIL_DOCKETS + 1))) - 1);
-      this.rail = this.rail.filter((r) => r.slot !== slot);
-      this.rail.push({ slot, text: d.text, age: 0, rot: d.rot * 0.6 });
-      if (this.rail.length > MAX_RAIL_DOCKETS) this.rail.shift();
-    }
-    this.flying = this.flying.filter((d) => d.t < 1);
-    for (const r of this.rail) r.age += dt;
+    for (const r of this.rising) r.t += dt * 1.35;
+    this.rising = this.rising.filter((r) => r.t < 1);
   }
 
   /* ------------------------------------------------------------------ draw */
@@ -223,14 +200,13 @@ export class Scene {
 
     this.drawRoom(t);
     this.drawLamp(t);
-    this.drawRail();
     this.drawBench();
     this.drawGrate(t);
     this.drawFlames(t);
     this.drawPatty(t);
     this.drawSmoke();
     this.drawGrease();
-    this.drawFlyingDockets();
+    this.drawRisingNumbers();
   }
 
   private drawRoom(t: number): void {
@@ -260,81 +236,58 @@ export class Scene {
     const intensity = 0.35 + this.busy * 0.4 + this.lampPulse * 0.25 + Math.sin(t * 1.7) * 0.02;
 
     // Light cone falling onto the pass.
-    const cone = ctx.createRadialGradient(PATTY_X, 96, 20, PATTY_X, 300, 300);
+    const cone = ctx.createRadialGradient(PATTY_X, LAMP_BULB_Y + 4, 20, PATTY_X, GRATE_TOP + 50, 300);
     cone.addColorStop(0, `rgba(255,158,27,${0.30 * intensity})`);
     cone.addColorStop(0.45, `rgba(255,158,27,${0.13 * intensity})`);
     cone.addColorStop(1, "rgba(255,158,27,0)");
     ctx.fillStyle = cone;
-    ctx.fillRect(0, 70, W, H - 70);
+    ctx.fillRect(0, LAMP_BAR_Y, W, H - LAMP_BAR_Y);
 
     // Housing.
     ctx.fillStyle = "#2E3338";
-    ctx.fillRect(72, 74, W - 144, 15);
+    ctx.fillRect(72, LAMP_BAR_Y, W - 144, 15);
     ctx.fillStyle = "#5C646C";
-    ctx.fillRect(72, 74, W - 144, 4);
+    ctx.fillRect(72, LAMP_BAR_Y, W - 144, 4);
     ctx.fillStyle = "#1C2024";
-    ctx.fillRect(72, 89, W - 144, 3);
+    ctx.fillRect(72, LAMP_BAR_Y + 15, W - 144, 3);
 
     // Bulbs.
     for (let i = 0; i < 3; i += 1) {
       const x = W / 2 + (i - 1) * 62;
-      const glow = ctx.createRadialGradient(x, 92, 1, x, 92, 26);
+      const glow = ctx.createRadialGradient(x, LAMP_BULB_Y, 1, x, LAMP_BULB_Y, 26);
       glow.addColorStop(0, `rgba(255,190,90,${0.85 * intensity + 0.15})`);
       glow.addColorStop(1, "rgba(255,158,27,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, 92, 26, 0, Math.PI * 2);
+      ctx.arc(x, LAMP_BULB_Y, 26, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = `rgba(255,214,150,${0.75 + intensity * 0.25})`;
       ctx.beginPath();
-      ctx.ellipse(x, 91, 9, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, LAMP_BULB_Y - 1, 9, 5, 0, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  private drawRail(): void {
+  /** The rising number: what the tap just earned, where the tap happened. */
+  private drawRisingNumbers(): void {
     const ctx = this.ctx;
-    // The rod.
-    ctx.fillStyle = "#20242A";
-    ctx.fillRect(0, RAIL_Y, W, 5);
-    ctx.fillStyle = "#727A82";
-    ctx.fillRect(0, RAIL_Y, W, 2);
+    ctx.textAlign = "center";
+    for (const r of this.rising) {
+      // Quick out, slow drift — reads instantly, then gets out of the way.
+      const ease = 1 - Math.pow(1 - r.t, 2.2);
+      const y = r.y - ease * 62;
+      const x = r.x + r.drift * ease;
+      const alpha = r.t < 0.15 ? r.t / 0.15 : 1 - Math.pow((r.t - 0.15) / 0.85, 2);
+      const size = 17 + (1 - Math.pow(1 - Math.min(1, r.t * 5), 2)) * 4;
 
-    for (const r of this.rail) {
-      const x = this.slotX(r.slot);
-      const fade = Math.max(0.35, 1 - r.age / 26);
-      ctx.save();
-      ctx.translate(x, RAIL_Y + 5);
-      ctx.rotate(r.rot);
-      ctx.globalAlpha = fade;
-      this.docketShape(0, 0, 34, 26);
-      ctx.fillStyle = CHAR;
-      ctx.font = "700 8px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(r.text, 0, 17);
-      ctx.restore();
-      ctx.globalAlpha = 1;
+      ctx.font = `700 ${size}px ui-monospace, "SF Mono", monospace`;
+      // Dark backing so it stays legible over flame, steel and patty alike.
+      ctx.fillStyle = `rgba(24,16,10,${alpha * 0.55})`;
+      ctx.fillText(r.text, x + 1.5, y + 1.5);
+      ctx.fillStyle = `rgba(255,232,190,${alpha})`;
+      ctx.fillText(r.text, x, y);
     }
-  }
-
-  /** Thermal-paper docket with a torn top edge. Squared corners — nothing rounder than a steel edge. */
-  private docketShape(x: number, y: number, w: number, h: number): void {
-    const ctx = this.ctx;
-    ctx.beginPath();
-    ctx.moveTo(x - w / 2, y);
-    const teeth = 6;
-    for (let i = 0; i < teeth; i += 1) {
-      const step = w / teeth;
-      ctx.lineTo(x - w / 2 + step * (i + 0.5), y + 2.2);
-      ctx.lineTo(x - w / 2 + step * (i + 1), y);
-    }
-    ctx.lineTo(x + w / 2, y + h);
-    ctx.lineTo(x - w / 2, y + h);
-    ctx.closePath();
-    ctx.fillStyle = DOCKET;
-    ctx.fill();
-    ctx.fillStyle = "rgba(0,0,0,0.10)";
-    ctx.fillRect(x - w / 2, y + h - 2, w, 2);
+    ctx.textAlign = "left";
   }
 
   private drawBench(): void {
@@ -534,25 +487,6 @@ export class Scene {
     }
   }
 
-  private drawFlyingDockets(): void {
-    const ctx = this.ctx;
-    for (const d of this.flying) {
-      const e = 1 - Math.pow(1 - d.t, 3);
-      const x = d.x + (d.tx - d.x) * e;
-      const y = d.y + (d.ty - d.y) * e - Math.sin(Math.min(1, d.t) * Math.PI) * 46;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(d.rot * (1 - e) * 3);
-      ctx.globalAlpha = Math.min(1, (1 - d.t) * 3);
-      this.docketShape(0, 0, 38, 28);
-      ctx.fillStyle = CHAR;
-      ctx.font = "700 9px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(d.text, 0, 18);
-      ctx.restore();
-      ctx.globalAlpha = 1;
-    }
-  }
 }
 
 export const SCENE_ASPECT = H / W;
