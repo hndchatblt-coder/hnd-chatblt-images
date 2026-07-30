@@ -23,7 +23,7 @@ const GRATE_HEIGHT = 36;
 const COUNTER_TOP = 172;
 const COUNTER_H = 20;
 /** Customers stand on this line, in front of the counter. */
-const FLOOR_Y = 286;
+const FLOOR_Y = 268;
 const QUEUE_X = 68;
 const QUEUE_STEP = 46;
 const MAX_QUEUE = 7;
@@ -84,6 +84,14 @@ interface RisingNumber {
   text: string;
 }
 
+/**
+ * How far back the camera has pulled. One canvas, three framings — the scale idea from
+ * SCALE_PLAN.md §1. You can always come back to the counter and serve, so clicking never dies.
+ */
+export type View = 0 | 1 | 2;
+
+export const VIEW_NAMES = ["The counter", "The shop", "The strip"] as const;
+
 /** What the shop should look like right now — pushed in from the engine every frame. */
 export interface Business {
   /** Owned count per generator, parallel to config.generators.list. */
@@ -114,6 +122,11 @@ export class Scene {
   private grease: Grease[] = [];
   private smoke: Smoke[] = [];
   private rising: RisingNumber[] = [];
+  private view: View = 0;
+  private prevView: View = 0;
+  /** 1 = settled on `view`; counts down from 0 during a pull-back. */
+  private viewT = 1;
+  private unlockedView: View = 0;
   private nextArrival = 0.6;
   private autoCredit = 0;
   private lastServedX = W / 2;
@@ -148,6 +161,29 @@ export class Scene {
 
   setBusiness(business: Business): void {
     this.business = business;
+
+    // The camera earns its pull-back: front of house opens up the shop, a second venue opens
+    // up the strip. Crossing a threshold pulls back once, on its own — that's the reward beat.
+    const unlocked: View = this.owned(5) > 0 ? 2 : this.owned(3) > 0 ? 1 : 0;
+    if (unlocked > this.unlockedView) {
+      this.unlockedView = unlocked;
+      this.setView(unlocked);
+    }
+  }
+
+  getView(): View {
+    return this.view;
+  }
+
+  getUnlockedView(): View {
+    return this.unlockedView;
+  }
+
+  setView(view: View): void {
+    if (view === this.view || view > this.unlockedView) return;
+    this.prevView = this.view;
+    this.view = view;
+    this.viewT = 0;
   }
 
   private owned(index: number): number {
@@ -160,19 +196,37 @@ export class Scene {
   }
 
   /**
+   * Where a customer sits in the current framing. The queue is one logical line; each view just
+   * looks at it from further away.
+   */
+  private place(c: Customer): { x: number; y: number; scale: number } {
+    if (this.view === 0) return { x: c.x, y: FLOOR_Y, scale: 1 };
+    if (this.view === 1) {
+      // Out the front. The head of the queue is at the door, so the line runs away down the
+      // footpath — the direction flips because from out here the door is on the right.
+      return { x: 300 - (c.x - QUEUE_X) * 0.75, y: 262, scale: 0.62 };
+    }
+    // Too far away to be individuals; a knot of people outside Leichhardt.
+    return { x: 52 + (c.x - QUEUE_X) * 0.3, y: 248, scale: 0.3 };
+  }
+
+  /**
    * Tap. Serves the customer nearest the tap if there's one there. Returns true if a sale
-   * happened, so the caller can charge the engine for exactly one click.
+   * happened, so the caller can charge the engine for exactly one click. Works at the counter and
+   * at the shopfront; from the strip you zoom back in to serve.
    */
   tapAt(clientX: number, clientY: number): boolean {
+    if (this.view > 1) return false;
     const rect = this.canvas.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * W;
     const y = ((clientY - rect.top) / rect.height) * H;
 
     let best: Customer | null = null;
-    let bestDistance = 46;
+    let bestDistance = this.view === 0 ? 46 : 30;
     for (const c of this.customers) {
       if (c.state !== "wait") continue;
-      const d = Math.hypot(c.x - x, FLOOR_Y - 30 - y);
+      const p = this.place(c);
+      const d = Math.hypot(p.x - x, p.y - 30 * p.scale - y);
       if (d < bestDistance) {
         bestDistance = d;
         best = c;
@@ -187,7 +241,7 @@ export class Scene {
   showSale(text: string): void {
     this.rising.push({
       x: this.lastServedX,
-      y: FLOOR_Y - 74,
+      y: (this.view === 0 ? FLOOR_Y : this.view === 1 ? 262 : 246) - 74,
       t: 0,
       drift: (Math.random() - 0.5) * 18,
       text,
@@ -198,11 +252,16 @@ export class Scene {
   private serve(customer: Customer, auto: boolean): void {
     customer.state = "served";
     customer.pop = 1;
-    this.lastServedX = customer.x;
+    this.lastServedX = this.place(customer).x;
     if (auto) {
       customer.autoT = 0.9;
       return;
     }
+    // A player who is serving fast pulls the next person in. Without this the arrival gap is a
+    // hard cap on tapping — at a cold start you could only earn ~0.8 serves/sec no matter how
+    // hard you went, while the economy is tuned around ~2 taps/sec. Word gets around; the shop
+    // is busy because you are serving, not the other way round.
+    if (this.waiting().length < 3) this.nextArrival = Math.min(this.nextArrival, 0.22);
     this.squash = 1;
     this.flare = 1;
     this.lampPulse = 1;
@@ -250,7 +309,7 @@ export class Scene {
     // A burger bar always has someone at the counter. If arrivals are sparse the player simply
     // cannot tap — serving would be throttled by traffic rather than by their thumb, which the
     // economy (tuned around ~2 taps/sec) does not expect.
-    const arrivalGap = Math.max(0.35, 1.2 - Math.log10(1 + staff) * 0.35);
+    const arrivalGap = Math.max(0.3, 0.55 - Math.log10(1 + staff) * 0.16);
     this.nextArrival -= dt;
     if (this.nextArrival <= 0) {
       this.nextArrival = arrivalGap * (0.6 + Math.random() * 0.8);
@@ -274,7 +333,7 @@ export class Scene {
       if (c.state === "in" || c.state === "wait") {
         c.targetX = QUEUE_X + slot * QUEUE_STEP;
         slot += 1;
-        const speed = c.state === "in" ? 4 : 7;
+        const speed = c.state === "in" ? 5 : 12;
         c.x += (c.targetX - c.x) * Math.min(1, dt * speed);
         if (c.state === "in" && Math.abs(c.x - c.targetX) < 4) c.state = "wait";
       } else if (c.state === "served") {
@@ -282,8 +341,9 @@ export class Scene {
         c.autoT = Math.max(0, c.autoT - dt);
         if (c.pop <= 0 && c.autoT <= 0) c.state = "leaving";
       } else {
-        c.x += 150 * dt;
-        c.fade = Math.max(0, (c.fade === undefined ? 1 : c.fade) - dt * 1.4);
+        // Off quickly, or they walk straight through the people still queueing.
+        c.x += 260 * dt;
+        c.fade = Math.max(0, (c.fade === undefined ? 1 : c.fade) - dt * 2.6);
       }
       c.bob += dt;
     }
@@ -304,6 +364,7 @@ export class Scene {
     }
     this.smoke = this.smoke.filter((s) => s.life > 0).slice(-12);
 
+    if (this.viewT < 1) this.viewT = Math.min(1, this.viewT + dt * 1.15);
     for (const r of this.rising) r.t += dt * 1.35;
     this.rising = this.rising.filter((r) => r.t < 1);
   }
@@ -333,6 +394,44 @@ export class Scene {
   private draw(t: number): void {
     const ctx = this.ctx;
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    if (this.viewT >= 1) {
+      this.drawView(this.view, t);
+      return;
+    }
+    // Pull-back: the view you're leaving shrinks away, the one you're arriving at opens up.
+    const e = 1 - Math.pow(1 - this.viewT, 3);
+    const out = this.prevView < this.view;
+    this.drawScaled(this.prevView, t, out ? 1 + e * 0.9 : 1 - e * 0.45, 1 - e);
+    this.drawScaled(this.view, t, out ? 0.55 + e * 0.45 : 1.9 - e * 0.9, e);
+  }
+
+  private drawScaled(view: View, t: number, scale: number, alpha: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-W / 2, -H / 2);
+    this.drawView(view, t);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  private drawView(view: View, t: number): void {
+    if (view === 1) {
+      this.drawShopView(t);
+      return;
+    }
+    if (view === 2) {
+      this.drawStripView(t);
+      return;
+    }
+    this.drawCounterView(t);
+  }
+
+  private drawCounterView(t: number): void {
     this.drawRoom(t);
     this.drawMenuBoard();
     this.drawLamp(t);
@@ -344,6 +443,288 @@ export class Scene {
     this.drawGrease();
     this.drawCounter();
     this.drawCounterProps();
+    this.drawCustomers(t);
+    this.drawRisingNumbers();
+  }
+
+  /* ---------------------------------------------------------------- view 1: the shop */
+
+  /** Your shopfront from the footpath. The queue is out the door — that's the whole point. */
+  private drawShopView(t: number): void {
+    const ctx = this.ctx;
+    const busy = this.business.busy;
+
+    // Sky and the street.
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#232A31");
+    sky.addColorStop(0.55, "#2E363E");
+    sky.addColorStop(1, "#22282E");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // Neighbouring frontage, deliberately dull so yours reads as the lit one.
+    ctx.fillStyle = "#272E35";
+    ctx.fillRect(0, 62, 42, 178);
+    ctx.fillRect(348, 74, 42, 166);
+    ctx.fillStyle = "rgba(160,180,200,0.07)";
+    ctx.fillRect(8, 92, 24, 30);
+    ctx.fillRect(358, 104, 24, 30);
+
+    // The building, with a parapet.
+    ctx.fillStyle = "#39424A";
+    ctx.fillRect(42, 54, 306, 186);
+    ctx.fillStyle = "#2E363D";
+    ctx.fillRect(38, 48, 314, 12);
+
+    // The lit sign washes the wall around it.
+    const signGlow = ctx.createRadialGradient(195, 84, 8, 195, 84, 150);
+    signGlow.addColorStop(0, `rgba(255,158,27,${0.2 + busy * 0.18})`);
+    signGlow.addColorStop(1, "rgba(255,158,27,0)");
+    ctx.fillStyle = signGlow;
+    ctx.fillRect(42, 60, 306, 134);
+    ctx.fillStyle = "#1B1F23";
+    ctx.fillRect(72, 66, 246, 32);
+    ctx.fillStyle = "#FF9E1B";
+    ctx.font = "700 19px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("HIGH N' DRY", 195, 89);
+    ctx.textAlign = "left";
+
+    // Awning: scalloped, with a shadow under it so it reads as cloth, not a stripe.
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(46, 116, 296, 8);
+    const bays = 8;
+    const bayW = 300 / bays;
+    for (let i = 0; i < bays; i += 1) {
+      const x = 46 + i * bayW;
+      ctx.fillStyle = i % 2 === 0 ? "#C6402B" : "#EFE3CC";
+      ctx.beginPath();
+      ctx.moveTo(x, 104);
+      ctx.lineTo(x + bayW, 104);
+      ctx.lineTo(x + bayW, 116);
+      ctx.arc(x + bayW / 2, 116, bayW / 2, 0, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.fillRect(46, 104, 300, 3);
+
+    // Window, with the pass glowing behind it.
+    const win = ctx.createLinearGradient(0, 126, 0, 196);
+    win.addColorStop(0, `rgba(255,196,120,${0.52 + busy * 0.24})`);
+    win.addColorStop(1, "rgba(255,158,27,0.14)");
+    ctx.fillStyle = win;
+    ctx.fillRect(62, 126, 198, 70);
+    ctx.strokeStyle = "#1B1F23";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(62, 126, 198, 70);
+
+    // Staff silhouettes working behind the glass. Dark enough to read against a lit window.
+    const crew = Math.min(4, Object.keys(this.business.staffNames).length);
+    for (let i = 0; i < crew; i += 1) {
+      // Seen over the pass, so only the top half of them.
+      const x = 92 + i * 44;
+      const y = 168 + Math.sin(t * 2.6 + i * 1.7) * 1.6;
+      ctx.fillStyle = "rgba(24,18,12,0.72)";
+      ctx.beginPath();
+      ctx.moveTo(x - 8, 194);
+      ctx.lineTo(x - 7, y + 3);
+      ctx.quadraticCurveTo(x, y - 3, x + 7, y + 3);
+      ctx.lineTo(x + 8, 194);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y - 6, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Tiled lower wall — the white-tile burger shop, seen at night.
+    ctx.fillStyle = "#434C54";
+    ctx.fillRect(42, 196, 306, 44);
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    for (let ty = 204; ty < 240; ty += 12) {
+      ctx.beginPath();
+      ctx.moveTo(42, ty);
+      ctx.lineTo(348, ty);
+      ctx.stroke();
+    }
+
+    // Door, propped open, with the light spilling out.
+    ctx.fillStyle = "#1B1F23";
+    ctx.fillRect(276, 126, 52, 114);
+    ctx.fillStyle = `rgba(255,196,120,${0.34 + busy * 0.22})`;
+    ctx.fillRect(281, 132, 42, 108);
+    ctx.fillStyle = "rgba(255,196,120,0.10)";
+    ctx.beginPath();
+    ctx.moveTo(281, 240);
+    ctx.lineTo(323, 240);
+    ctx.lineTo(346, 282);
+    ctx.lineTo(258, 282);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#C6402B";
+    ctx.fillRect(288, 148, 28, 11);
+    ctx.fillStyle = "#F6F1E4";
+    ctx.font = "700 7px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("OPEN", 302, 156);
+    ctx.textAlign = "left";
+
+    // Footpath.
+    ctx.fillStyle = "#2A3138";
+    ctx.fillRect(0, 240, W, H - 240);
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(0, 240, W, 2);
+
+    // A-frame board on the kerb. It says the same thing it always says.
+    ctx.fillStyle = "#2F2721";
+    ctx.beginPath();
+    ctx.moveTo(38, 300);
+    ctx.lineTo(54, 252);
+    ctx.lineTo(86, 252);
+    ctx.lineTo(102, 300);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(246,241,228,0.6)";
+    ctx.font = "700 7px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("NO", 70, 276);
+    ctx.fillText("BOOKINGS", 70, 287);
+    ctx.textAlign = "left";
+
+    this.drawCustomers(t);
+    this.drawRisingNumbers();
+  }
+
+  /* --------------------------------------------------------------- view 2: the strip */
+
+  /** Your venues on the strip, and whoever else is trading. */
+  private drawStripView(t: number): void {
+    const ctx = this.ctx;
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#1B222A");
+    sky.addColorStop(0.6, "#262E36");
+    sky.addColorStop(1, "#1E242A");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // Skyline behind.
+    ctx.fillStyle = "#222931";
+    for (let i = 0; i < 11; i += 1) {
+      const bh = 24 + ((i * 37) % 52);
+      ctx.fillRect(i * 36, 96 - bh, 30, bh);
+    }
+
+    const busy = this.business.busy;
+    const slots = [
+      { label: "LEICHHARDT", owned: true, rival: false, rise: 18 },
+      { label: "ROSEBERY", owned: this.owned(5) > 0, rival: false, rise: 8 },
+      { label: "NEUTRAL BAY", owned: this.owned(6) > 0, rival: false, rise: 13 },
+      { label: "GHOST KITCHEN", owned: this.owned(7) > 0, rival: false, rise: 2 },
+      { label: "GRILLZILLA", owned: false, rival: true, rise: 15 },
+      { label: "PATTY CVLT", owned: false, rival: true, rise: 6 },
+    ];
+    const slotW = W / slots.length;
+    const BASE = 230;
+
+    slots.forEach((slot, i) => {
+      const x = i * slotW;
+      const top = 108 - slot.rise;
+      const lit = slot.owned;
+      const cx = x + slotW / 2;
+
+      // Light pollution above an open venue — a soft dome in the sky, not a band across it.
+      if (lit) {
+        const sg = ctx.createRadialGradient(cx, top, 2, cx, top, 62);
+        sg.addColorStop(0, `rgba(255,158,27,${0.12 + busy * 0.1})`);
+        sg.addColorStop(1, "rgba(255,158,27,0)");
+        ctx.fillStyle = sg;
+        ctx.fillRect(cx - 62, top - 62, 124, 62);
+      }
+
+      // Frontage.
+      ctx.fillStyle = lit ? "#39424A" : "#2A3138";
+      ctx.fillRect(x + 2, top, slotW - 4, BASE - top);
+      ctx.fillStyle = lit ? "#2E363D" : "#242A30";
+      ctx.fillRect(x, top - 5, slotW, 7);
+
+      // A wash down the frontage, clipped to its own slot so it can't smear the sky.
+      if (lit) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x + 2, top, slotW - 4, BASE - top);
+        ctx.clip();
+        const g = ctx.createRadialGradient(cx, top + 38, 4, cx, top + 38, 74);
+        g.addColorStop(0, `rgba(255,158,27,${0.2 + busy * 0.16})`);
+        g.addColorStop(1, "rgba(255,158,27,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x + 2, top, slotW - 4, BASE - top);
+        ctx.restore();
+      }
+
+      // Sign board. Long names get two lines so nothing runs into the neighbours.
+      const words = slot.label.split(" ");
+      ctx.fillStyle = lit ? "#15181B" : "#22282E";
+      ctx.fillRect(x + 5, top + 10, slotW - 10, words.length > 1 ? 20 : 13);
+      ctx.fillStyle = lit ? "#FF9E1B" : slot.rival ? "rgba(150,190,225,0.34)" : "rgba(246,241,228,0.24)";
+      ctx.font = "700 6.5px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      words.forEach((word, w) => {
+        ctx.fillText(word, cx, top + 20 + w * 8);
+      });
+      ctx.textAlign = "left";
+
+      // Awning in the house colours, only on ours.
+      if (lit) {
+        for (let b = 0; b < 4; b += 1) {
+          ctx.fillStyle = b % 2 === 0 ? "#C6402B" : "#EFE3CC";
+          ctx.fillRect(x + 4 + b * ((slotW - 8) / 4), top + 36, (slotW - 8) / 4, 5);
+        }
+      }
+
+      // Windows: a grid, so a lit venue reads as full of people rather than a tan block.
+      for (let r = 0; r < 3; r += 1) {
+        for (let c = 0; c < 3; c += 1) {
+          const wx = x + 9 + c * 16;
+          const wy = top + 48 + r * 20;
+          if (wy + 12 > BASE - 6) continue;
+          const on = lit && (i * 7 + r * 3 + c) % 4 !== 0;
+          ctx.fillStyle = on
+            ? `rgba(255,196,120,${0.4 + busy * 0.22})`
+            : lit
+              ? "rgba(255,196,120,0.12)"
+              : "rgba(150,170,190,0.06)";
+          ctx.fillRect(wx, wy, 12, 13);
+        }
+      }
+    });
+
+    // Road.
+    ctx.fillStyle = "#20262C";
+    ctx.fillRect(0, 230, W, H - 230);
+    ctx.strokeStyle = "rgba(255,255,255,0.16)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([16, 14]);
+    ctx.beginPath();
+    ctx.moveTo(0, 282);
+    ctx.lineTo(W, 282);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Delivery bikes running your orders.
+    const bikes = Math.min(4, 1 + Math.floor(this.business.busy * 4));
+    for (let i = 0; i < bikes; i += 1) {
+      const x = ((t * (52 + i * 17) + i * 120) % (W + 60)) - 30;
+      ctx.fillStyle = "#C6402B";
+      ctx.fillRect(x, 262, 16, 8);
+      ctx.fillStyle = "#1B1F23";
+      ctx.beginPath();
+      ctx.arc(x + 3, 272, 3.4, 0, Math.PI * 2);
+      ctx.arc(x + 13, 272, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     this.drawCustomers(t);
     this.drawRisingNumbers();
   }
@@ -367,6 +748,32 @@ export class Scene {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    // The customer side of the counter. Without this it's a grey void where the queue stands.
+    const floor = ctx.createLinearGradient(0, COUNTER_TOP + COUNTER_H, 0, H);
+    floor.addColorStop(0, "#333940");
+    floor.addColorStop(1, "#22272C");
+    ctx.fillStyle = floor;
+    ctx.fillRect(0, COUNTER_TOP + COUNTER_H, W, H - COUNTER_TOP - COUNTER_H);
+
+    // Tiles in perspective — the spacing opens up as the floor comes towards you.
+    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 1;
+    let gap = 5;
+    for (let y = COUNTER_TOP + COUNTER_H + gap; y < H; y += gap) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      gap += 2.2;
+    }
+
+    // Warm spill from the pass, pooling on the floor in front of the counter.
+    const spill = ctx.createRadialGradient(W / 2, COUNTER_TOP, 10, W / 2, COUNTER_TOP, 210);
+    spill.addColorStop(0, "rgba(255,158,27,0.2)");
+    spill.addColorStop(1, "rgba(255,158,27,0)");
+    ctx.fillStyle = spill;
+    ctx.fillRect(0, COUNTER_TOP, W, H - COUNTER_TOP);
   }
 
   /** Specials board. Fills the back wall, and it's the most honest object in a burger bar. */
@@ -540,10 +947,15 @@ export class Scene {
     ctx.fill();
 
     if (name) {
-      ctx.fillStyle = "rgba(255,214,160,0.8)";
+      // On a plate, so the name doesn't fight the bench edge behind it.
+      const label = name.toUpperCase();
       ctx.font = "700 8px ui-monospace, monospace";
+      const wide = ctx.measureText(label).width + 8;
+      ctx.fillStyle = "rgba(20,18,16,0.62)";
+      ctx.fillRect(x - wide / 2, y - 50, wide, 12);
+      ctx.fillStyle = "rgba(255,214,160,0.92)";
       ctx.textAlign = "center";
-      ctx.fillText(name.toUpperCase(), x, y - 42);
+      ctx.fillText(label, x, y - 41);
       ctx.textAlign = "left";
     }
   }
@@ -702,9 +1114,14 @@ export class Scene {
     const ctx = this.ctx;
     for (const c of this.customers) {
       ctx.globalAlpha = c.fade === undefined ? 1 : c.fade;
-      const idle = c.state === "wait" ? Math.sin(c.bob * 3) * 1.3 : 0;
-      const y = FLOOR_Y + idle;
-      const x = c.x;
+      const spot = this.place(c);
+      const idle = c.state === "wait" ? Math.sin(c.bob * 3) * 1.3 * spot.scale : 0;
+      const y = spot.y + idle;
+      const x = spot.x;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(spot.scale, spot.scale);
+      ctx.translate(-x, -y);
 
       ctx.fillStyle = "rgba(0,0,0,0.3)";
       ctx.beginPath();
@@ -783,7 +1200,8 @@ export class Scene {
       }
 
       // A regular is a face you know. Name only — no mechanics, no badge, no noise.
-      if (c.regular && c.state === "wait") {
+      // From the strip you're too far away to recognise anyone.
+      if (c.regular && c.state === "wait" && this.view < 2) {
         ctx.fillStyle = "rgba(246,241,228,0.62)";
         ctx.font = "700 8px ui-monospace, monospace";
         ctx.textAlign = "center";
@@ -803,6 +1221,7 @@ export class Scene {
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
   }

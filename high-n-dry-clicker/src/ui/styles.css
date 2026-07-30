@@ -457,3 +457,41 @@ button {
   color: #7a7264;
   margin-top: 5px;
 }
+
+
+/* -------------------------------------------------------------------- zoom */
+/* Steel plates under the scene — never over it, or they sit on the heat lamps.
+   The camera can always come back to the counter. */
+
+.zoom {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  margin: 8px 10px 0;
+}
+
+.zoom__btn {
+  padding: 8px 6px;
+  border-radius: var(--radius);
+  background: #333940;
+  color: #aab2ba;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #23272c;
+  line-height: 1;
+}
+
+.zoom__btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.zoom__btn--on {
+  background: var(--docket);
+  color: var(--char);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}

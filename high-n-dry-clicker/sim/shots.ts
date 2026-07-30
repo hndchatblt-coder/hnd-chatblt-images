@@ -63,8 +63,8 @@ async function run(): Promise<void> {
   const box = await page.locator(".scene canvas").boundingBox();
   if (!box) throw new Error("no canvas");
   const px = box.x + box.width / 2;
-  // Customers stand low in the frame — tap where they actually are, not the counter.
-  const py = box.y + box.height * 0.83;
+  // Customers stand in front of the counter — tap their torsos, not the counter or the floor.
+  const py = box.y + box.height * 0.72;
 
   // Give the first customers time to walk in before tapping.
   await page.waitForTimeout(2500);

@@ -38,9 +38,20 @@ await page.evaluate(
 );
 const fresh = await context.newPage();
 await fresh.goto(url, { waitUntil: "load" });
-await fresh.waitForTimeout(3500);
-await fresh
-  .screenshot({ path: join(ROOT, "reports", "shots", "06-staffed-shop.png"), timeout: 8000 })
-  .catch(() => console.warn("screenshot skipped"));
-console.log("staffed shop captured");
+await fresh.waitForTimeout(4000);
+const shot = async (name: string) => {
+  // Whole screen, not just the canvas — the zoom control lives in the DOM under it.
+  await fresh
+    .screenshot({ path: join(ROOT, "reports", "shots", name), timeout: 8000 })
+    .catch(() => console.warn(`skipped ${name}`));
+};
+// The camera auto-pulled back on unlock; walk it through every framing.
+const zoom = fresh.locator(".zoom__btn");
+console.log("zoom levels available:", await zoom.count());
+for (let i = 0; i < (await zoom.count()); i += 1) {
+  await zoom.nth(i).tap();
+  await fresh.waitForTimeout(1600);
+  await shot(`view-${i}.png`);
+}
+console.log("views captured");
 await browser.close();

@@ -236,3 +236,50 @@ waiting on the B2 direction call in SCALE_PLAN.md §3).
 **Three layout bugs caught by looking at screenshots, not by tests:** the tray stack was drawn
 inside the grill; NOW TRADING sat on top of the menu board; and the staff were painted over by the
 bench because they were drawn before it. All three were invisible to every automated check.
+
+---
+
+## Phase D — the camera pulls back
+
+Ben: *"Keep building I want to see this scale."* The headline idea from SCALE_PLAN.md §1: one
+canvas, three framings, with an animated pull-back between them.
+
+**The counter** — what you had. **The shop** — your lit shopfront from the footpath, awning, sign,
+crew in silhouette behind the glass, and the queue running out the door. **The strip** — six
+frontages, yours lit and awninged, the rivals (GRILLZILLA, PATTY CVLT) cold and dim, delivery
+bikes running the road.
+
+The camera **earns** each step: front of house opens up the shop, a second venue opens up the
+strip, and crossing the threshold pulls back once on its own — that's the reward beat. You can
+always come back in, and tapping works at the counter *and* at the shopfront, so clicking never
+dies. From the strip you're told to zoom in to serve.
+
+The queue is **one logical line** the whole time; each view just looks at it from further away.
+`place()` maps queue position to screen position per view — and the direction flips at the
+shopfront, because from out on the footpath the door is on your right.
+
+**The arrival cap was real, and it was hurting.** The playtest measured a thumb at ~2 taps/sec
+getting only **0.83 serves/sec** — customers couldn't walk in fast enough, so the UI was quietly
+capping click income at less than half what the economy is tuned for. Two fixes: the base arrival
+gap drops 1.2s → 0.55s, and serving someone while the queue is short pulls the next person in
+early ("the shop is busy because you are serving"). Re-measured: **1.65 serves/sec** at a 2/sec
+tap rate, the remaining gap being the player's aim, not a system cap. Arrivals are UI-only, so
+**G3 is untouched**.
+
+**Craft pass, all of it found by looking at screenshots:**
+
+- The zoom buttons were overlaying the canvas and sitting on the heat lamps → moved out of the
+  scene into a DOM row underneath it.
+- Customers bunched on the footpath → widened the shopfront spacing and ran the line away from
+  the door instead of into the left wall.
+- Staff names collided with the bench edge → put them on a plate.
+- The customer side of the counter was a grey void → floor, perspective tiling, warm spill from
+  the pass, and the queue moved up 18px to close the dead band.
+- Window silhouettes were oversized blobs → half-height, seen over the pass.
+- The strip's glow smeared a hard band across the sky → clipped per venue, plus a soft light-
+  pollution dome above each open one.
+- Leaving customers walked straight through the people still queueing → off twice as fast.
+
+**Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · G4 1/4 (B1/B2/B4 unchanged — still waiting on the
+B2 direction call in SCALE_PLAN.md §3). Touch playtest clean: no console errors, no external
+requests, save survives reload.

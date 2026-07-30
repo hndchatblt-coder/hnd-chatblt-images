@@ -31,7 +31,7 @@ import {
 } from "../engine/index.js";
 import tickerContent from "../../content/ticker.json";
 import { audio } from "./audio.js";
-import { Scene } from "./scene.js";
+import { Scene, VIEW_NAMES, type View } from "./scene.js";
 import { regularName, staffFor } from "../engine/staff.js";
 
 const adapter = new LocalStorageAdapter();
@@ -96,6 +96,8 @@ export default function App(): JSX.Element {
   const [muted, setMuted] = useState(false);
   const [panel, setPanel] = useState<"staff" | "upgrades">("staff");
   const [bulk, setBulk] = useState(1);
+  const [view, setView] = useState<View>(0);
+  const [unlockedView, setUnlockedView] = useState<View>(0);
   const [toast, setToast] = useState<string | null>(null);
   const [line, setLine] = useState(TICKER.lines.early?.[0] ?? "");
   const toastTimer = useRef<number | undefined>(undefined);
@@ -167,6 +169,11 @@ export default function App(): JSX.Element {
       sinceRender += dt;
       if (sinceRender >= 0.1) {
         sinceRender = 0;
+        const scene = sceneRef.current;
+        if (scene) {
+          setView(scene.getView());
+          setUnlockedView(scene.getUnlockedView());
+        }
         force((v) => v + 1);
       }
       raf = requestAnimationFrame(loop);
@@ -312,8 +319,28 @@ export default function App(): JSX.Element {
           onPointerDown={onScenePointerDown}
           aria-label="The shop. Tap a customer at the counter to serve them."
         />
-        {state.taps === 0 && <div className="scene__hint">tap a customer to serve them</div>}
+        {state.taps === 0 && view === 0 && (
+          <div className="scene__hint">tap a customer to serve them</div>
+        )}
+        {view > 1 && (
+          <div className="scene__hint">zoom in to serve · the shop runs itself out here</div>
+        )}
       </div>
+
+      {unlockedView > 0 && (
+        <div className="zoom">
+          {([0, 1, 2] as View[]).slice(0, unlockedView + 1).map((v) => (
+            <button
+              key={v}
+              className={`zoom__btn${view === v ? " zoom__btn--on" : ""}`}
+              onClick={() => sceneRef.current?.setView(v)}
+              aria-label={VIEW_NAMES[v]}
+            >
+              {VIEW_NAMES[v]}
+            </button>
+          ))}
+        </div>
+      )}
 
       <nav className="tabs" role="tablist">
         <button
