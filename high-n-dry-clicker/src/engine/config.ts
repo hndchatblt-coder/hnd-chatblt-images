@@ -131,6 +131,7 @@ export interface EconomyConfig {
     tickSeconds: number;
     hours: number;
     profiles: SimProfileDef[];
+    prestigeHeuristic: { minMultiplierGain: number };
     gates: {
       firstPrestigeMinutesMin: number;
       firstPrestigeMinutesMax: number;

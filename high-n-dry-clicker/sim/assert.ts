@@ -169,22 +169,88 @@ if (!idle || !casual || !tryhard) throw new Error("missing sim profile results")
   );
 }
 
-/* Informational pacing readout (G4 lands at M2) ---------------------------- */
+/* ========================================================================== */
+/* G4 — pacing                                                                */
+/* ========================================================================== */
+console.log("\nG4 — pacing\n");
+
+const { maxDeadWindowSeconds: deadBudget, maxUnboughtMinutesAfterUnlock } = c.sim.gates;
+
+/* B1 — no dead window longer than 90s -------------------------------------- */
+{
+  const worst = results.reduce((a, b) => (b.maxDeadWindowSeconds > a.maxDeadWindowSeconds ? b : a));
+  assert(
+    "B1 no dead window",
+    worst.maxDeadWindowSeconds <= deadBudget,
+    `worst ${worst.maxDeadWindowSeconds}s (${worst.profile}, starting ${(worst.maxDeadWindowAtSeconds / secondsPerMinute).toFixed(0)}min), budget ${deadBudget}s`,
+  );
+}
+
+/* B2 — every generator bought by every profile ----------------------------- */
+{
+  const misses: string[] = [];
+  for (const r of results) {
+    const unbought = Object.entries(r.generatorFirstBoughtAt)
+      .filter(([, v]) => v === null)
+      .map(([k]) => k);
+    if (unbought.length > 0) misses.push(`${r.profile}: ${unbought.join(",")}`);
+  }
+  assert(
+    "B2 every generator bought",
+    misses.length === 0,
+    misses.length === 0
+      ? `all ${c.generators.list.length} bought by all ${results.length} profiles`
+      : `unbought within ${c.sim.hours}h — ${misses.join(" | ")}`,
+  );
+}
+
+/* B3 — no generator sits unbought 20+ minutes after it becomes affordable --- */
+{
+  const late: string[] = [];
+  for (const r of results) {
+    for (const g of c.generators.list) {
+      const unlocked = r.generatorUnlockedAt[g.id];
+      const bought = r.generatorFirstBoughtAt[g.id];
+      if (unlocked === null || unlocked === undefined) continue;
+      const delay = ((bought ?? r.seconds) - unlocked) / secondsPerMinute;
+      if (delay > maxUnboughtMinutesAfterUnlock) {
+        late.push(`${r.profile}/${g.id} ${delay.toFixed(0)}min`);
+      }
+    }
+  }
+  assert(
+    "B3 bought soon after unlock",
+    late.length === 0,
+    late.length === 0
+      ? `nothing waits longer than ${maxUnboughtMinutesAfterUnlock}min after becoming affordable`
+      : late.join(", "),
+  );
+}
+
+/* B4 — purchases spaced without a cliff ------------------------------------ */
+{
+  const worst = results.reduce((a, b) =>
+    b.maxPurchaseGapSeconds > a.maxPurchaseGapSeconds ? b : a,
+  );
+  assert(
+    "B4 no purchase cliff",
+    worst.maxPurchaseGapSeconds <= deadBudget,
+    `longest gap between purchases ${worst.maxPurchaseGapSeconds.toFixed(0)}s (${worst.profile}), budget ${deadBudget}s`,
+  );
+}
+
+/* Pacing readout ----------------------------------------------------------- */
 for (const r of results) {
-  const unbought = Object.entries(r.generatorFirstBoughtAt)
-    .filter(([, v]) => v === null)
-    .map(([k]) => k);
   info(
     `pacing:${r.profile}`,
-    `max dead window ${r.maxDeadWindowSeconds}s · ${r.buys.length} purchases · ` +
-      `${r.achievements}/${c.achievements.length} achievements · ` +
-      (unbought.length > 0 ? `unbought in ${c.sim.hours}h: ${unbought.join(",")}` : "every generator bought"),
+    `${r.buys.length} purchases · ${r.prestiges} sale(s) · ${r.goodwill} goodwill · ` +
+      `${r.achievements}/${c.achievements.length} achievements · final cps ${r.finalCps.toExponential(2)}`,
   );
 }
 
 console.log(`\n${checks - failures}/${checks} assertions passed`);
 if (failures > 0) {
-  console.error(`G3 RED — ${failures} assertion(s) failed. Fix the economy, never the assertion.`);
+  console.error(`RED — ${failures} assertion(s) failed. Fix the economy, never the assertion.`);
   process.exit(1);
 }
-console.log("G3 GREEN");
+console.log("ALL GATES GREEN");

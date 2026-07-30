@@ -78,13 +78,13 @@ async function run(): Promise<void> {
   const cashAfterTaps = await page.locator(".till__cash").textContent();
 
   // Buy the first generator, then let it produce.
-  const buy = page.locator(".docketbtn");
+  const buy = page.locator(".docketbtn").first();
   const enabled = await buy.isEnabled();
   if (enabled) await buy.tap();
   await page.waitForTimeout(1400);
   await shot("04-first-hire.png");
 
-  const owned = await page.locator(".docketbtn__owned").textContent();
+  const owned = await page.locator(".docketbtn__owned").first().textContent();
   const rate = await page.locator(".till__rate").textContent();
 
   // Re-navigate to prove the save round-trips through a real page load. (goto rather than
@@ -93,7 +93,7 @@ async function run(): Promise<void> {
   await page.goto(url, { waitUntil: "load" });
   await page.waitForTimeout(900);
   await shot("05-after-reload.png");
-  const ownedAfterReload = await page.locator(".docketbtn__owned").textContent();
+  const ownedAfterReload = await page.locator(".docketbtn__owned").first().textContent();
 
   console.log(`cash after 19 taps : ${cashAfterTaps}`);
   console.log(`generator owned    : ${owned}`);

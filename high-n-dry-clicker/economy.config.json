@@ -13,6 +13,7 @@
   },
   "generators": {
     "costGrowth": 1.15,
+    "ladderComment": "Cookie Clicker's building curve (cost ~x10, rate ~x8 per rung), renamed. A compressed x8/x5 ladder was trialled during M2 to make the top rungs reachable inside the 3h sim; it did that, but it also sent the tryhard profile exponential (1e36 in an hour) and made the prestige loop chaotic. Reverted. Reachability of the top rungs is a real open G4 item — see PROGRESS.md M2.",
     "list": [
       { "id": "tongs",         "name": "Second pair of tongs", "baseCost": 15,               "baseRate": 0.1,      "flavour": "You bought a second pair of tongs. You still do all the work." },
       { "id": "fryer",         "name": "Fryer",                "baseCost": 100,              "baseRate": 1,        "flavour": "Chips sell themselves." },
@@ -134,6 +135,10 @@
       { "id": "tryhard", "tapsPerSecond": 8, "dutyCycle": 1,                  "goldenCatchRate": 1,   "bootstrapTaps": false }
     ],
     "bootstrapComment": "The idle profile taps ONLY until it owns its first generator, then never again. A literal zero-tap profile can never earn its first dollar (cash 0, cps 0) — that is true of Cookie Clicker too. 'Idle-only' here means 'idle after the opening', which is what the G3 softlock assertion is actually about. Flagged in PROGRESS.md.",
+    "prestigeHeuristic": {
+      "comment": "When the bot sells. Selling costs you every generator, so it is only worth it when the permanent multiplier jumps hard. Sell when the post-sale global multiplier would be at least this many times the current one. A gain-based rule instead made the bot reset constantly and never climb the ladder.",
+      "minMultiplierGain": 2
+    },
     "gates": {
       "firstPrestigeMinutesMin": 45,
       "firstPrestigeMinutesMax": 120,

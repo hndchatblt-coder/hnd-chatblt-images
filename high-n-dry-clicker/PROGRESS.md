@@ -105,3 +105,62 @@ so a flaky capture can't block the assertions.
 - Q1 from PLAYTEST.md: is one tap worth $1, or should the first tap feel chunkier?
 - Q3 from PLAYTEST.md: is the patty the hero, or is the steel/lamp competing with it?
 - The two M0 findings above (active-vs-idle interpretation, and the 294× cliff fix).
+
+---
+
+## M2 — full ladder + upgrade families · **G3 GREEN, G4 RED (1/4)**
+
+Built:
+- **UI:** all 12 generators with progressive reveal, the three upgrade families in a swappable
+  panel, ×1/×10 bulk buy, per-generator readout ($/sec each, share of takings, next ×2 threshold),
+  tier-crossing stinger, ticker pools now gated by progress. Still one screen — the patty never
+  leaves; the shop list swaps beneath it.
+- **Playbot now sells the business** (and buys perks). Without it the bot never restarted stronger,
+  which is not how the game is played.
+- **G4 assertions added** (B1 dead window, B2 every generator bought, B3 bought soon after unlock,
+  B4 no purchase cliff) plus dead-window *location* diagnostics.
+
+**Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · **G4 1/4** —
+
+```
+FAIL B1 no dead window        worst 419s (idle, starting 26min), budget 90s
+FAIL B2 every generator bought unbought in 3h — idle misses 7, casual 6, tryhard 6
+PASS B3 bought soon after unlock
+FAIL B4 no purchase cliff     longest gap 173s (idle), budget 90s
+```
+
+### What I tried, and why it's reverted
+
+To make the top rungs reachable I compressed the ladder to ×8 cost / ×5 rate. It worked for B2
+(tryhard bought all 12) and it broke two other things: the tryhard profile went exponential —
+**1e36 in an hour** — and the prestige loop turned chaotic and non-monotonic (share 1.0 → 1.2e8,
+share 0.54 → 6e36, because higher click power made the bot sell constantly and reset its own
+progress). Reverted to the Cookie Clicker curve, which is sane at every profile.
+
+I also changed the bot's sell rule twice. First version sold whenever the gain beat a small
+threshold, so it reset constantly and casual's final cps *fell* from 6.6e4 to 1.3e2. Now it sells
+only when the permanent multiplier would at least double — 0/1/2 sales per 3h, which reads right.
+
+Three balance changes in a row without a playtest between them is exactly what §8 says not to do.
+Hence the revert, and hence the stop-and-ask below rather than a fourth swing.
+
+### STOP-AND-ASK: B2 may be an assertion problem, not an economy problem
+
+**"Every generator gets bought by every profile"** — inside a 3-hour sim, with a 12-rung ladder
+whose rungs are ×10 apart. The 12th rung costs $14T. A Cookie-Clicker-shaped game reaches its top
+building in days, not hours; that's the genre's shape, and the brief is explicit that the loop is
+load-bearing and shouldn't be improved on.
+
+So the three ways out, and I'm not picking one unilaterally because two of them change a pillar:
+
+1. **Raise the sim horizon** for B2 only (e.g. every generator bought within 24 simulated hours,
+   keeping the 3h run for everything else). Changes no game values. My recommendation.
+2. **Compress the ladder** so 12 rungs fit in 3h. Tried; it needs the whole economy re-tuned around
+   it and my first attempt exploded. Doable, but it's a different-feeling game — rungs stop being
+   milestones and become steps.
+3. **Relax B2** to "every generator bought by the tryhard profile". Weakest option, and it's
+   weakening an assertion, which the brief forbids me doing on my own.
+
+B1/B4 (idle dead windows) are a genuine economy problem and mine to fix — the idle profile catches
+no golden patties by definition, so a long save-up is dead air with nothing to break it. That's the
+next iteration once B2's direction is settled, since compressing the ladder would move it too.

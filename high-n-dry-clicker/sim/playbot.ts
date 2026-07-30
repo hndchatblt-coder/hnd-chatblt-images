@@ -18,10 +18,13 @@ import { config, type SimProfileDef } from "../src/engine/config.js";
 import { derive } from "../src/engine/derive.js";
 import {
   buyGenerator,
+  buyPerk,
   buyUpgrade,
   canSellBusiness,
   checkAchievements,
+  pendingGoodwill,
   purchaseOptions,
+  sellBusiness,
   tapGolden,
   tick,
 } from "../src/engine/engine.js";
@@ -66,7 +69,13 @@ export interface ProfileResult {
   generatorFirstBoughtAt: Record<string, number | null>;
   generatorUnlockedAt: Record<string, number | null>;
   maxDeadWindowSeconds: number;
+  /** When the longest dead window began — so a failure can be diagnosed, not guessed at. */
+  maxDeadWindowAtSeconds: number;
   achievements: number;
+  prestiges: number;
+  goodwill: number;
+  /** Longest gap between consecutive purchases, seconds — the "cliff" check. */
+  maxPurchaseGapSeconds: number;
 }
 
 const SAMPLE_EVERY_SECONDS = 15;
@@ -116,8 +125,13 @@ export function runProfile(
   let revenueAtWindow = 0;
   let firstPrestigeAtSeconds: number | null = null;
   let deadRun = 0;
+  let deadRunStartedAt = 0;
   let maxDeadWindowSeconds = 0;
+  let maxDeadWindowAtSeconds = 0;
   let goldenDecided: number | null = null;
+  let prestiges = 0;
+  let lastPurchaseAt = 0;
+  let maxPurchaseGapSeconds = 0;
 
   for (let elapsed = 0; elapsed < totalSeconds; elapsed += c.sim.tickSeconds) {
     const taps = effectiveTapsPerSecond(profile, state) * c.sim.tickSeconds;
@@ -187,6 +201,9 @@ export function runProfile(
           generatorFirstBoughtAt[g.id] = state.timeSeconds;
         }
       }
+      const gap = state.timeSeconds - lastPurchaseAt;
+      if (gap > maxPurchaseGapSeconds) maxPurchaseGapSeconds = gap;
+      lastPurchaseAt = state.timeSeconds;
       bought = true;
       purchasesThisTick += 1;
     }
@@ -197,14 +214,36 @@ export function runProfile(
     const somethingHappening =
       state.golden.onScreen !== null || state.golden.activeEffects.length > 0 || taps > 0;
     if (!anythingAffordable && !somethingHappening) {
+      if (deadRun === 0) deadRunStartedAt = state.timeSeconds;
       deadRun += c.sim.tickSeconds;
-      if (deadRun > maxDeadWindowSeconds) maxDeadWindowSeconds = deadRun;
+      if (deadRun > maxDeadWindowSeconds) {
+        maxDeadWindowSeconds = deadRun;
+        maxDeadWindowAtSeconds = deadRunStartedAt;
+      }
     } else {
       deadRun = 0;
     }
 
     if (firstPrestigeAtSeconds === null && canSellBusiness(state, c)) {
       firstPrestigeAtSeconds = state.timeSeconds - startTime;
+    }
+
+    // Sell the business when the payoff is a real step up, then spend the Goodwill. Without this
+    // the bot never restarts stronger and never reaches the top of the ladder — which is not how
+    // the game is played.
+    if (canSellBusiness(state, c)) {
+      const gain = pendingGoodwill(state, c);
+      const per = c.prestige.multiplierPerGoodwill;
+      const now = 1 + state.goodwill * per;
+      const after = 1 + (state.goodwill + gain) * per;
+      if (after / now >= c.sim.prestigeHeuristic.minMultiplierGain) {
+        sellBusiness(state, c);
+        prestiges += 1;
+      }
+    }
+    // Buy any perk we can afford, cheapest first.
+    for (const perk of [...c.prestige.perks].sort((a, b) => a.cost - b.cost)) {
+      if (state.goodwill >= perk.cost) buyPerk(state, perk.id, c);
     }
     if (revenueAtWindow === 0 && state.timeSeconds - startTime >= windowSeconds) {
       revenueAtWindow = state.lifetimeRevenue - startRevenue;
@@ -239,7 +278,11 @@ export function runProfile(
     generatorFirstBoughtAt,
     generatorUnlockedAt,
     maxDeadWindowSeconds,
+    maxDeadWindowAtSeconds,
     achievements: state.achievements.length,
+    prestiges,
+    goodwill: state.goodwill,
+    maxPurchaseGapSeconds,
   };
 }
 
@@ -276,7 +319,9 @@ function summarise(report: PacingReport): void {
         `buys ${String(p.buys.length).padStart(4)}`,
         `golden ${String(p.goldenCaught).padStart(3)}`,
         `1st sale ${prestige.padStart(8)}`,
-        `dead ${String(p.maxDeadWindowSeconds).padStart(5)}s`,
+        `dead ${String(p.maxDeadWindowSeconds).padStart(4)}s@${(p.maxDeadWindowAtSeconds/60).toFixed(0)}m`,
+        `sales ${p.prestiges}`,
+        `gap ${p.maxPurchaseGapSeconds.toFixed(0)}s`,
         `ach ${p.achievements}/${config.achievements.length}`,
         unbought.length > 0 ? `UNBOUGHT: ${unbought.join(",")}` : "all gens bought",
       ].join("  "),

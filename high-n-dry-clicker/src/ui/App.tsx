@@ -1,12 +1,16 @@
 /**
- * M1 — one screen: the patty, the till, one generator, save/load.
+ * M2 — the full ladder and the upgrade families, still on one screen.
+ *
+ * The patty never leaves the screen: the shop below it swaps between STAFF (the 12-generator
+ * ladder) and UPGRADES (the three families). That's a panel swap, not a second gameplay screen.
  *
  * The UI reads engine state and dispatches intents; it holds no economy rules (BUILD_BRIEF §5).
- * Scope is deliberately M1: only the first generator is on the board. The full ladder is M2.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  availableUpgrades,
   buyGenerator,
+  buyUpgrade,
   config,
   createInitialState,
   derive,
@@ -15,11 +19,15 @@ import {
   generatorCost,
   load,
   LocalStorageAdapter,
+  parseTierUpgradeId,
   save,
   settleOffline,
   tap as engineTap,
   tick,
+  totalGenerators,
+  upgradeCost,
   type GameState,
+  type PurchaseOption,
 } from "../engine/index.js";
 import tickerContent from "../../content/ticker.json";
 import { audio } from "./audio.js";
@@ -27,9 +35,23 @@ import { Scene } from "./scene.js";
 
 const adapter = new LocalStorageAdapter();
 const SEED = 20260720;
-const EARLY_LINES = (tickerContent as { lines: { early: string[] } }).lines.early;
 
-/** Cash the counter shows, eased toward the real value so it never snaps. */
+type TickerContent = {
+  tiers: Record<string, { minGenerators: number }>;
+  lines: Record<string, string[]>;
+};
+const TICKER = tickerContent as TickerContent;
+
+/** Pools unlock as the business grows, so the copy tracks where the player actually is. */
+function tickerPool(generators: number, prestiges: number): string[] {
+  const pool: string[] = [];
+  for (const [tier, gate] of Object.entries(TICKER.tiers)) {
+    if (generators >= gate.minGenerators) pool.push(...(TICKER.lines[tier] ?? []));
+  }
+  if (prestiges > 0) pool.push(...(TICKER.lines.prestige ?? []));
+  return pool.length > 0 ? pool : (TICKER.lines.early ?? []);
+}
+
 function useEasedCash(target: number): number {
   const [shown, setShown] = useState(target);
   const ref = useRef(target);
@@ -47,6 +69,12 @@ function useEasedCash(target: number): number {
   return shown;
 }
 
+const UPGRADE_FAMILY: Record<string, string> = {
+  tier: "Station",
+  click: "The pass",
+  global: "The business",
+};
+
 export default function App(): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<Scene | null>(null);
@@ -54,8 +82,10 @@ export default function App(): JSX.Element {
 
   const [, force] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [panel, setPanel] = useState<"staff" | "upgrades">("staff");
+  const [bulk, setBulk] = useState(1);
   const [toast, setToast] = useState<string | null>(null);
-  const [line, setLine] = useState(EARLY_LINES[0] ?? "");
+  const [line, setLine] = useState(TICKER.lines.early?.[0] ?? "");
   const toastTimer = useRef<number | undefined>(undefined);
 
   const showToast = useCallback((text: string) => {
@@ -63,8 +93,6 @@ export default function App(): JSX.Element {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 4200);
   }, []);
-
-  /* ---------------------------------------------------------------- boot */
 
   useEffect(() => {
     const loaded = load(adapter);
@@ -82,8 +110,6 @@ export default function App(): JSX.Element {
     force((v) => v + 1);
   }, [showToast]);
 
-  /* --------------------------------------------------------------- scene */
-
   useEffect(() => {
     if (!canvasRef.current) return undefined;
     const scene = new Scene(canvasRef.current);
@@ -94,34 +120,26 @@ export default function App(): JSX.Element {
     };
   }, []);
 
-  /* ------------------------------------------------------------ game loop */
-
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
     let sinceSave = 0;
     let sinceRender = 0;
-
     const loop = (now: number): void => {
       const dt = Math.min(0.25, (now - last) / config.time.msPerSecond);
       last = now;
       const state = stateRef.current;
-
       tick(state, dt, config);
-
       const d = derive(state, config);
-      // Busy-ness: log-scaled so the lamp keeps responding as the numbers get silly.
       const busy = Math.min(1, Math.log10(1 + d.cps) / 4);
       sceneRef.current?.setBusy(busy);
       audio.setBusy(busy);
-
       sinceSave += dt;
       if (sinceSave >= config.save.autosaveSeconds) {
         sinceSave = 0;
         state.wallClockMs = Date.now();
         save(adapter, state, config);
       }
-
       sinceRender += dt;
       if (sinceRender >= 0.1) {
         sinceRender = 0;
@@ -129,19 +147,18 @@ export default function App(): JSX.Element {
       }
       raf = requestAnimationFrame(loop);
     };
-
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  /* ------------------------------------------------------------- ticker */
-
   useEffect(() => {
     const id = window.setInterval(() => {
+      const state = stateRef.current;
+      const pool = tickerPool(totalGenerators(state), state.prestigeCount);
       setLine((current) => {
         let next = current;
-        while (next === current && EARLY_LINES.length > 1) {
-          next = EARLY_LINES[Math.floor(Math.random() * EARLY_LINES.length)] ?? current;
+        for (let i = 0; i < 8 && next === current; i += 1) {
+          next = pool[Math.floor(Math.random() * pool.length)] ?? current;
         }
         return next;
       });
@@ -149,37 +166,54 @@ export default function App(): JSX.Element {
     return () => window.clearInterval(id);
   }, []);
 
-  /* -------------------------------------------------------------- intents */
+  const onScenePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    audio.init();
+    const scene = sceneRef.current;
+    if (!scene || !scene.hitsPatty(event.clientX, event.clientY)) return;
+    const result = engineTap(stateRef.current, config);
+    scene.tap(formatCash(result.earned));
+    audio.sear();
+    navigator.vibrate?.(8);
+    force((v) => v + 1);
+  }, []);
 
-  const onScenePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const onBuyGenerator = useCallback(
+    (index: number) => {
       audio.init();
-      const scene = sceneRef.current;
-      if (!scene || !scene.hitsPatty(event.clientX, event.clientY)) return;
-      const result = engineTap(stateRef.current, config);
-      scene.tap(formatCash(result.earned));
-      audio.sear();
-      navigator.vibrate?.(8);
-      force((v) => v + 1);
+      const state = stateRef.current;
+      const owned = state.generators[index] ?? 0;
+      if (buyGenerator(state, index, bulk, config)) {
+        audio.till();
+        navigator.vibrate?.([6, 24, 10]);
+        const def = config.generators.list[index];
+        if (owned === 0 && def) showToast(`${def.name}. ${def.flavour}`);
+        // Crossing a tier threshold is a power beat — make it unmistakable.
+        const after = state.generators[index] ?? 0;
+        if (config.generatorTiers.thresholds.some((t) => owned < t && after >= t)) {
+          audio.stinger();
+          navigator.vibrate?.([10, 40, 10, 40, 16]);
+        }
+        save(adapter, state, config);
+        force((v) => v + 1);
+      }
     },
-    [],
+    [bulk, showToast],
   );
 
-  const onBuy = useCallback(() => {
-    audio.init();
-    const state = stateRef.current;
-    const cost = generatorCost(state, 0, 1, config);
-    if (state.cash < cost) return;
-    const owned = state.generators[0] ?? 0;
-    if (buyGenerator(state, 0, 1, config)) {
-      audio.till();
-      navigator.vibrate?.([6, 24, 10]);
-      const def = config.generators.list[0];
-      if (owned === 0 && def) showToast(`${def.name}. ${def.flavour}`);
-      save(adapter, state, config);
-      force((v) => v + 1);
-    }
-  }, [showToast]);
+  const onBuyUpgrade = useCallback(
+    (id: string, name: string) => {
+      audio.init();
+      const state = stateRef.current;
+      if (buyUpgrade(state, id, config)) {
+        audio.stinger();
+        navigator.vibrate?.([8, 30, 12]);
+        showToast(`${name}. Everything it touches got better.`);
+        save(adapter, state, config);
+        force((v) => v + 1);
+      }
+    },
+    [showToast],
+  );
 
   const onToggleMute = useCallback(() => {
     audio.init();
@@ -189,16 +223,34 @@ export default function App(): JSX.Element {
     });
   }, []);
 
-  /* --------------------------------------------------------------- render */
-
   const state = stateRef.current;
   const d = derive(state, config);
   const shownCash = useEasedCash(state.cash);
-  const def = config.generators.list[0];
-  const owned = state.generators[0] ?? 0;
-  const cost = generatorCost(state, 0, 1, config);
-  const affordable = state.cash >= cost;
-  const eachRate = def ? def.baseRate * (d.generatorMults[0] ?? 1) * d.globalMult : 0;
+
+  /** Progressive reveal: what you own, plus the next rung once it's within sight. */
+  const visibleGenerators = useMemo(() => {
+    const list: number[] = [];
+    let revealNext = true;
+    config.generators.list.forEach((_, index) => {
+      const owned = state.generators[index] ?? 0;
+      const cost = generatorCost(state, index, 1, config);
+      const inSight = state.lifetimeRevenue >= cost * 0.35;
+      if (owned > 0 || inSight || revealNext) {
+        list.push(index);
+        revealNext = owned > 0 || inSight;
+      }
+    });
+    return list;
+  }, [state, state.cash, state.lifetimeRevenue]);
+
+  const upgrades: PurchaseOption[] = useMemo(() => {
+    return availableUpgrades(state, config)
+      .map((o) => ({ ...o, cost: upgradeCost(o.id, config) }))
+      .sort((a, b) => a.cost - b.cost)
+      .slice(0, 14);
+  }, [state, state.cash, state.upgrades.length, state.generators]);
+
+  const affordableUpgrades = upgrades.filter((u) => state.cash >= u.cost).length;
 
   return (
     <>
@@ -209,8 +261,7 @@ export default function App(): JSX.Element {
           </div>
           <div className="till__cash">{formatCash(shownCash)}</div>
           <div className="till__rate">
-            <b>{formatCash(d.cps)}</b>/sec · {Math.floor(state.burgersSold).toLocaleString()} burgers
-            sold
+            <b>{formatCash(d.cps)}</b>/sec · {formatCash(d.clickPower)} a tap
           </div>
         </div>
         <button
@@ -228,38 +279,135 @@ export default function App(): JSX.Element {
         <canvas
           ref={canvasRef}
           width={390}
-          height={440}
+          height={328}
           onPointerDown={onScenePointerDown}
           aria-label="The grill. Tap the patty to sell a burger."
         />
         {state.taps === 0 && <div className="scene__hint">tap the patty</div>}
       </div>
 
+      <nav className="tabs" role="tablist">
+        <button
+          className={`tab${panel === "staff" ? " tab--on" : ""}`}
+          role="tab"
+          aria-selected={panel === "staff"}
+          onClick={() => setPanel("staff")}
+        >
+          Staff &amp; sites
+        </button>
+        <button
+          className={`tab${panel === "upgrades" ? " tab--on" : ""}`}
+          role="tab"
+          aria-selected={panel === "upgrades"}
+          onClick={() => setPanel("upgrades")}
+        >
+          Upgrades
+          {affordableUpgrades > 0 && <i className="tab__dot">{affordableUpgrades}</i>}
+        </button>
+      </nav>
+
       <section className="shop">
-        <div className="shop__head">
-          <span>The pass</span>
-          <span>{formatCash(d.clickPower)} a tap</span>
-        </div>
+        {panel === "staff" ? (
+          <>
+            <div className="shop__head">
+              <span>{totalGenerators(state)} on the books</span>
+              <span className="bulk">
+                {[1, 10].map((n) => (
+                  <button
+                    key={n}
+                    className={`bulk__btn${bulk === n ? " bulk__btn--on" : ""}`}
+                    onClick={() => setBulk(n)}
+                  >
+                    ×{n}
+                  </button>
+                ))}
+              </span>
+            </div>
 
-        {def && (
-          <button
-            className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
-            onClick={onBuy}
-            disabled={!affordable}
-          >
-            <span>
-              <span className="docketbtn__name">{def.name}</span>
-              <span className="docketbtn__flavour">{def.flavour}</span>
-            </span>
-            <span>
-              <span className="docketbtn__price">{formatCash(cost)}</span>
-              <span className="docketbtn__owned">{owned} owned</span>
-              <span className="docketbtn__each">{formatCash(eachRate)}/sec each</span>
-            </span>
-          </button>
+            {visibleGenerators.map((index) => {
+              const def = config.generators.list[index];
+              if (!def) return null;
+              const owned = state.generators[index] ?? 0;
+              const cost = generatorCost(state, index, bulk, config);
+              const affordable = state.cash >= cost;
+              const each = def.baseRate * (d.generatorMults[index] ?? 1) * d.globalMult;
+              const share = d.cps > 0 ? ((d.generatorCps[index] ?? 0) / d.cps) * 100 : 0;
+              const nextTier = config.generatorTiers.thresholds.find((t) => owned < t);
+              return (
+                <button
+                  key={def.id}
+                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
+                  onClick={() => onBuyGenerator(index)}
+                  disabled={!affordable}
+                >
+                  <span>
+                    <span className="docketbtn__name">{def.name}</span>
+                    <span className="docketbtn__flavour">{def.flavour}</span>
+                    {owned > 0 && (
+                      <span className="docketbtn__meta">
+                        {formatCash(each)}/sec each · {share.toFixed(0)}% of takings
+                        {nextTier !== undefined && ` · ×2 at ${nextTier}`}
+                      </span>
+                    )}
+                  </span>
+                  <span>
+                    <span className="docketbtn__price">{formatCash(cost)}</span>
+                    <span className="docketbtn__owned">{owned} owned</span>
+                  </span>
+                </button>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <div className="shop__head">
+              <span>{state.upgrades.length} bought</span>
+              <span>{upgrades.length === 0 ? "nothing on offer" : "cheapest first"}</span>
+            </div>
+
+            {upgrades.length === 0 && (
+              <div className="locked">
+                Hire someone and the suppliers start returning your calls.
+              </div>
+            )}
+
+            {upgrades.map((u) => {
+              const affordable = state.cash >= u.cost;
+              const tier = parseTierUpgradeId(u.id);
+              const def =
+                u.kind === "click"
+                  ? config.clickUpgrades.find((x) => x.id === u.id)
+                  : u.kind === "global"
+                    ? config.globalUpgrades.find((x) => x.id === u.id)
+                    : undefined;
+              const generator = tier
+                ? config.generators.list.find((g) => g.id === tier.generatorId)
+                : undefined;
+              return (
+                <button
+                  key={u.id}
+                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
+                  onClick={() => onBuyUpgrade(u.id, u.name)}
+                  disabled={!affordable}
+                >
+                  <span>
+                    <span className="docketbtn__kind">
+                      {UPGRADE_FAMILY[u.kind] ?? u.kind}
+                      {generator ? ` · ${generator.name}` : ""}
+                    </span>
+                    <span className="docketbtn__name">{u.name}</span>
+                    <span className="docketbtn__flavour">
+                      {def?.flavour ?? `Everything ${generator?.name ?? "here"} makes, doubled.`}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="docketbtn__price">{formatCash(u.cost)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </>
         )}
-
-        <div className="locked">Fryer, grill hand and nine more — next build</div>
 
         <div className="stats">
           <span>
@@ -269,7 +417,7 @@ export default function App(): JSX.Element {
             lifetime <b>{formatCash(state.lifetimeRevenue)}</b>
           </span>
           <span>
-            saved <b>every {config.save.autosaveSeconds}s</b>
+            burgers <b>{Math.floor(state.burgersSold).toLocaleString()}</b>
           </span>
         </div>
       </section>
