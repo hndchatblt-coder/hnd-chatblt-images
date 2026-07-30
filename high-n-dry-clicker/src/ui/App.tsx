@@ -32,6 +32,7 @@ import {
 import tickerContent from "../../content/ticker.json";
 import { audio } from "./audio.js";
 import { Scene } from "./scene.js";
+import { regularName, staffFor } from "../engine/staff.js";
 
 const adapter = new LocalStorageAdapter();
 const SEED = 20260720;
@@ -67,6 +68,17 @@ function useEasedCash(target: number): number {
     return () => cancelAnimationFrame(raf);
   }, [target]);
   return shown;
+}
+
+/** Who is standing at each station this run. A fresh crew rolls in after every sale. */
+function staffNames(state: GameState): Record<number, string> {
+  const names: Record<number, string> = {};
+  config.generators.list.forEach((_, index) => {
+    if ((state.generators[index] ?? 0) > 0) {
+      names[index] = staffFor(SEED, state.prestigeCount, index).name;
+    }
+  });
+  return names;
 }
 
 const UPGRADE_FAMILY: Record<string, string> = {
@@ -113,6 +125,11 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!canvasRef.current) return undefined;
     const scene = new Scene(canvasRef.current);
+    // Roughly one face in four is someone you know. Names only — no mechanics.
+    scene.regularFor = (customerId: number) =>
+      customerId % 4 === 0
+        ? regularName(SEED, stateRef.current.prestigeCount, customerId)
+        : undefined;
     sceneRef.current = scene;
     return () => {
       scene.destroy();
@@ -138,6 +155,7 @@ export default function App(): JSX.Element {
         generators: state.generators,
         busy,
         autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
+        staffNames: staffNames(state),
       });
       audio.setBusy(busy);
       sinceSave += dt;
@@ -193,7 +211,10 @@ export default function App(): JSX.Element {
         audio.till();
         navigator.vibrate?.([6, 24, 10]);
         const def = config.generators.list[index];
-        if (owned === 0 && def) showToast(`${def.name}. ${def.flavour}`);
+        if (owned === 0 && def) {
+          const person = staffFor(SEED, state.prestigeCount, index);
+          showToast(`${person.name} is on the ${def.name.toLowerCase()}. ${person.quirk}`);
+        }
         // Crossing a tier threshold is a power beat — make it unmistakable.
         const after = state.generators[index] ?? 0;
         if (config.generatorTiers.thresholds.some((t) => owned < t && after >= t)) {
@@ -233,6 +254,7 @@ export default function App(): JSX.Element {
   const state = stateRef.current;
   const d = derive(state, config);
   const shownCash = useEasedCash(state.cash);
+  const crew = (index: number) => staffFor(SEED, state.prestigeCount, index);
 
   /** Progressive reveal: what you own, plus the next rung once it's within sight. */
   const visibleGenerators = useMemo(() => {
@@ -349,10 +371,14 @@ export default function App(): JSX.Element {
                 >
                   <span>
                     <span className="docketbtn__name">{def.name}</span>
-                    <span className="docketbtn__flavour">{def.flavour}</span>
+                    <span className="docketbtn__flavour">
+                      {owned > 0 ? crew(index).quirk : def.flavour}
+                    </span>
                     {owned > 0 && (
                       <span className="docketbtn__meta">
-                        {formatCash(each)}/sec each · {share.toFixed(0)}% of takings
+                        {crew(index).name}
+                        {owned > 1 ? ` and ${owned - 1} more` : ""} · {formatCash(each)}/sec each ·{" "}
+                        {share.toFixed(0)}%
                         {nextTier !== undefined && ` · ×2 at ${nextTier}`}
                       </span>
                     )}

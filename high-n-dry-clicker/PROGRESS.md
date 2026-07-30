@@ -206,3 +206,33 @@ uncapped tapping.
 Composition is still sparse: the counter band is empty, the patty has lost its status in the
 corner, and the queue clips at the left edge. Deliberately not polished further — the direction
 needs Ben's verdict before more time goes into the pixels.
+
+---
+
+## Phase A + B — the shop is worth looking at, and it has people in it
+
+Ben: *"Yes yes let's pump it out make it make sense."* Built the first two phases of SCALE_PLAN.md.
+
+**Phase A — composition.** The scene was structurally right but sparse. Fixed: the patty got its
+size and status back (rx 30 → 40) on a wider grill; the empty counter band now carries a till, a
+sauce caddy, a napkin dispenser and a tray stack; served customers leave through the door they
+came in and fade rather than walking out through the left wall; the queue clears the left edge.
+
+**Phase B — people with names.** The 20 staff from the parked project are now the crew:
+
+- Hiring a station hires a **person**. First hire toasts *"Kez is on the grill hand. Locks up,
+  sets the alarm, texts 'done'. Has never elaborated."*
+- The ladder row reads **"Archie T. and 13 more"** with that person's quirk as the flavour line.
+- Staff stand behind the counter in whites with their names above them.
+- Roughly one customer in four is a **regular** with a name — a face you know, no mechanics.
+- A fresh crew rolls in after every sale, which the ticker already jokes about.
+
+**Deliberately flavour-only.** Quirks modify nothing, so the sim stays honest and nobody has to
+balance a joke. That also means **G3 is untouched: 6/6 GREEN**.
+
+**Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · G4 1/4 (unchanged — B1/B2/B4 still open and still
+waiting on the B2 direction call in SCALE_PLAN.md §3).
+
+**Three layout bugs caught by looking at screenshots, not by tests:** the tray stack was drawn
+inside the grill; NOW TRADING sat on top of the menu board; and the staff were painted over by the
+bench because they were drawn before it. All three were invisible to every automated check.

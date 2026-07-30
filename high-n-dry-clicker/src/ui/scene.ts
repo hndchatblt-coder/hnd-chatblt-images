@@ -24,15 +24,15 @@ const COUNTER_TOP = 172;
 const COUNTER_H = 20;
 /** Customers stand on this line, in front of the counter. */
 const FLOOR_Y = 286;
-const QUEUE_X = 58;
+const QUEUE_X = 68;
 const QUEUE_STEP = 46;
 const MAX_QUEUE = 7;
 
-const PATTY_X = 74;
-const PATTY_Y = 142;
-const PATTY_RX = 30;
-const PATTY_RY = 13;
-const PATTY_SIDE = 9;
+const PATTY_X = 88;
+const PATTY_Y = 140;
+const PATTY_RX = 40;
+const PATTY_RY = 17;
+const PATTY_SIDE = 12;
 
 const SKIN = ["#F2CBA3", "#E5B183", "#CE9463", "#A9714A", "#835434", "#FBDDBC"];
 const HAIR = ["#2C1D12", "#4A2E19", "#6E4626", "#7C2E2E", "#3A3A3A", "#C8A24E", "#584070", "#D8D2C6"];
@@ -51,6 +51,10 @@ interface Customer {
   pop: number;
   /** Ticks down while the "served by staff" tick shows above them. */
   autoT: number;
+  /** Fades out on the way to the door. */
+  fade?: number;
+  /** Set for a regular — a face you know. */
+  regular?: string;
 }
 
 interface Grease {
@@ -88,6 +92,8 @@ export interface Business {
   busy: number;
   /** Serves per second the staff manage on their own. Visual only — cash comes from the engine. */
   autoServesPerSecond: number;
+  /** Who is standing where, by generator index. */
+  staffNames: Record<number, string>;
 }
 
 export class Scene {
@@ -102,7 +108,7 @@ export class Scene {
   private squash = 0;
   private flare = 0;
   private lampPulse = 0;
-  private business: Business = { generators: [], busy: 0, autoServesPerSecond: 0 };
+  private business: Business = { generators: [], busy: 0, autoServesPerSecond: 0, staffNames: {} };
 
   private customers: Customer[] = [];
   private grease: Grease[] = [];
@@ -111,6 +117,8 @@ export class Scene {
   private nextArrival = 0.6;
   private autoCredit = 0;
   private lastServedX = W / 2;
+  /** Supplied by the app so the scene stays free of content imports. */
+  regularFor?: (customerId: number) => string | undefined;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -274,11 +282,12 @@ export class Scene {
         c.autoT = Math.max(0, c.autoT - dt);
         if (c.pop <= 0 && c.autoT <= 0) c.state = "leaving";
       } else {
-        c.x -= 132 * dt;
+        c.x += 150 * dt;
+        c.fade = Math.max(0, (c.fade === undefined ? 1 : c.fade) - dt * 1.4);
       }
       c.bob += dt;
     }
-    this.customers = this.customers.filter((c) => c.x > -40);
+    this.customers = this.customers.filter((c) => c.x < W + 50 && (c.fade === undefined || c.fade > 0));
 
     for (const g of this.grease) {
       g.x += g.vx * dt;
@@ -314,6 +323,8 @@ export class Scene {
       bob: Math.random() * 6,
       pop: 0,
       autoT: 0,
+      fade: 1,
+      regular: this.regularFor?.(id),
     });
   }
 
@@ -325,13 +336,14 @@ export class Scene {
     this.drawRoom(t);
     this.drawMenuBoard();
     this.drawLamp(t);
-    this.drawStations(t);
     this.drawBench();
     this.drawGrill(t);
     this.drawPatty(t);
+    this.drawStations(t);
     this.drawSmoke();
     this.drawGrease();
     this.drawCounter();
+    this.drawCounterProps();
     this.drawCustomers(t);
     this.drawRisingNumbers();
   }
@@ -423,24 +435,24 @@ export class Scene {
     const ctx = this.ctx;
 
     // 2 fryer, 3 grill hand, 4 front of house, 5 delivery hatch, 6+ venues on the board.
-    if (this.owned(1) > 0) this.drawFryer(158, GRATE_TOP - 14, t);
-    if (this.owned(4) > 0) this.drawHatch(310, GRATE_TOP - 26);
-    if (this.owned(2) > 0) this.drawStaff(112, BENCH_TOP - 4, "#E8E3D8", t, 0);
-    if (this.owned(3) > 0) this.drawStaff(212, BENCH_TOP - 4, "#D8E3EA", t, 1.7);
-    if (this.owned(0) > 0) this.drawTongs(48, GRATE_TOP - 16, this.owned(0));
+    if (this.owned(1) > 0) this.drawFryer(206, GRATE_TOP + 16, t);
+    if (this.owned(4) > 0) this.drawHatch(330, 84);
+    if (this.owned(2) > 0) this.drawStaff(268, COUNTER_TOP - 6, "#E8E3D8", t, 0, this.business.staffNames[2]);
+    if (this.owned(3) > 0) this.drawStaff(336, COUNTER_TOP - 6, "#D8E3EA", t, 1.7, this.business.staffNames[3]);
+    if (this.owned(0) > 0) this.drawTongs(174, GRATE_TOP + 30, this.owned(0));
 
     // Venues earn a line on the board.
     const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
     const listed = venues.filter((_, i) => this.owned(5 + i) > 0);
     if (listed.length > 0) {
       ctx.fillStyle = "rgba(20,18,16,0.55)";
-      ctx.fillRect(W - 118, 62, 112, 12 + listed.length * 11);
+      ctx.fillRect(10, 50, 126, 12 + listed.length * 11);
       ctx.fillStyle = "rgba(255,190,110,0.85)";
       ctx.font = "700 7px ui-monospace, monospace";
       ctx.textAlign = "left";
-      ctx.fillText("NOW TRADING", W - 112, 72);
+      ctx.fillText("NOW TRADING", 16, 60);
       ctx.fillStyle = "rgba(246,241,228,0.75)";
-      listed.forEach((name, i) => ctx.fillText(name, W - 112, 83 + i * 11));
+      listed.forEach((name, i) => ctx.fillText(name, 16, 71 + i * 11));
     }
   }
 
@@ -488,17 +500,22 @@ export class Scene {
   private drawHatch(x: number, y: number): void {
     const ctx = this.ctx;
     ctx.fillStyle = "#20252A";
-    ctx.fillRect(x - 34, y, 68, 34);
-    ctx.fillStyle = "#3D454C";
-    ctx.fillRect(x - 30, y + 4, 60, 22);
-    ctx.fillStyle = "rgba(255,190,110,0.5)";
+    ctx.fillRect(x - 30, y, 60, 18);
+    ctx.fillStyle = "rgba(255,190,110,0.65)";
     ctx.font = "700 7px ui-monospace, monospace";
     ctx.textAlign = "center";
-    ctx.fillText("PICKUP", x, y + 18);
+    ctx.fillText("PICKUP", x, y + 12);
     ctx.textAlign = "left";
   }
 
-  private drawStaff(x: number, groundY: number, whites: string, t: number, phase: number): void {
+  private drawStaff(
+    x: number,
+    groundY: number,
+    whites: string,
+    t: number,
+    phase: number,
+    name?: string,
+  ): void {
     const ctx = this.ctx;
     const bob = Math.sin(t * 3 + phase) * 1.2;
     const y = groundY + bob;
@@ -521,6 +538,14 @@ export class Scene {
     ctx.arc(x - 2.4, y - 28, 1, 0, Math.PI * 2);
     ctx.arc(x + 2.4, y - 28, 1, 0, Math.PI * 2);
     ctx.fill();
+
+    if (name) {
+      ctx.fillStyle = "rgba(255,214,160,0.8)";
+      ctx.font = "700 8px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(name.toUpperCase(), x, y - 42);
+      ctx.textAlign = "left";
+    }
   }
 
   private drawBench(): void {
@@ -536,8 +561,8 @@ export class Scene {
 
   private drawGrill(t: number): void {
     const ctx = this.ctx;
-    const left = 18;
-    const right = 138;
+    const left = 14;
+    const right = 162;
     ctx.fillStyle = "#191614";
     ctx.fillRect(left, GRATE_TOP, right - left, GRATE_HEIGHT);
     const emberAlpha = 0.2 + this.business.busy * 0.3 + this.flare * 0.3;
@@ -554,8 +579,8 @@ export class Scene {
     }
     if (this.reduced) return;
     const strength = 0.45 + this.business.busy * 0.45 + this.flare;
-    for (let i = 0; i < 5; i += 1) {
-      const x = left + 14 + i * 24;
+    for (let i = 0; i < 6; i += 1) {
+      const x = left + 16 + i * 26;
       const wobble = Math.sin(t * 7 + i * 1.9) * 0.5 + 0.5;
       const height = (10 + wobble * 14) * strength;
       const base = GRATE_TOP + 6;
@@ -637,9 +662,46 @@ export class Scene {
     ctx.fillRect(0, COUNTER_TOP + COUNTER_H, W, H - COUNTER_TOP - COUNTER_H);
   }
 
+  /** The counter was a blank steel band. Real things live on a pass. */
+  private drawCounterProps(): void {
+    const ctx = this.ctx;
+    const top = COUNTER_TOP;
+
+    // Till.
+    ctx.fillStyle = "#20252A";
+    ctx.fillRect(300, top - 22, 44, 22);
+    ctx.fillStyle = "#39424A";
+    ctx.fillRect(303, top - 19, 38, 11);
+    ctx.fillStyle = "rgba(140,220,180,0.55)";
+    ctx.fillRect(305, top - 17, 34, 7);
+    ctx.fillStyle = "#2A3138";
+    ctx.fillRect(303, top - 6, 38, 4);
+
+    // Tray stack. Kept clear of the grill above it — they collided in the first pass.
+    for (let i = 0; i < 3; i += 1) {
+      ctx.fillStyle = i % 2 === 0 ? "#B44A32" : "#9E4029";
+      ctx.fillRect(122, top - 8 - i * 4, 44, 4);
+    }
+
+    // Sauce caddy.
+    ctx.fillStyle = "#2E353B";
+    ctx.fillRect(196, top - 14, 30, 14);
+    ctx.fillStyle = "#C6402B";
+    ctx.fillRect(200, top - 20, 7, 7);
+    ctx.fillStyle = "#E0B23A";
+    ctx.fillRect(210, top - 20, 7, 7);
+
+    // Napkin dispenser.
+    ctx.fillStyle = "#8A9199";
+    ctx.fillRect(254, top - 15, 18, 15);
+    ctx.fillStyle = "#F6F1E4";
+    ctx.fillRect(257, top - 12, 12, 5);
+  }
+
   private drawCustomers(t: number): void {
     const ctx = this.ctx;
     for (const c of this.customers) {
+      ctx.globalAlpha = c.fade === undefined ? 1 : c.fade;
       const idle = c.state === "wait" ? Math.sin(c.bob * 3) * 1.3 : 0;
       const y = FLOOR_Y + idle;
       const x = c.x;
@@ -720,6 +782,15 @@ export class Scene {
         ctx.fill();
       }
 
+      // A regular is a face you know. Name only — no mechanics, no badge, no noise.
+      if (c.regular && c.state === "wait") {
+        ctx.fillStyle = "rgba(246,241,228,0.62)";
+        ctx.font = "700 8px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(c.regular, x, headY - 16);
+        ctx.textAlign = "left";
+      }
+
       // Staff got this one — a small tick, so idle income is legible without stealing focus.
       if (c.autoT > 0) {
         ctx.globalAlpha = Math.min(1, c.autoT * 2);
@@ -732,6 +803,7 @@ export class Scene {
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
+      ctx.globalAlpha = 1;
     }
   }
 
