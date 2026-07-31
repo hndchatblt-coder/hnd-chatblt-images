@@ -108,6 +108,12 @@
     "capHours": 8,
     "minSecondsToReport": 60
   },
+  "momentum": {
+    "comment": "The ticker occasionally states how much faster the business is than it was. A sense of progress is a derivative and the UI never showed one (PLAN_THE_LINE.md 2.4). windowSeconds is how far back to compare; minRatio is how much better it has to be before it is worth saying; minSecondsBetween stops it becoming a nag.",
+    "windowSeconds": 300,
+    "minRatio": 1.8,
+    "minSecondsBetween": 120
+  },
   "ticker": {
     "cycleSeconds": 10,
     "comment": "Lines live in content/ticker.json, gated by progress tier."

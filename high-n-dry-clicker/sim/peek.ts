@@ -18,6 +18,7 @@ buyGenerator(state, 3, 3, config);  // front of house
 buyGenerator(state, 4, 2, config);  // uber eats
 buyGenerator(state, 5, 1, config);  // rosebery
 state.cash = 2_400;
+state.timeSeconds = 900;
 const saved = serialize(state);
 
 const browser = await chromium.launch({

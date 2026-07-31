@@ -100,6 +100,31 @@ function stationTiers(state: GameState): number[] {
   });
 }
 
+/**
+ * The cheapest thing you can't afford yet, and how long until you can.
+ *
+ * This is the horizon. Idle games live or die on whether waiting feels like watching a number
+ * come down or like nothing happening, and Cookie Clicker doesn't do this at all — it's one of
+ * its genuine weaknesses, not something to copy (PLAN_THE_LINE.md 2.3).
+ */
+function nextPurchase(
+  state: GameState,
+  generatorIndices: number[],
+  upgrades: PurchaseOption[],
+): { name: string; cost: number } | null {
+  let best: { name: string; cost: number } | null = null;
+  const consider = (name: string, cost: number): void => {
+    if (cost <= state.cash) return;
+    if (!best || cost < best.cost) best = { name, cost };
+  };
+  for (const index of generatorIndices) {
+    const def = config.generators.list[index];
+    if (def) consider(def.name, generatorCost(state, index, 1, config));
+  }
+  for (const u of upgrades) consider(u.name, u.cost);
+  return best;
+}
+
 const UPGRADE_FAMILY: Record<string, string> = {
   tier: "Station",
   click: "The pass",
@@ -119,6 +144,8 @@ export default function App(): JSX.Element {
   const [unlockedView, setUnlockedView] = useState<View>(0);
   const [toast, setToast] = useState<string | null>(null);
   const [torn, setTorn] = useState<string | null>(null);
+  /** Rolling $/sec samples. A sense of progress is a derivative, and we never used to show one. */
+  const cpsHistory = useRef<{ at: number; cps: number }[]>([]);
   const tornTimer = useRef<number | undefined>(undefined);
   const [line, setLine] = useState(TICKER.lines.early?.[0] ?? "");
   const toastTimer = useRef<number | undefined>(undefined);
@@ -212,8 +239,33 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    let lastMomentumAt = -Infinity;
     const id = window.setInterval(() => {
       const state = stateRef.current;
+      const now = state.timeSeconds;
+      const cps = derive(state, config).cps;
+      const history = cpsHistory.current;
+      history.push({ at: now, cps });
+      while (history.length > 2 && (history[0]?.at ?? 0) < now - config.momentum.windowSeconds * 2) {
+        history.shift();
+      }
+
+      // How much faster is the business than it was a window ago? If it's a lot, say so.
+      const then = history.find((h) => h.at >= now - config.momentum.windowSeconds);
+      const ratio = then && then.cps > 0 ? cps / then.cps : 1;
+      if (
+        ratio >= config.momentum.minRatio &&
+        now - lastMomentumAt >= config.momentum.minSecondsBetween &&
+        then
+      ) {
+        lastMomentumAt = now;
+        const mins = Math.round((now - then.at) / 60);
+        setLine(
+          `${ratio.toFixed(1)} times the money you were making ${mins} minute${mins === 1 ? "" : "s"} ago. Nobody's said anything.`,
+        );
+        return;
+      }
+
       const pool = tickerPool(totalGenerators(state), state.prestigeCount);
       setLine((current) => {
         let next = current;
@@ -327,6 +379,12 @@ export default function App(): JSX.Element {
 
   const affordableUpgrades = upgrades.filter((u) => state.cash >= u.cost).length;
 
+  // The horizon: what's next, and how long until you can have it at the current rate.
+  const horizon = nextPurchase(state, visibleGenerators, upgrades);
+  const horizonReady = horizon !== null && state.cash >= horizon.cost;
+  const horizonEta =
+    horizon && d.cps > 0 ? Math.max(0, Math.ceil((horizon.cost - state.cash) / d.cps)) : null;
+
   return (
     <>
       <header className="till">
@@ -347,6 +405,17 @@ export default function App(): JSX.Element {
           {muted ? "🔇" : "🔊"}
         </button>
       </header>
+
+      {horizon && (
+        <div className={`horizon${horizonReady ? " horizon--ready" : ""}`}>
+          <span className="horizon__label">Next</span>
+          <span className="horizon__name">{horizon.name}</span>
+          <span className="horizon__cost">{formatCash(horizon.cost)}</span>
+          <span className="horizon__eta">
+            {horizonReady ? "ready" : horizonEta === null ? "—" : `in ${formatDuration(horizonEta)}`}
+          </span>
+        </div>
+      )}
 
       <div className="ticker">{line}</div>
 

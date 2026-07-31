@@ -118,6 +118,7 @@ export interface EconomyConfig {
     perks: PerkDef[];
   };
   offline: { rateShare: number; capHours: number; minSecondsToReport: number };
+  momentum: { windowSeconds: number; minRatio: number; minSecondsBetween: number };
   ticker: { cycleSeconds: number };
   notation: {
     shortSuffixes: string[];

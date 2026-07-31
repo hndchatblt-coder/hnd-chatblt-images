@@ -123,6 +123,67 @@ button {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
+/* ----------------------------------------------------------------- horizon */
+/* What's next, and how long until you can have it. Turns waiting into watching. */
+
+.horizon {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 14px 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: #b6a999;
+  overflow: hidden;
+}
+
+.horizon__label {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8b8073;
+  flex: none;
+}
+
+.horizon__name {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e8dcc9;
+  font-weight: 700;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horizon__cost {
+  flex: none;
+  color: #e8dcc9;
+}
+
+.horizon__eta {
+  flex: none;
+  min-width: 6.5ch;
+  text-align: right;
+  color: #8b8073;
+}
+
+.horizon--ready {
+  background: rgba(255, 158, 27, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 158, 27, 0.4);
+}
+
+.horizon--ready .horizon__eta {
+  color: var(--lamp);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
 /* ------------------------------------------------------------------ ticker */
 
 .ticker {
