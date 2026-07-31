@@ -3,6 +3,7 @@
  * save is just `JSON.stringify(state)` and the playbot runs the same shape the UI does.
  */
 import { config, type EconomyConfig, type GoldenEffectType } from "./config.js";
+import { defaultLayout } from "./layout.js";
 import { Rng } from "./rng.js";
 
 const ZERO = 0;
@@ -42,6 +43,11 @@ export interface GameState {
   generators: number[];
   /** Purchased upgrade ids (tier ids are derived, e.g. `tier:fryer:0`). */
   upgrades: string[];
+  /**
+   * Where each station stands on the bench: bay index → generator index, -1 for an empty bay.
+   * Defaults to unlock order, which scores 1.0× — so an untouched line is never worse off.
+   */
+  layout: number[];
   achievements: string[];
   /** Generator ids in first-purchase order, for `boughtBefore` achievement triggers. */
   purchaseOrder: string[];
@@ -83,6 +89,7 @@ export function createInitialState(seed: number, nowMs = ZERO, c: EconomyConfig 
     taps: ZERO,
     generators: c.generators.list.map(() => ZERO),
     upgrades: [],
+    layout: defaultLayout(c),
     achievements: [],
     purchaseOrder: [],
     goodwill: ZERO,

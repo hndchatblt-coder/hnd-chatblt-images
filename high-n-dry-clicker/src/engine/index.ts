@@ -57,3 +57,15 @@ export {
   type StorageAdapter,
 } from "./save.js";
 export { createInitialState, totalGenerators, type ActiveEffect, type GameState } from "./state.js";
+export {
+  bestLayout,
+  defaultLayout,
+  EMPTY as EMPTY_BAY,
+  layoutValue,
+  normalizeLayout,
+  placeableGenerators,
+  productionWeights,
+  scoreLayout,
+  swapBays,
+  type LayoutScore,
+} from "./layout.js";

@@ -1,7 +1,8 @@
 /**
  * Multiplier resolution — the one place the economy's arithmetic lives.
  *
- *   cps         = Σ(owned_i × baseRate_i × genMult_i) × globalMult × productionMult
+ *   cps         = Σ(owned_i × baseRate_i × genMult_i × layoutMult_i) × globalMult × flowMult
+ *                 × productionMult
  *   clickPower  = (baseCash × clickMult + perGenBonus × generatorsOwned + cpsShare × cps) × globalMult
  *
  * clickPower reads cps but cps never reads clickPower, so there's no circularity. cpsShare is the
@@ -14,6 +15,7 @@ import {
   type EconomyConfig,
   type GeneratorDef,
 } from "./config.js";
+import { normalizeLayout, scoreLayout, type LayoutScore } from "./layout.js";
 import { totalGenerators, type GameState } from "./state.js";
 
 const ZERO = 0;
@@ -34,6 +36,8 @@ export interface Derived {
   offlineRateMult: number;
   goldenRateMult: number;
   goldenDurationMult: number;
+  /** What the line on the bench is worth. Always ≥ 1 — layout is a bonus, never a tax (A7). */
+  layout: LayoutScore;
 }
 
 export function generatorCost(
@@ -158,12 +162,16 @@ export function derive(state: GameState, c: EconomyConfig = config): Derived {
     generatorMults[index] = (generatorMults[index] ?? ONE) * c.generatorTiers.multiplier;
   }
 
+  // What the arrangement of the bench is worth. Both terms floor at 1, so a line nobody has ever
+  // touched earns exactly what it earned before layout existed (A7).
+  const layout = scoreLayout(normalizeLayout(state.layout, c), state.generators, c);
+
   const generatorCps: number[] = [];
   let baseCps = ZERO;
   c.generators.list.forEach((def, index) => {
     const count = state.generators[index] ?? ZERO;
-    const each = def.baseRate * (generatorMults[index] ?? ONE);
-    const contribution = count * each * globalMult * productionMult;
+    const each = def.baseRate * (generatorMults[index] ?? ONE) * (layout.generatorMults[index] ?? ONE);
+    const contribution = count * each * globalMult * layout.flowMult * productionMult;
     generatorCps.push(contribution);
     baseCps += contribution;
   });
@@ -185,5 +193,6 @@ export function derive(state: GameState, c: EconomyConfig = config): Derived {
     offlineRateMult,
     goldenRateMult,
     goldenDurationMult,
+    layout,
   };
 }

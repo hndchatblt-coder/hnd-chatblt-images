@@ -118,6 +118,16 @@ export interface EconomyConfig {
     perks: PerkDef[];
   };
   offline: { rateShare: number; capHours: number; minSecondsToReport: number };
+  layout: {
+    bays: number;
+    roleOrder: string[];
+    generatorRoles: string[];
+    generatorIsPerson: boolean[];
+    placeable: number[];
+    flowBonus: number;
+    pairBonus: number;
+    maxMultiplier: number;
+  };
   momentum: { windowSeconds: number; minRatio: number; minSecondsBetween: number };
   ticker: { cycleSeconds: number };
   notation: {

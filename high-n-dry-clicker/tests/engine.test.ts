@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { config, validateConfig } from "../src/engine/config.js";
 import { derive, generatorCost } from "../src/engine/derive.js";
 import {
+  bestLayout,
+  defaultLayout,
+  EMPTY,
+  normalizeLayout,
+  scoreLayout,
+  swapBays,
+} from "../src/engine/layout.js";
+import {
   buyGenerator,
   buyPerk,
   buyUpgrade,
@@ -293,5 +301,76 @@ describe("determinism", () => {
       return JSON.stringify(s);
     };
     expect(run()).toBe(run());
+  });
+});
+
+describe("layout — the line", () => {
+  const owned = config.generators.list.map((_, i) => (config.layout.placeable.includes(i) ? 10 : 0));
+  const flat = config.generators.list.map(() => 1);
+
+  it("never scores below baseline, whatever you do to it", () => {
+    // Hard rule 4 in mechanical form: a bad line costs an unearned bonus, never output.
+    const lines: unknown[] = [
+      defaultLayout(),
+      [],
+      null,
+      "nonsense",
+      [99, -7, 2.5],
+      [...config.layout.placeable].reverse(),
+      bestLayout(owned, flat),
+    ];
+    for (const line of lines) {
+      const score = scoreLayout(normalizeLayout(line), owned);
+      expect(score.flowMult).toBeGreaterThanOrEqual(1);
+      for (const m of score.generatorMults) expect(m).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("normalises anything into a legal line", () => {
+    const line = normalizeLayout([1, 1, 1]);
+    expect(line).toHaveLength(config.layout.bays);
+    // No station stands in two bays at once.
+    const placed = line.filter((v) => v !== EMPTY);
+    expect(new Set(placed).size).toBe(placed.length);
+  });
+
+  it("stays within the configured cap", () => {
+    expect(scoreLayout(bestLayout(owned, flat), owned).total).toBeLessThanOrEqual(
+      config.layout.maxMultiplier + 1e-9,
+    );
+  });
+
+  it("puts the bonus where the money is", () => {
+    // Two shops identical but for which station carries the income. AUTO should pair the earner.
+    const heavyDelivery = config.generators.list.map((_, i) => (i === 4 ? 1000 : 1));
+    const heavyFryer = config.generators.list.map((_, i) => (i === 1 ? 1000 : 1));
+    const a = scoreLayout(bestLayout(owned, heavyDelivery), owned);
+    const b = scoreLayout(bestLayout(owned, heavyFryer), owned);
+    expect(a.generatorMults[4]).toBeGreaterThan(1);
+    expect(b.generatorMults[1]).toBeGreaterThan(1);
+  });
+
+  it("swapping bays is reversible and does not lose a station", () => {
+    const start = defaultLayout();
+    const once = swapBays(start, 0, 2);
+    expect(swapBays(once, 0, 2)).toEqual(start);
+    expect(once.filter((v) => v !== EMPTY).length).toBe(start.filter((v) => v !== EMPTY).length);
+  });
+
+  it("an empty bench is exactly baseline, and any line is at least that", () => {
+    // A7 in miniature. An empty bench must score precisely 1.0 — that is the output a save from
+    // before layout existed produces — and no arrangement may come in under it.
+    const empty = scoreLayout(normalizeLayout(null), owned);
+    expect(empty.flowMult).toBe(1);
+    expect(empty.generatorMults.every((m) => m === 1)).toBe(true);
+
+    const state = createInitialState(7);
+    state.generators = owned.slice();
+    state.layout = normalizeLayout(null);
+    const baseline = derive(state, config).cps;
+    for (const line of [defaultLayout(), bestLayout(owned, flat), [...owned.keys()].reverse()]) {
+      state.layout = normalizeLayout(line);
+      expect(derive(state, config).cps).toBeGreaterThanOrEqual(baseline);
+    }
   });
 });

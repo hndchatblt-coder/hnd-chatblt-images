@@ -108,6 +108,17 @@
     "capHours": 8,
     "minSecondsToReport": 60
   },
+  "layout": {
+    "comment": "PLAN_THE_LINE.md PART TWO. The bench is bays in the order food travels; arranging stations well pays a bonus and arranging them badly pays nothing. Hard rule 4 means this can never be a tax: every arrangement scores at least 1.0, so a player who ignores layout entirely is playing correctly. flowBonus is per adjacent pair whose roles are in order; pairBonus is a person standing next to equipment of their own role. maxMultiplier is the ceiling on the two combined and is asserted by A8 — it is deliberately worth less than one tier upgrade. NOTE bays < placeable.length is the whole point: there are more stations than bench, so which ones get the good spots is a real decision, and it changes as different generators come to dominate your income. With as many bays as stations the default line was already optimal and the system was inert (measured, see PROGRESS.md F1).",
+    "bays": 3,
+    "roleOrder": ["prep", "cook", "assemble", "serve"],
+    "generatorRoles": ["prep", "cook", "cook", "serve", "serve", "none", "none", "none", "none", "none", "none", "none"],
+    "generatorIsPerson": [false, false, true, true, false, false, false, false, false, false, false, false],
+    "placeable": [0, 1, 2, 3, 4],
+    "flowBonus": 0.08,
+    "pairBonus": 0.2,
+    "maxMultiplier": 1.4
+  },
   "momentum": {
     "comment": "The ticker occasionally states how much faster the business is than it was. A sense of progress is a derivative and the UI never showed one (PLAN_THE_LINE.md 2.4). windowSeconds is how far back to compare; minRatio is how much better it has to be before it is worth saying; minSecondsBetween stops it becoming a nag.",
     "windowSeconds": 300,

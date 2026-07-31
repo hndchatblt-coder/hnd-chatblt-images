@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config, type SimProfileDef } from "../src/engine/config.js";
 import { derive } from "../src/engine/derive.js";
+import { bestLayout, productionWeights } from "../src/engine/layout.js";
 import {
   buyGenerator,
   buyPerk,
@@ -94,6 +95,17 @@ export interface RunOptions {
   startState?: GameState;
   /** Override the run length in seconds. */
   seconds?: number;
+  /**
+   * How the bot treats the bench.
+   *
+   * `naive` never rearranges — the layout stays in unlock order all run. **The G4 pacing gates are
+   * evaluated on this**, deliberately: a new system must never be allowed to quietly rescue an
+   * existing pacing failure, or we would have hidden B1 and B4 rather than fixed them
+   * (PLAN_THE_LINE.md PART THREE).
+   *
+   * `tidy` runs AUTO after every purchase, which is the ceiling a player can reach.
+   */
+  layoutPolicy?: "naive" | "tidy";
 }
 
 export function runProfile(
@@ -107,6 +119,7 @@ export function runProfile(
   const state = opts.startState
     ? (JSON.parse(JSON.stringify(opts.startState)) as GameState)
     : createInitialState(seed);
+  const layoutPolicy = opts.layoutPolicy ?? "naive";
   const simRng = new Rng(seed ^ profile.id.length);
   const startRevenue = state.lifetimeRevenue;
   const startTime = state.timeSeconds;
@@ -185,6 +198,15 @@ export function runProfile(
           ? buyGenerator(state, best.generatorIndex, 1, c)
           : buyUpgrade(state, best.id, c);
       if (!ok) break;
+      // A tidy player sorts the line out whenever the shop changes. A naive one never does.
+      if (layoutPolicy === "tidy") {
+        const mid = derive(state, c);
+        state.layout = bestLayout(
+          state.generators,
+          productionWeights(state.generators, mid.generatorMults, c),
+          c,
+        );
+      }
 
       const after = derive(state, c);
       buys.push({

@@ -5,6 +5,7 @@
  */
 import { config, type EconomyConfig } from "./config.js";
 import { createInitialState, type GameState } from "./state.js";
+import { normalizeLayout } from "./layout.js";
 
 const ZERO = 0;
 const ONE = 1;
@@ -105,6 +106,9 @@ function repair(save: Record<string, unknown>, c: EconomyConfig): GameState {
     const value = generators[i];
     return typeof value === "number" && Number.isFinite(value) ? value : ZERO;
   });
+
+  // A layout from any older save (or none at all) normalises to a legal, ≥1.0x line.
+  merged.layout = normalizeLayout(save.layout, c);
 
   merged.upgrades = toStringArray(save.upgrades);
   merged.achievements = toStringArray(save.achievements);
