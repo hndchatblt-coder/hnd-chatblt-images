@@ -20,13 +20,13 @@ import { economy } from "../../config/economy.js";
 import { post } from "./economy.js";
 import { unitCost } from "./supply.js";
 import { incidentProductionMult, stationDisabled } from "./incidents.js";
-import { recipeById, type Recipe, type StationType, type Step } from "../../config/recipes.js";
+import { recipeById, recipes, type Recipe, type StationType, type Step } from "../../config/recipes.js";
 import { staffConfig } from "../../config/staff.js";
 import { traitById } from "../../config/traits.js";
 import { dtGameSeconds, time } from "../../config/time.js";
 import { floor } from "../../config/floor.js";
 import { centreOf, travelSeconds } from "../floor.js";
-import type { Job, Lot, StaffMember } from "../entities.js";
+import type { Job, Lot, StaffMember, StationInstance } from "../entities.js";
 import type { World } from "../world.js";
 
 /* ------------------------------------------------------------------ stock */
@@ -183,6 +183,24 @@ export const workRate = (staff: StaffMember, station: StationType): number => {
   return Math.max(staffConfig.minWorkRate, rate);
 };
 
+/**
+ * Where a finished batch has to go: the station that runs the step which consumes it. Finished
+ * goods go to the pass, which is where the customer collects — so the pass being far from
+ * assembly costs every single burger.
+ */
+const consumerStationFor = (world: World, output: string): StationInstance | undefined => {
+  for (const recipe of recipes) {
+    for (const step of recipe.steps) {
+      const dep = step.dependsOn.some((d) => stepOf(recipe, d)?.output === output);
+      if (!dep) continue;
+      const options = world.stations.filter((s) => s.type === step.station);
+      if (options.length > 0) return options[0];
+    }
+  }
+  // Nothing consumes it, so it's a finished item: it goes to the pass for collection.
+  return world.stations.find((s) => s.type === "pass");
+};
+
 const errorTraitMultiplier = (staff: StaffMember): number => {
   let mult = 1;
   for (const id of staff.traits) {
@@ -334,6 +352,30 @@ export const stepKitchen = (world: World): void => {
       station.busyWith = null;
       world.jobs.splice(i, 1);
       continue;
+    }
+
+    // Carrying (Q1). The batch does not teleport into the buffer — somebody walks it to where it
+    // will be used next, and that walk scales with distance. This is what makes "space is the
+    // constraint" true rather than aspirational: before it, six extra tiles between grill and
+    // pass cost 2.5% of throughput, because only the trip TO a station was ever charged.
+    if (job.carryRemaining === undefined) {
+      const destination = consumerStationFor(world, job.output);
+      job.carryRemaining = destination
+        ? travelSeconds(centreOf(station), centreOf(destination)) + floor.handlingSeconds
+        : 0;
+      world.day.walkSeconds += job.carryRemaining;
+      world.day.carrySeconds += job.carryRemaining;
+    }
+    if (job.carryRemaining > 0) {
+      job.carryRemaining -= budget;
+      if (job.carryRemaining > 0) continue;
+      // They end up where they dropped it off, not back at the station they cooked at.
+      const destination = consumerStationFor(world, job.output);
+      if (destination) {
+        const c = centreOf(destination);
+        staff.x = c.x;
+        staff.y = c.y;
+      }
     }
 
     stockOf(world, job.output).push({

@@ -11,6 +11,7 @@
 import { demand } from "../../config/demand.js";
 import { economy } from "../../config/economy.js";
 import { fastsim } from "../../config/fastsim.js";
+import { floor } from "../../config/floor.js";
 import { recipes } from "../../config/recipes.js";
 import { reviews as reviewCfg } from "../../config/reviews.js";
 import { time } from "../../config/time.js";
@@ -60,9 +61,14 @@ export const serviceRatePerHour = (world: World): number => {
   }
   const meanTrip = pairs > 0 ? tripSeconds / pairs : 0;
 
-  // Every step costs its work plus a trip to get to it.
+  // Every step costs its work, a trip to get to it, AND a trip to carry the output to whoever
+  // consumes it next. Missing the carry leg put the fast sim 7.6% over the full sim the moment
+  // carrying landed — which is the 5% gate doing its job.
   const stepsPerOrder = recipes.reduce((a, r) => a + r.steps.length, 0);
-  const effectiveSeconds = secondsPerOrder / Math.max(fastsim.minSkill, skill) + meanTrip * stepsPerOrder;
+  const tripsPerStep = fastsim.tripsPerStep;
+  const effectiveSeconds =
+    secondsPerOrder / Math.max(fastsim.minSkill, skill) +
+    (meanTrip + floor.handlingSeconds) * stepsPerOrder * tripsPerStep;
 
   const parallel = Math.min(world.staff.length, world.stations.length);
   return (parallel * time.secondsPerHour) / Math.max(1, effectiveSeconds);

@@ -7,6 +7,12 @@
 export const fastsim = {
   assumedStartingSkill: 0.7,
   minSkill: 0.2,
+  /**
+   * Trips charged per step: one to reach the station, one to carry the output on. Fractional
+   * because a staffer running consecutive batches at the same station only pays the approach
+   * once — charging a clean 2.0 understated capacity by 7.5%.
+   */
+  tripsPerStep: 1.55,
   /** Of the arrivals a saturated shop cannot take, this share walk out rather than wait. */
   balkShareOfExcess: 0.85,
   /** Mean items per order — a burger, and chips slightly over half the time. */
@@ -14,7 +20,7 @@ export const fastsim = {
   /** Mean ingredient cost per item, matching the recipe set. */
   cogsPerOrder: 4.35,
   /** Dollars of stock binned per hour of capacity that ran ahead of demand. */
-  wastePerIdleCapacityHour: 0.78,
+  wastePerIdleCapacityHour: 2.33,
   /** Utilisation a shop can run at before waits start hurting satisfaction. */
   comfortableUtilisation: 0.75,
   /** How far past comfortable before satisfaction hits zero. */

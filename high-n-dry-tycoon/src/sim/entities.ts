@@ -61,6 +61,11 @@ export interface Job {
   travelRemaining: number;
   inputQuality: number;
   freshnessWindow: number | undefined;
+  /**
+   * Seconds left carrying the finished batch to whoever consumes it next. Undefined until the
+   * cooking is done — the trip is only planned once there is something to carry.
+   */
+  carryRemaining?: number;
 }
 
 export interface Task {
@@ -132,6 +137,8 @@ export interface DayTotals {
   errors: number;
   /** Seconds staff spent walking rather than working. The layout tax, made visible. */
   walkSeconds: number;
+  /** Of which, time spent carrying finished batches to the next station (Q1). */
+  carrySeconds: number;
   /** Every dollar that moved today, by account. Reconciles against cash to the cent (M2 gate). */
   ledger: Record<string, number>;
   /** Reputation as it stood when this day closed — not the final value (that was a report bug). */
@@ -155,6 +162,7 @@ export const emptyDay = (day: number): DayTotals => ({
   batchesMade: 0,
   errors: 0,
   walkSeconds: 0,
+  carrySeconds: 0,
   ledger: {},
   reputationAtClose: 0,
 });
