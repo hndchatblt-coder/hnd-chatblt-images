@@ -127,6 +127,7 @@ export interface EconomyConfig {
     flowBonus: number;
     pairBonus: number;
     maxMultiplier: number;
+    fitouts: { id: string; name: string; cost: number; flavour: string }[];
   };
   momentum: { windowSeconds: number; minRatio: number; minSecondsBetween: number };
   ticker: { cycleSeconds: number };

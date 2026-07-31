@@ -58,6 +58,7 @@ export {
 } from "./save.js";
 export { createInitialState, totalGenerators, type ActiveEffect, type GameState } from "./state.js";
 export {
+  bayCount,
   bestLayout,
   defaultLayout,
   EMPTY as EMPTY_BAY,

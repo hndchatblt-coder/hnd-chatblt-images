@@ -329,3 +329,97 @@ before a floor reads as a floor.
 
 **Gates:** G1 clean · G2 35/35 · G3 6/6 GREEN · G4 1/4 (B1/B2/B4 unchanged — this pass was
 entirely presentational; no config, no engine). Touch playtest clean.
+
+---
+
+## E1–E4 and F1–F3 — progression you can see, and a line you can arrange
+
+Built to `PLAN_THE_LINE.md`. Six passes; the notable parts are the things measurement caught that
+guessing would not have.
+
+### E1 — the 36 tier upgrades become visible equipment
+
+The ×2s at 10/25/50 owned were the most significant purchases in the game and **every one of them
+was invisible** — a toast and nothing else. Each now physically replaces the rig: one basket in
+the oil → two → three → an auto-lift gantry cycling them on its own; one cook at the grill → four
+and a second flat-top; one bag on the pickup shelf → a rack of six.
+
+This forced the bench into **bays**. Four people at a station is what tier 3 looks like, and at
+fixed positions the crews ran off the right edge and stood inside the fryer. That skeleton is what
+PART TWO needed anyway, so it was built once, here.
+
+Front of house stopped wearing chef's whites in the same pass — at tier 3 eight identical figures
+merged into one indistinguishable wall.
+
+### E2 — the purchase moment
+
+Gear lands with a pop and a puff of dust. The first of a station is a **person who walks in off
+the street**, crosses the floor and steps up behind the counter. A tier upgrade leans the camera
+in ~4% and lets it settle. The docket you tapped tears.
+
+Verified by capturing frames *through* the walk. The first attempt drew the new hire with ordinary
+hair and they read as another customer, which is why they now arrive in uniform.
+
+### E3 — the horizon and the momentum line
+
+`NEXT  FRYER  $231 · in 12s` under the till, flipping to READY. Turns idle time from waiting into
+watching a number come down. Plus a rolling $/sec sample so the ticker can say *"three times the
+money you were making twenty minutes ago"* — a sense of progress is a **derivative** and the UI
+had never shown one.
+
+### E4 — ambient density
+
+A docket rail off the heat-lamp bar that fills with orders, mess accumulating on the bench, a crew
+that visibly speeds up. The rail first ran across the bays and was completely hidden behind the
+fryer and the crew; it now hangs where a real one does.
+
+### F1 — the line, in the engine
+
+**Two things measurement caught:**
+
+1. With as many bays as placeable stations, **the default line was already optimal** — a tidy
+   line scored 1.00× a naive one and the whole system was inert. Fixed by making bays *scarcer*
+   than stations: everything you own produces normally wherever it is, the bench is only where the
+   bonuses live, so the decision is which stations get the good spots — and that changes across a
+   run as different generators come to dominate income.
+2. **AUTO scoring the abstract multiplier was wrong.** A 20% bonus on a station earning 2% of your
+   income is worth nothing next to the same bonus on the one carrying you. AUTO now maximises
+   actual output, and A9 brute-forces it against deliberately lopsided weights.
+
+Over five seeds a tidy line ends between 1.07× and 1.58× a naive one, **median 1.21×** — meaningful
+without being mandatory. **G4 pacing stays measured on the naive policy** so this can never quietly
+rescue B1/B2/B4.
+
+### F2 — arranging it with a thumb
+
+Tap a bay, tap another, they swap — in the shop scene you're already looking at. No build mode, no
+editor, no second canvas. Drag was deliberately *not* the primary interaction: dragging small
+objects on a phone is miserable. Anything owned but off the line sits on a labelled back shelf, so
+"the shop is the readout" keeps holding when the bench is full.
+
+AUTO lights up **only when a better line is actually available** — teaches the mechanic without a
+tutorial and without nagging once the line is right.
+
+Verified under touch: swapping bay 0 and bay 2 drops flow +16% → +8% (a smaller bonus, never a
+penalty), and AUTO restores it *while moving the pairing to a different person than the default
+had* — the evidence that the weighted objective is doing real work.
+
+### F3 — the fitout, and a hole it exposed
+
+Two purchasable fitouts extend the bench 3 → 5 bays. A fitout never raises the bonus **cap**; it
+lets more of what you own be on the line at once, which is a safer lever.
+
+**The hole:** the cap was only ever applied to a *displayed* `total`, while `derive.ts` multiplied
+by the raw `flowMult`. At 3 bays nothing exceeded it so nothing showed. A fitout adds bays, adds
+ordered pairs, and would have pushed the applied multiplier to ~1.58× against a 1.4 cap — silently.
+The cap now scales what is actually applied, and **A8 tests the longest bench the game can ever
+have**, not the starting one. It now reports exactly 1.400× at 4 bays, which is the cap doing its
+job rather than a coincidence.
+
+Buying bench and seeing nothing land on it was a weak purchase moment, so a fitout runs AUTO in the
+engine — you paid for bench, the gear goes on it, rearranging afterwards is still yours.
+
+### Gates
+
+G1 clean · G2 41/41 · **G3 9/9 GREEN** (A7–A9 new) · G4 1/4 — B1/B2/B4 unchanged and untouched by
+any of this, still waiting on the B2 direction call.

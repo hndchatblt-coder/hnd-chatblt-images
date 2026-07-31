@@ -22,6 +22,7 @@ import {
   parseTierUpgradeId,
   save,
   settleOffline,
+  bayCount,
   bestLayout,
   layoutValue,
   normalizeLayout,
@@ -194,7 +195,7 @@ export default function App(): JSX.Element {
         : undefined;
     scene.onSwapBays = (a, b) => {
       const state = stateRef.current;
-      state.layout = swapBays(state.layout, a, b, config);
+      state.layout = swapBays(state.layout, a, b, config, bayCount(state.upgrades, config));
       audio.till();
       navigator.vibrate?.([5, 20, 8]);
       save(adapter, state, config);
@@ -227,7 +228,8 @@ export default function App(): JSX.Element {
         autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
         staffNames: staffNames(state),
         density: Math.min(1, Math.log10(1 + totalGenerators(state)) / 2.4),
-        layout: normalizeLayout(state.layout, config),
+        layout: normalizeLayout(state.layout, config, bayCount(state.upgrades, config)),
+        bays: bayCount(state.upgrades, config),
         tiers: stationTiers(state),
       });
       audio.setBusy(busy);
@@ -361,12 +363,14 @@ export default function App(): JSX.Element {
     audio.init();
     const state = stateRef.current;
     const d = derive(state, config);
+    const bays = bayCount(state.upgrades, config);
     const next = bestLayout(
       state.generators,
       productionWeights(state.generators, d.generatorMults, config),
       config,
+      bays,
     );
-    const changed = next.join(",") !== normalizeLayout(state.layout, config).join(",");
+    const changed = next.join(",") !== normalizeLayout(state.layout, config, bays).join(",");
     state.layout = next;
     sceneRef.current?.clearHeldBay();
     audio.stinger();
@@ -426,11 +430,17 @@ export default function App(): JSX.Element {
   // the mechanic without a tutorial and without nagging when the line is already right.
   const lineCouldImprove = useMemo(() => {
     if (!lineIsArrangeable) return false;
+    const bays = bayCount(state.upgrades, config);
     const weights = productionWeights(state.generators, d.generatorMults, config);
-    const now = layoutValue(normalizeLayout(state.layout, config), state.generators, weights, config);
-    const best = layoutValue(bestLayout(state.generators, weights, config), state.generators, weights, config);
+    const now = layoutValue(normalizeLayout(state.layout, config, bays), state.generators, weights, config);
+    const best = layoutValue(
+      bestLayout(state.generators, weights, config, bays),
+      state.generators,
+      weights,
+      config,
+    );
     return best > now * 1.01;
-  }, [state.layout, state.generators, state.upgrades.length, lineIsArrangeable, d.generatorMults]);
+  }, [state.layout, state.generators, state.upgrades, lineIsArrangeable, d.generatorMults]);
 
   // The horizon: what's next, and how long until you can have it at the current rate.
   const horizon = nextPurchase(state, visibleGenerators, upgrades);

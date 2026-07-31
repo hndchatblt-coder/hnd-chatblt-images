@@ -117,7 +117,22 @@
     "placeable": [0, 1, 2, 3, 4],
     "flowBonus": 0.08,
     "pairBonus": 0.2,
-    "maxMultiplier": 1.4
+    "maxMultiplier": 1.4,
+    "fitoutComment": "Each fitout adds one bay. A fitout never raises the bonus cap — it lets more of what you own be on the line at once, which is a different and safer lever: A8 stays true no matter how long the bench gets.",
+    "fitouts": [
+      {
+        "id": "fit-bench",
+        "name": "Extend the bench",
+        "cost": 400000,
+        "flavour": "Two metres of stainless from a place in Marrickville. Delivered on a Sunday."
+      },
+      {
+        "id": "fit-corner",
+        "name": "Take the corner out",
+        "cost": 9000000,
+        "flavour": "The wall was not structural. The council took some convincing."
+      }
+    ]
   },
   "momentum": {
     "comment": "The ticker occasionally states how much faster the business is than it was. A sense of progress is a derivative and the UI never showed one (PLAN_THE_LINE.md 2.4). windowSeconds is how far back to compare; minRatio is how much better it has to be before it is worth saying; minSecondsBetween stops it becoming a nag.",

@@ -42,6 +42,17 @@ export interface LayoutScore {
   paired: number[];
 }
 
+/**
+ * How many bays the bench has right now: the base, plus one for every fitout bought. More bench
+ * means more of what you own can be on the line at once — which is the whole value of a fitout,
+ * since the cap on the bonus itself never moves.
+ */
+export function bayCount(upgrades: string[], c: EconomyConfig = config): number {
+  const owned = new Set(upgrades);
+  const extra = c.layout.fitouts.filter((f) => owned.has(f.id)).length;
+  return c.layout.bays + extra;
+}
+
 /** Which bays a player can actually arrange. The grill is plumbed in and never moves. */
 export function placeableGenerators(c: EconomyConfig = config): number[] {
   return c.layout.placeable;
@@ -52,8 +63,8 @@ export function placeableGenerators(c: EconomyConfig = config): number[] {
  * than bays, so the rest simply aren't on the bench — they still produce, they just earn no
  * bonus until you put them somewhere.
  */
-export function defaultLayout(c: EconomyConfig = config): number[] {
-  const bays = new Array<number>(c.layout.bays).fill(EMPTY);
+export function defaultLayout(c: EconomyConfig = config, bayTotal?: number): number[] {
+  const bays = new Array<number>(bayTotal ?? c.layout.bays).fill(EMPTY);
   c.layout.placeable.forEach((generatorIndex, bay) => {
     if (bay < bays.length) bays[bay] = generatorIndex;
   });
@@ -65,8 +76,12 @@ export function defaultLayout(c: EconomyConfig = config): number[] {
  * placeable stations, anything missing appended. A corrupt or hand-edited save can never produce
  * a layout that scores worse than the default.
  */
-export function normalizeLayout(input: unknown, c: EconomyConfig = config): number[] {
-  const bays = new Array<number>(c.layout.bays).fill(EMPTY);
+export function normalizeLayout(
+  input: unknown,
+  c: EconomyConfig = config,
+  bayTotal?: number,
+): number[] {
+  const bays = new Array<number>(bayTotal ?? c.layout.bays).fill(EMPTY);
   const allowed = new Set(c.layout.placeable);
   const seen = new Set<number>();
 
@@ -132,9 +147,15 @@ export function scoreLayout(
     }
   }
 
-  const flowMult = ONE + orderedPairs * c.layout.flowBonus;
+  // The cap has to bind what is actually *applied*, not just what gets displayed. Clamping only
+  // a reported `total` would have let a longer bench quietly exceed it once fitouts added bays —
+  // the multipliers derive.ts multiplies by are the ones that must obey A8.
+  const rawFlow = ONE + orderedPairs * c.layout.flowBonus;
   const bestPair = generatorMults.reduce((a, b) => Math.max(a, b), ONE);
-  const total = Math.min(c.layout.maxMultiplier, flowMult * bestPair);
+  const combined = rawFlow * bestPair;
+  const scale = combined > c.layout.maxMultiplier ? c.layout.maxMultiplier / combined : ONE;
+  const flowMult = rawFlow * scale;
+  const total = flowMult * bestPair;
 
   return { flowMult, generatorMults, total, orderedPairs, paired };
 }
@@ -171,18 +192,20 @@ export function bestLayout(
   owned: number[],
   weights: number[],
   c: EconomyConfig = config,
+  bayTotal?: number,
 ): number[] {
+  const bays = bayTotal ?? c.layout.bays;
   const stations = c.layout.placeable.filter((index) => (owned[index] ?? ZERO) > ZERO);
-  let best = defaultLayout(c);
+  let best = defaultLayout(c, bays);
   let bestValue = layoutValue(best, owned, weights, c);
 
   // Every ordered selection of `bays` stations out of the ones you own. With the configured bay
   // count this is a few hundred arrangements at most, so it's exact rather than a heuristic —
   // which is what lets AUTO honestly be a one-tap answer (A9).
   const walk = (chosen: number[], remaining: number[]): void => {
-    if (chosen.length === Math.min(c.layout.bays, stations.length)) {
+    if (chosen.length === Math.min(bays, stations.length)) {
       const candidate = [...chosen];
-      while (candidate.length < c.layout.bays) candidate.push(EMPTY);
+      while (candidate.length < bays) candidate.push(EMPTY);
       const value = layoutValue(candidate, owned, weights, c);
       if (value > bestValue) {
         bestValue = value;
@@ -198,7 +221,7 @@ export function bestLayout(
   walk([], stations);
 
   // Keep the chosen bays exactly as found; only pad the tail.
-  const result = new Array<number>(c.layout.bays).fill(EMPTY);
+  const result = new Array<number>(bays).fill(EMPTY);
   best.forEach((v, i) => {
     if (i < result.length) result[i] = v;
   });
@@ -217,8 +240,14 @@ export function productionWeights(
 }
 
 /** Swaps two bays. Returns a new array — state is never mutated in place here. */
-export function swapBays(layout: number[], a: number, b: number, c: EconomyConfig = config): number[] {
-  const next = normalizeLayout(layout, c);
+export function swapBays(
+  layout: number[],
+  a: number,
+  b: number,
+  c: EconomyConfig = config,
+  bayTotal?: number,
+): number[] {
+  const next = normalizeLayout(layout, c, bayTotal);
   if (a < ZERO || b < ZERO || a >= next.length || b >= next.length) return next;
   const held = next[a] as number;
   next[a] = next[b] as number;

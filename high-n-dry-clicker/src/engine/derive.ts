@@ -15,7 +15,7 @@ import {
   type EconomyConfig,
   type GeneratorDef,
 } from "./config.js";
-import { normalizeLayout, scoreLayout, type LayoutScore } from "./layout.js";
+import { bayCount, normalizeLayout, scoreLayout, type LayoutScore } from "./layout.js";
 import { totalGenerators, type GameState } from "./state.js";
 
 const ZERO = 0;
@@ -164,7 +164,11 @@ export function derive(state: GameState, c: EconomyConfig = config): Derived {
 
   // What the arrangement of the bench is worth. Both terms floor at 1, so a line nobody has ever
   // touched earns exactly what it earned before layout existed (A7).
-  const layout = scoreLayout(normalizeLayout(state.layout, c), state.generators, c);
+  const layout = scoreLayout(
+    normalizeLayout(state.layout, c, bayCount(state.upgrades, c)),
+    state.generators,
+    c,
+  );
 
   const generatorCps: number[] = [];
   let baseCps = ZERO;

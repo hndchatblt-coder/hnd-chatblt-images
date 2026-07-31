@@ -43,6 +43,7 @@ const MAX_QUEUE = 7;
  */
 const GRILL_X = 14;
 const GRILL_RIGHT = 150;
+/** Base bays; fitouts add more, so the live count comes in on `Business`. */
 export const BAYS = 3;
 /** Mirrors economy.config.json layout.placeable — the scene stays free of config imports. */
 const PLACEABLE = [0, 1, 2, 3, 4];
@@ -63,9 +64,6 @@ const SHORT_NAME: Record<number, string> = {
   4: "PICKUP",
 };
 const BAY_LEFT = 154;
-const BAY_W = (W - BAY_LEFT - 6) / BAYS;
-/** Centre of bay `i`. */
-const bayX = (i: number): number => BAY_LEFT + BAY_W * (i + 0.5);
 const PATTY_Y = GRATE_TOP + 16;
 /** Small ones, several of them. The single giant patty was Cookie Clicker's cookie (pass 3). */
 const PATTY_R = 9;
@@ -187,6 +185,8 @@ export interface Business {
   tiers: number[];
   /** Bay index → generator index, -1 for empty. The bench, as the player arranged it. */
   layout: number[];
+  /** How many bays the bench has — grows with fitouts. */
+  bays: number;
 }
 
 export class Scene {
@@ -209,6 +209,7 @@ export class Scene {
     density: 0,
     tiers: [],
     layout: [],
+    bays: 3,
   };
 
   private customers: Customer[] = [];
@@ -350,11 +351,25 @@ export class Scene {
     if (index === 0) return 40;
     if (index === 4) return 348;
     if (index >= 5) return 72;
-    return bayX(index - 1);
+    return this.bayX(index - 1);
   }
 
   private owned(index: number): number {
     return this.business.generators[index] ?? 0;
+  }
+
+  /** Bays on the bench right now. */
+  private bays(): number {
+    return Math.max(1, this.business.bays || BAYS);
+  }
+
+  private bayW(): number {
+    return (W - BAY_LEFT - 6) / this.bays();
+  }
+
+  /** Centre of bay `i`. */
+  private bayX(i: number): number {
+    return BAY_LEFT + this.bayW() * (i + 0.5);
   }
 
   /** How far a station has been upgraded, 0-3. */
@@ -405,7 +420,7 @@ export class Scene {
     // The bench is the arranging surface — no build mode, no second screen (BUILD_BRIEF §0).
     // Tap a bay to pick it up, tap another to swap. Tap the same one again to put it down.
     if (this.view === 0 && y >= BENCH_TOP && y <= COUNTER_TOP && x >= BAY_LEFT) {
-      const bay = Math.min(BAYS - 1, Math.floor((x - BAY_LEFT) / BAY_W));
+      const bay = Math.min(this.bays() - 1, Math.floor((x - BAY_LEFT) / this.bayW()));
       if (this.heldBay === null) {
         // Only worth picking up if there's something in it or something to bring to it.
         this.heldBay = bay;
@@ -685,7 +700,6 @@ export class Scene {
     this.drawSmoke();
     this.drawGrease();
     this.drawCounter();
-    this.drawCounterProps();
     this.drawCustomers(t);
     this.drawWalkers(t);
     this.drawBurgers();
@@ -1120,10 +1134,10 @@ export class Scene {
     const layout = this.business.layout;
 
     // The bench: whatever the player put in each bay, drawn there.
-    for (let bay = 0; bay < BAYS; bay += 1) {
+    for (let bay = 0; bay < this.bays(); bay += 1) {
       const index = layout[bay] ?? EMPTY_BAY;
       if (index === EMPTY_BAY || this.owned(index) === 0) continue;
-      this.popped(index, bayX(bay), COUNTER_TOP, () => this.drawStationInBay(index, bay, t));
+      this.popped(index, this.bayX(bay), COUNTER_TOP, () => this.drawStationInBay(index, bay, t));
     }
 
     // Anything owned but off the line goes on the back shelf. It still produces — the bench is
@@ -1139,8 +1153,8 @@ export class Scene {
     if (this.view !== 0) return;
     const ctx = this.ctx;
     const held = this.heldBay;
-    for (let bay = 0; bay < BAYS; bay += 1) {
-      const x = BAY_LEFT + bay * BAY_W;
+    for (let bay = 0; bay < this.bays(); bay += 1) {
+      const x = BAY_LEFT + bay * this.bayW();
       // A shallow notch in the bench edge marks where one bay ends and the next begins.
       ctx.fillStyle = "rgba(40,34,28,0.18)";
       ctx.fillRect(x, BENCH_TOP, 1.5, COUNTER_TOP - BENCH_TOP);
@@ -1148,21 +1162,21 @@ export class Scene {
         ctx.strokeStyle = "rgba(255,158,27,0.9)";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 4]);
-        ctx.strokeRect(x + 2, BENCH_TOP + 2, BAY_W - 4, COUNTER_TOP - BENCH_TOP - 4);
+        ctx.strokeRect(x + 2, BENCH_TOP + 2, this.bayW() - 4, COUNTER_TOP - BENCH_TOP - 4);
         ctx.setLineDash([]);
       } else if (held !== null) {
         // Where it could go.
         ctx.strokeStyle = "rgba(255,240,216,0.32)";
         ctx.lineWidth = 1.5;
         ctx.setLineDash([3, 5]);
-        ctx.strokeRect(x + 3, BENCH_TOP + 3, BAY_W - 6, COUNTER_TOP - BENCH_TOP - 6);
+        ctx.strokeRect(x + 3, BENCH_TOP + 3, this.bayW() - 6, COUNTER_TOP - BENCH_TOP - 6);
         ctx.setLineDash([]);
       }
     }
   }
 
   private drawStationInBay(index: number, bay: number, t: number): void {
-    const x = bayX(bay);
+    const x = this.bayX(bay);
     if (index === 0) this.drawPrepBench(x, t);
     else if (index === 1) this.drawFryer(x, GRATE_TOP + 16, t);
     else if (index === 2) this.drawCrew(x, 2, "#E8E3D8", t, 0, "cook");
@@ -1242,7 +1256,7 @@ export class Scene {
     }
 
     const tubs = 2 + tier;
-    const tubW = Math.min(13, (BAY_W - 16) / tubs);
+    const tubW = Math.max(7, Math.min(13, (this.bayW() - 14) / tubs));
     for (let i = 0; i < tubs; i += 1) {
       const tx = x - (tubs * tubW) / 2 + i * tubW;
       ctx.fillStyle = "#20252A";
@@ -1259,13 +1273,16 @@ export class Scene {
   private drawPickup(x: number): void {
     const ctx = this.ctx;
     const tier = this.tier(4);
+    // Sized to its bay: a fitout makes bays narrower, and a unit that keeps its own width would
+    // spill into the neighbours (and off the right edge).
+    const half = Math.min(34, this.bayW() / 2 - 3);
     ctx.fillStyle = "#20252A";
-    ctx.fillRect(x - 34, GRATE_TOP - 4, 68, 44);
+    ctx.fillRect(x - half, GRATE_TOP - 4, half * 2, 44);
     ctx.fillStyle = "#2E353B";
-    ctx.fillRect(x - 31, GRATE_TOP - 1, 62, 38);
+    ctx.fillRect(x - half + 3, GRATE_TOP - 1, half * 2 - 6, 38);
     // Heat lamp inside the shelf.
     ctx.fillStyle = "rgba(255,158,27,0.4)";
-    ctx.fillRect(x - 29, GRATE_TOP + 1, 58, 3);
+    ctx.fillRect(x - half + 5, GRATE_TOP + 1, half * 2 - 10, 3);
     ctx.fillStyle = "rgba(255,190,110,0.85)";
     ctx.font = "700 6.5px ui-monospace, monospace";
     ctx.textAlign = "center";
@@ -1273,13 +1290,14 @@ export class Scene {
     ctx.textAlign = "left";
 
     const bags = [1, 2, 4, 6][tier] ?? 1;
+    const bagW = Math.min(15, (half * 2 - 14) / 3);
     for (let i = 0; i < bags; i += 1) {
-      const bx = x - 27 + (i % 3) * 19;
+      const bx = x - half + 6 + (i % 3) * (bagW + 3);
       const by = GRATE_TOP + 7 + Math.floor(i / 3) * 13;
       ctx.fillStyle = "#3E7FA8";
-      ctx.fillRect(bx, by, 15, 11);
+      ctx.fillRect(bx, by, bagW, 11);
       ctx.fillStyle = "rgba(255,255,255,0.32)";
-      ctx.fillRect(bx + 3, by + 2, 9, 2.5);
+      ctx.fillRect(bx + 2, by + 2, bagW - 6, 2.5);
     }
   }
 
@@ -1287,7 +1305,7 @@ export class Scene {
     const ctx = this.ctx;
     const tier = this.tier(1);
     const baskets = [1, 2, 3, 3][tier] ?? 1;
-    const wide = Math.min(BAY_W - 10, 30 + baskets * 8);
+    const wide = Math.min(this.bayW() - 10, 30 + baskets * 8);
     const left = x - wide / 2;
     const top = y - 16;
 
@@ -1469,7 +1487,7 @@ export class Scene {
     role: "cook" | "server",
   ): void {
     const heads = 1 + this.tier(index);
-    const spread = Math.min(20, (BAY_W - 24) / Math.max(1, heads - 1));
+    const spread = Math.min(20, (this.bayW() - 24) / Math.max(1, heads - 1));
     const left = x - ((heads - 1) * spread) / 2;
     for (let i = 0; i < heads; i += 1) {
       this.drawStaff(
@@ -1568,13 +1586,6 @@ export class Scene {
   private drawBenchClutter(): void {
     const ctx = this.ctx;
     const d = this.business.density;
-
-    // Trays stacked by the pass. A busy shop runs through them.
-    const trays = 1 + Math.round(d * 5);
-    for (let i = 0; i < trays; i += 1) {
-      ctx.fillStyle = i % 2 === 0 ? "#B44A32" : "#9E4029";
-      ctx.fillRect(96, COUNTER_TOP - 6 - i * 4, 46, 4);
-    }
 
     // Mess. Deterministic positions so it never twitches, and it only ever accumulates.
     const spots = Math.round(d * 14);
@@ -1796,42 +1807,6 @@ export class Scene {
     ctx.fillRect(0, COUNTER_TOP + COUNTER_H - 4, W, 4);
     ctx.fillStyle = "rgba(0,0,0,0.34)";
     ctx.fillRect(0, COUNTER_TOP + COUNTER_H - 1, W, 1);
-  }
-
-  /** The counter was a blank steel band. Real things live on a pass. */
-  private drawCounterProps(): void {
-    const ctx = this.ctx;
-    const top = COUNTER_TOP;
-
-    // Till.
-    ctx.fillStyle = "#20252A";
-    ctx.fillRect(300, top - 22, 44, 22);
-    ctx.fillStyle = "#39424A";
-    ctx.fillRect(303, top - 19, 38, 11);
-    ctx.fillStyle = "rgba(140,220,180,0.55)";
-    ctx.fillRect(305, top - 17, 34, 7);
-    ctx.fillStyle = "#2A3138";
-    ctx.fillRect(303, top - 6, 38, 4);
-
-    // Tray stack. Kept clear of the grill above it — they collided in the first pass.
-    for (let i = 0; i < 3; i += 1) {
-      ctx.fillStyle = i % 2 === 0 ? "#B44A32" : "#9E4029";
-      ctx.fillRect(122, top - 8 - i * 4, 44, 4);
-    }
-
-    // Sauce caddy.
-    ctx.fillStyle = "#2E353B";
-    ctx.fillRect(196, top - 14, 30, 14);
-    ctx.fillStyle = "#C6402B";
-    ctx.fillRect(200, top - 20, 7, 7);
-    ctx.fillStyle = "#E0B23A";
-    ctx.fillRect(210, top - 20, 7, 7);
-
-    // Napkin dispenser.
-    ctx.fillStyle = "#8A9199";
-    ctx.fillRect(254, top - 15, 18, 15);
-    ctx.fillStyle = "#F6F1E4";
-    ctx.fillRect(257, top - 12, 12, 5);
   }
 
   private drawCustomers(t: number): void {

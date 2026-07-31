@@ -14,13 +14,14 @@ import {
   type EconomyConfig,
 } from "./config.js";
 import { derive, generatorCost, tierUpgradeCost, tierUpgradeName, type Derived } from "./derive.js";
+import { bayCount, bestLayout, normalizeLayout, productionWeights } from "./layout.js";
 import { Rng } from "./rng.js";
 import { totalGenerators, type GameState } from "./state.js";
 
 const ZERO = 0;
 const ONE = 1;
 
-export type PurchaseKind = "generator" | "tier" | "click" | "global";
+export type PurchaseKind = "generator" | "tier" | "click" | "global" | "fitout";
 
 export interface PurchaseOption {
   id: string;
@@ -224,6 +225,26 @@ export function availableUpgrades(state: GameState, c: EconomyConfig = config): 
     });
   }
 
+  // Fitouts extend the bench. They're offered one at a time and only once there's more to put on
+  // the line than the line can hold — buying bench you don't need would be a waste, and the game
+  // shouldn't sell you one.
+  const placedCapacity = bayCount(state.upgrades, c);
+  const couldUse = c.layout.placeable.filter((i) => (state.generators[i] ?? ZERO) > ZERO).length;
+  if (couldUse > placedCapacity) {
+    const next = c.layout.fitouts.find((f) => !owned.has(f.id));
+    if (next) {
+      options.push({
+        id: next.id,
+        kind: "fitout",
+        name: next.name,
+        cost: next.cost,
+        generatorIndex: null,
+        gainPerSecond: ZERO,
+        affordable: false,
+      });
+    }
+  }
+
   return options;
 }
 
@@ -238,6 +259,8 @@ export function upgradeCost(id: string, c: EconomyConfig = config): number {
   if (click) return click.cost;
   const global = c.globalUpgrades.find((u) => u.id === id);
   if (global) return global.cost;
+  const fitout = c.layout.fitouts.find((f) => f.id === id);
+  if (fitout) return fitout.cost;
   return Number.POSITIVE_INFINITY;
 }
 
@@ -249,6 +272,20 @@ export function buyUpgrade(state: GameState, id: string, c: EconomyConfig = conf
   if (state.cash < cost) return false;
   state.cash -= cost;
   state.upgrades.push(id);
+  // A longer bench needs a longer line array, or the new bay isn't addressable. And you just paid
+  // for bench: leaving it visibly empty until the player finds the AUTO button is the confusing
+  // option, so the gear goes on it. Rearranging afterwards is still entirely theirs.
+  if (c.layout.fitouts.some((f) => f.id === id)) {
+    const bays = bayCount(state.upgrades, c);
+    state.layout = normalizeLayout(state.layout, c, bays);
+    const d = derive(state, c);
+    state.layout = bestLayout(
+      state.generators,
+      productionWeights(state.generators, d.generatorMults, c),
+      c,
+      bays,
+    );
+  }
   checkAchievements(state, c);
   return true;
 }

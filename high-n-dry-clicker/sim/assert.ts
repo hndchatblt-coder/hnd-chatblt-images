@@ -223,14 +223,26 @@ if (!idle || !casual || !tryhard) throw new Error("missing sim profile results")
 
 /* A8 — layout is bounded ---------------------------------------------------- */
 {
+  // Test the LONGEST bench the game can ever have, not the starting one: a fitout adds bays,
+  // which adds ordered pairs, which would push flow past the cap if the cap were only applied to
+  // a displayed number instead of to what derive.ts actually multiplies by.
   const owned = c.generators.list.map(() => 10);
   const flat = c.generators.list.map(() => 1);
-  const best = scoreLayout(bestLayout(owned, flat), owned).total;
+  const maxBays = c.layout.bays + c.layout.fitouts.length;
+  let worst = 0;
+  let worstBays = 0;
+  for (let bays = c.layout.bays; bays <= maxBays; bays += 1) {
+    const score = scoreLayout(bestLayout(owned, flat, c, bays), owned).total;
+    if (score > worst) {
+      worst = score;
+      worstBays = bays;
+    }
+  }
   assert(
     "A8 layout is bounded",
-    best <= c.layout.maxMultiplier + 1e-9,
-    `best possible line ${best.toFixed(3)}x, cap ${c.layout.maxMultiplier}x` +
-      ` (one tier upgrade is ${c.generatorTiers.multiplier}x)`,
+    worst <= c.layout.maxMultiplier + 1e-9,
+    `best possible line ${worst.toFixed(3)}x at ${worstBays} bays (max ${maxBays}), cap ` +
+      `${c.layout.maxMultiplier}x (one tier upgrade is ${c.generatorTiers.multiplier}x)`,
   );
 }
 
@@ -242,6 +254,7 @@ if (!idle || !casual || !tryhard) throw new Error("missing sim profile results")
   let sampled = 0;
   // A spread of shops: nothing owned, one station, every subset of the placeable stations.
   const subsets = 1 << c.layout.placeable.length;
+  const maxBays = c.layout.bays + c.layout.fitouts.length;
   void productionWeights;
   for (let mask = 0; mask < subsets; mask += 1) {
     const owned = c.generators.list.map(() => 0);
@@ -252,25 +265,31 @@ if (!idle || !casual || !tryhard) throw new Error("missing sim profile results")
     // not just produce a tidy-looking line.
     const weights = c.generators.list.map((def, i) => (owned[i] ?? 0) * def.baseRate * (1 + i * 3));
     sampled += 1;
-    const auto = layoutValue(bestLayout(owned, weights), owned, weights);
+    // Check every bench length, since a fitout changes the search space AUTO works over.
+    let bad = false;
+    for (let bays = c.layout.bays; bays <= maxBays; bays += 1) {
+      const auto = layoutValue(bestLayout(owned, weights, c, bays), owned, weights);
+      let brute = 0;
+      const walkBays = (chosen: number[], rest: number[]): void => {
+        const line = [...chosen];
+        while (line.length < bays) line.push(-1);
+        brute = Math.max(brute, layoutValue(line, owned, weights));
+        if (chosen.length === bays) return;
+        rest.forEach((v, i) => walkBays([...chosen, v], [...rest.slice(0, i), ...rest.slice(i + 1)]));
+      };
+      walkBays([], c.layout.placeable);
+      if (auto < brute - 1e-9) bad = true;
+    }
+    if (bad) mismatches += 1;
+    const auto = 0;
 
-    // Brute force over every ordered selection of `bays` stations.
-    let brute = 0;
-    const walk = (chosen: number[], rest: number[]): void => {
-      const line = [...chosen];
-      while (line.length < c.layout.bays) line.push(-1);
-      brute = Math.max(brute, layoutValue(line, owned, weights));
-      if (chosen.length === c.layout.bays) return;
-      rest.forEach((v, i) => walk([...chosen, v], [...rest.slice(0, i), ...rest.slice(i + 1)]));
-    };
-    walk([], c.layout.placeable);
-    if (auto < brute - 1e-9) mismatches += 1;
+    void auto;
   }
   assert(
     "A9 AUTO is optimal",
     mismatches === 0,
     mismatches === 0
-      ? `matches brute force across all ${sampled} ownership combinations`
+      ? `matches brute force across ${sampled} ownership combinations x ${maxBays - c.layout.bays + 1} bench lengths`
       : `${mismatches}/${sampled} shops where AUTO is beaten by hand`,
   );
 }
