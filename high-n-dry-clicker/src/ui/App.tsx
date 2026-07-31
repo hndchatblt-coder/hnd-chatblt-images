@@ -118,8 +118,17 @@ export default function App(): JSX.Element {
   const [view, setView] = useState<View>(0);
   const [unlockedView, setUnlockedView] = useState<View>(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [torn, setTorn] = useState<string | null>(null);
+  const tornTimer = useRef<number | undefined>(undefined);
   const [line, setLine] = useState(TICKER.lines.early?.[0] ?? "");
   const toastTimer = useRef<number | undefined>(undefined);
+
+  /** Flags one docket as just-bought so it can tear. Cleared after the animation. */
+  const tear = useCallback((key: string) => {
+    setTorn(key);
+    window.clearTimeout(tornTimer.current);
+    tornTimer.current = window.setTimeout(() => setTorn(null), 440);
+  }, []);
 
   const showToast = useCallback((text: string) => {
     setToast(text);
@@ -238,6 +247,9 @@ export default function App(): JSX.Element {
         audio.till();
         navigator.vibrate?.([6, 24, 10]);
         const def = config.generators.list[index];
+        // The gear lands in the scene; the first of a kind walks in off the street.
+        sceneRef.current?.install(index, owned === 0);
+        tear(`gen:${index}`);
         if (owned === 0 && def) {
           const person = staffFor(SEED, state.prestigeCount, index);
           showToast(`${person.name} is on the ${def.name.toLowerCase()}. ${person.quirk}`);
@@ -252,7 +264,7 @@ export default function App(): JSX.Element {
         force((v) => v + 1);
       }
     },
-    [bulk, showToast],
+    [bulk, showToast, tear],
   );
 
   const onBuyUpgrade = useCallback(
@@ -262,12 +274,19 @@ export default function App(): JSX.Element {
       if (buyUpgrade(state, id, config)) {
         audio.stinger();
         navigator.vibrate?.([8, 30, 12]);
+        // A tier upgrade replaces the rig, so the camera leans in to watch it happen.
+        tear(`up:${id}`);
+        const tier = parseTierUpgradeId(id);
+        if (tier) {
+          const index = config.generators.list.findIndex((g) => g.id === tier.generatorId);
+          if (index >= 0) sceneRef.current?.upgraded(index);
+        }
         showToast(`${name}. Everything it touches got better.`);
         save(adapter, state, config);
         force((v) => v + 1);
       }
     },
-    [showToast],
+    [showToast, tear],
   );
 
   const onToggleMute = useCallback(() => {
@@ -412,7 +431,9 @@ export default function App(): JSX.Element {
               return (
                 <button
                   key={def.id}
-                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
+                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}${
+                    torn === `gen:${index}` ? " docketbtn--torn" : ""
+                  }`}
                   onClick={() => onBuyGenerator(index)}
                   disabled={!affordable}
                 >
@@ -466,7 +487,9 @@ export default function App(): JSX.Element {
               return (
                 <button
                   key={u.id}
-                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
+                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}${
+                    torn === `up:${u.id}` ? " docketbtn--torn" : ""
+                  }`}
                   onClick={() => onBuyUpgrade(u.id, u.name)}
                   disabled={!affordable}
                 >

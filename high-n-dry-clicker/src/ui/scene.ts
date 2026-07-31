@@ -108,6 +108,27 @@ interface Burger {
   spin: number;
 }
 
+/**
+ * A new hire arriving. Buying the first of a station used to be a toast; now the person walks in
+ * off the street, crosses the floor and steps in behind the counter. PLAN_THE_LINE.md 2.2.
+ */
+interface Walker {
+  index: number;
+  t: number;
+  skin: string;
+  hair: string;
+  role: "cook" | "server";
+}
+
+interface Dust {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  r: number;
+}
+
 interface RisingNumber {
   x: number;
   y: number;
@@ -167,6 +188,12 @@ export class Scene {
   private smoke: Smoke[] = [];
   private rising: RisingNumber[] = [];
   private burgers: Burger[] = [];
+  private walkers: Walker[] = [];
+  private dust: Dust[] = [];
+  /** Per-generator install pop, 1 → 0. Scales the station as it lands. */
+  private stationPop: number[] = [];
+  /** Camera push-in on a power beat, 1 → 0. */
+  private push = 0;
   private view: View = 0;
   private prevView: View = 0;
   /** 1 = settled on `view`; counts down from 0 during a pull-back. */
@@ -229,6 +256,57 @@ export class Scene {
     this.prevView = this.view;
     this.view = view;
     this.viewT = 0;
+  }
+
+  /**
+   * A station arrived. `first` means this is the first of its kind, so somebody walks in for it;
+   * otherwise the gear just lands. Called by the app on purchase (PLAN_THE_LINE.md 2.2).
+   */
+  install(index: number, first: boolean): void {
+    this.stationPop[index] = 1;
+    this.puff(this.stationX(index), BENCH_TOP + 4, 10);
+    if (!first) return;
+    const id = this.nextId;
+    this.nextId += 1;
+    this.walkers.push({
+      index,
+      t: 0,
+      skin: SKIN[id % SKIN.length] as string,
+      hair: HAIR[(id * 3) % HAIR.length] as string,
+      role: index === 3 || index === 4 ? "server" : "cook",
+    });
+  }
+
+  /** A tier upgrade landed — the rig changes, and the camera leans in to watch it. */
+  upgraded(index: number): void {
+    this.stationPop[index] = 1;
+    this.push = 1;
+    this.lampPulse = 1;
+    this.puff(this.stationX(index), BENCH_TOP + 4, 18);
+  }
+
+  private puff(x: number, y: number, count: number): void {
+    if (this.reduced) return;
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.PI + Math.random() * Math.PI;
+      this.dust.push({
+        x,
+        y,
+        vx: Math.cos(angle) * (30 + Math.random() * 70),
+        vy: Math.sin(angle) * (20 + Math.random() * 50),
+        life: 0.4 + Math.random() * 0.4,
+        r: 2 + Math.random() * 3.5,
+      });
+    }
+    this.dust = this.dust.slice(-90);
+  }
+
+  /** Where on the bench a given generator lives. Off-bench things answer with their own spot. */
+  private stationX(index: number): number {
+    if (index === 0) return 40;
+    if (index === 4) return 348;
+    if (index >= 5) return 72;
+    return bayX(index - 1);
   }
 
   private owned(index: number): number {
@@ -442,6 +520,23 @@ export class Scene {
     for (const b of this.burgers) b.t += dt * 1.6;
     this.burgers = this.burgers.filter((b) => b.t < 1);
 
+    for (const w of this.walkers) w.t += dt * 0.48;
+    this.walkers = this.walkers.filter((w) => w.t < 1);
+
+    for (const d of this.dust) {
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.vy += 130 * dt;
+      d.life -= dt;
+    }
+    this.dust = this.dust.filter((d) => d.life > 0);
+
+    for (let i = 0; i < this.stationPop.length; i += 1) {
+      const v = this.stationPop[i] ?? 0;
+      if (v > 0) this.stationPop[i] = Math.max(0, v - dt * 2.2);
+    }
+    this.push = Math.max(0, this.push - dt * 1.5);
+
     if (this.viewT < 1) this.viewT = Math.min(1, this.viewT + dt * 1.15);
     for (const r of this.rising) r.t += dt * 1.35;
     this.rising = this.rising.filter((r) => r.t < 1);
@@ -473,6 +568,13 @@ export class Scene {
     const ctx = this.ctx;
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.clearRect(0, 0, W, H);
+
+    // A tier upgrade leans the camera in about 4% and lets it settle. Small enough to feel
+    // rather than read, which is the whole point of a power beat (BUILD_BRIEF §2).
+    if (this.push > 0 && !this.reduced) {
+      const k = 1 + Math.sin(this.push * Math.PI) * 0.04;
+      ctx.setTransform(this.scale * k, 0, 0, this.scale * k, ((1 - k) * W * this.scale) / 2, ((1 - k) * H * this.scale) / 2);
+    }
 
     if (this.viewT >= 1) {
       this.drawView(this.view, t);
@@ -522,7 +624,9 @@ export class Scene {
     this.drawCounter();
     this.drawCounterProps();
     this.drawCustomers(t);
+    this.drawWalkers(t);
     this.drawBurgers();
+    this.drawDust();
     this.drawRisingNumbers();
   }
 
@@ -953,11 +1057,19 @@ export class Scene {
 
     // Bay 0 fryer, bay 1 the grill crew, bay 2 front of house. Tongs live on the wall rail above
     // the grill and the pickup hatch is at the far end — neither belongs on the bench.
-    if (this.owned(0) > 0) this.drawTongs(16, 104, this.owned(0));
-    if (this.owned(1) > 0) this.drawFryer(bayX(0), GRATE_TOP + 16, t);
-    if (this.owned(2) > 0) this.drawCrew(bayX(1), 2, "#E8E3D8", t, 0, "cook");
-    if (this.owned(3) > 0) this.drawCrew(bayX(2), 3, "#2E3A44", t, 1.7, "server");
-    if (this.owned(4) > 0) this.drawHatch(348, 54);
+    if (this.owned(0) > 0) {
+      this.popped(0, 40, 104, () => this.drawTongs(16, 104, this.owned(0)));
+    }
+    if (this.owned(1) > 0) {
+      this.popped(1, bayX(0), GRATE_TOP + 16, () => this.drawFryer(bayX(0), GRATE_TOP + 16, t));
+    }
+    if (this.owned(2) > 0) {
+      this.popped(2, bayX(1), COUNTER_TOP, () => this.drawCrew(bayX(1), 2, "#E8E3D8", t, 0, "cook"));
+    }
+    if (this.owned(3) > 0) {
+      this.popped(3, bayX(2), COUNTER_TOP, () => this.drawCrew(bayX(2), 3, "#2E3A44", t, 1.7, "server"));
+    }
+    if (this.owned(4) > 0) this.popped(4, 348, 78, () => this.drawHatch(348, 54));
 
     // Venues earn a line on the board.
     const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
@@ -1144,6 +1256,96 @@ export class Scene {
    * offset bob phases so they never move in lockstep. Only the first is named — a row of labels
    * is noise, and the name that matters is the one you hired first.
    */
+  /** Runs `body` scaled around (x, y) by the station's install pop. Nothing to do at rest. */
+  private popped(index: number, x: number, y: number, body: () => void): void {
+    const pop = this.stationPop[index] ?? 0;
+    if (pop <= 0) {
+      body();
+      return;
+    }
+    const ctx = this.ctx;
+    const k = 1 + Math.sin(pop * Math.PI) * 0.16;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(k, k);
+    ctx.translate(-x, -y);
+    body();
+    ctx.restore();
+  }
+
+  private drawDust(): void {
+    const ctx = this.ctx;
+    for (const d of this.dust) {
+      ctx.fillStyle = `rgba(240,232,214,${Math.max(0, d.life) * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Somebody's first shift. They come in off the street, cross the floor and step up behind the
+   * counter — you watch the hire happen instead of reading about it.
+   */
+  private drawWalkers(t: number): void {
+    if (this.view !== 0) return;
+    const ctx = this.ctx;
+    for (const w of this.walkers) {
+      const targetX = this.stationX(w.index);
+      // Two beats: walk across the floor, then step up behind the counter and fade into the crew.
+      const cross = Math.min(1, w.t / 0.62);
+      const step = Math.max(0, (w.t - 0.62) / 0.38);
+      const x = W + 24 + (targetX - W - 24) * cross;
+      const y = FLOOR_Y + (COUNTER_TOP - 6 - FLOOR_Y) * step;
+      const scale = 1 - step * 0.34;
+      const alpha = step > 0.7 ? 1 - (step - 0.7) / 0.3 : 1;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      const bob = Math.sin(t * 9) * (cross < 1 ? 1.6 : 0);
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.ellipse(0, 3, 15, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = w.role === "cook" ? "#E8E3D8" : "#2E3A44";
+      ctx.fillRect(-10, -24 + bob, 20, 24);
+      ctx.fillStyle = "#C6402B";
+      ctx.fillRect(-9, -12 + bob, 18, 12);
+      ctx.fillStyle = w.skin;
+      ctx.beginPath();
+      ctx.arc(0, -32 + bob, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = w.hair;
+      ctx.beginPath();
+      ctx.arc(0, -32 + bob, 9.5, Math.PI, Math.PI * 2);
+      ctx.fill();
+      // In uniform, so a new hire crossing the floor doesn't read as another customer.
+      if (w.role === "cook") {
+        ctx.fillStyle = "#F2EEE6";
+        ctx.fillRect(-8, -44 + bob, 16, 5);
+        ctx.beginPath();
+        ctx.arc(0, -44 + bob, 6, Math.PI, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#1E242A";
+        ctx.beginPath();
+        ctx.arc(0, -40 + bob, 7.5, Math.PI, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(-7.5, -41 + bob, 15, 3);
+        ctx.fillRect(-11, -41 + bob, 8, 2.5);
+      }
+      ctx.fillStyle = "#241F1C";
+      ctx.beginPath();
+      ctx.arc(-3.5, -32 + bob, 1.4, 0, Math.PI * 2);
+      ctx.arc(3.5, -32 + bob, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private drawCrew(
     x: number,
     index: number,

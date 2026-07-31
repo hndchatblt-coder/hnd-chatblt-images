@@ -231,6 +231,26 @@ button {
   transition: transform 0.06s;
 }
 
+/* Bought: the paper you tapped tears off and goes. The docket metaphor should cost something. */
+.docketbtn--torn {
+  animation: docket-tear 0.42s ease-out;
+}
+
+@keyframes docket-tear {
+  0% {
+    transform: translateY(2px);
+    filter: brightness(1);
+  }
+  22% {
+    transform: translateY(-3px) rotate(-0.7deg);
+    filter: brightness(1.25);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg);
+    filter: brightness(1);
+  }
+}
+
 .docketbtn:active:not(:disabled) {
   transform: translateY(2px);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
@@ -366,6 +386,9 @@ button {
   .docketbtn,
   .toast {
     transition: none;
+  }
+  .docketbtn--torn {
+    animation: none;
   }
 }
 
