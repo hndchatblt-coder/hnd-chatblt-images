@@ -33,9 +33,21 @@ const QUEUE_X = 68;
 const QUEUE_STEP = 46;
 const MAX_QUEUE = 7;
 
-/** Where food is made — the sizzle, the smoke and the grease all come off here. */
+/**
+ * The bench, divided into bays, left to right in the order food travels. The grill is plumbed in
+ * at the left and can't move; the three bays to its right hold stations.
+ *
+ * This exists because E1 broke without it: four people at a station is what tier 3 looks like,
+ * and at fixed positions the crews ran off the right edge and stood inside the fryer. It is also
+ * the skeleton PART TWO of PLAN_THE_LINE.md needs, so it's built once, here.
+ */
 const GRILL_X = 14;
-const GRILL_RIGHT = 162;
+const GRILL_RIGHT = 150;
+export const BAYS = 3;
+const BAY_LEFT = 154;
+const BAY_W = (W - BAY_LEFT - 6) / BAYS;
+/** Centre of bay `i`. */
+const bayX = (i: number): number => BAY_LEFT + BAY_W * (i + 0.5);
 const PATTY_Y = GRATE_TOP + 16;
 /** Small ones, several of them. The single giant patty was Cookie Clicker's cookie (pass 3). */
 const PATTY_R = 9;
@@ -122,6 +134,12 @@ export interface Business {
   autoServesPerSecond: number;
   /** Who is standing where, by generator index. */
   staffNames: Record<number, string>;
+  /**
+   * Tier upgrades owned per generator, 0-3 (the x2s at 10/25/50 owned). Each step physically
+   * replaces the equipment — see PLAN_THE_LINE.md 2.1. Until this landed, the 36 most
+   * significant purchases in the game were invisible.
+   */
+  tiers: number[];
 }
 
 export class Scene {
@@ -136,7 +154,13 @@ export class Scene {
   private squash = 0;
   private flare = 0;
   private lampPulse = 0;
-  private business: Business = { generators: [], busy: 0, autoServesPerSecond: 0, staffNames: {} };
+  private business: Business = {
+    generators: [],
+    busy: 0,
+    autoServesPerSecond: 0,
+    staffNames: {},
+    tiers: [],
+  };
 
   private customers: Customer[] = [];
   private grease: Grease[] = [];
@@ -209,6 +233,20 @@ export class Scene {
 
   private owned(index: number): number {
     return this.business.generators[index] ?? 0;
+  }
+
+  /** How far a station has been upgraded, 0-3. */
+  private tier(index: number): number {
+    return this.business.tiers[index] ?? 0;
+  }
+
+  /**
+   * The flat-top grows with the crew working it — a second flat-top at tier 2, the full bench at
+   * tier 3. It's the widest object in the room, so it carries the tier ladder better than
+   * anything else on screen.
+   */
+  private grillRight(): number {
+    return GRILL_RIGHT;
   }
 
   /** How many are queued or walking in. */
@@ -659,12 +697,13 @@ export class Scene {
 
     const busy = this.business.busy;
     const slots = [
-      { label: "LEICHHARDT", owned: true, rival: false, rise: 18 },
-      { label: "ROSEBERY", owned: this.owned(5) > 0, rival: false, rise: 8 },
-      { label: "NEUTRAL BAY", owned: this.owned(6) > 0, rival: false, rise: 13 },
-      { label: "GHOST KITCHEN", owned: this.owned(7) > 0, rival: false, rise: 2 },
-      { label: "GRILLZILLA", owned: false, rival: true, rise: 15 },
-      { label: "PATTY CVLT", owned: false, rival: true, rise: 6 },
+      // A venue's tier is how full it looks — upgrading Rosebery lights Rosebery's windows.
+      { label: "LEICHHARDT", owned: true, rival: false, rise: 18, tier: this.tier(2) },
+      { label: "ROSEBERY", owned: this.owned(5) > 0, rival: false, rise: 8, tier: this.tier(5) },
+      { label: "NEUTRAL BAY", owned: this.owned(6) > 0, rival: false, rise: 13, tier: this.tier(6) },
+      { label: "GHOST KITCHEN", owned: this.owned(7) > 0, rival: false, rise: 2, tier: this.tier(7) },
+      { label: "GRILLZILLA", owned: false, rival: true, rise: 15, tier: 0 },
+      { label: "PATTY CVLT", owned: false, rival: true, rise: 6, tier: 0 },
     ];
     const slotW = W / slots.length;
     const BASE = 230;
@@ -730,7 +769,9 @@ export class Scene {
           const wx = x + 9 + c * 16;
           const wy = top + 48 + r * 20;
           if (wy + 12 > BASE - 6) continue;
-          const on = lit && (i * 7 + r * 3 + c) % 4 !== 0;
+          // Half the windows at tier 0, every one of them by tier 3.
+          const density = 2 + slot.tier;
+          const on = lit && (i * 7 + r * 3 + c * 5) % 5 < density;
           ctx.fillStyle = on
             ? `rgba(255,196,120,${0.4 + busy * 0.22})`
             : lit
@@ -850,7 +891,7 @@ export class Scene {
     const ctx = this.ctx;
     const x = 150;
     const y = 52;
-    const w = 224;
+    const w = 156;
     const h = 52;
     ctx.fillStyle = "#1B1F23";
     ctx.fillRect(x, y, w, h);
@@ -910,12 +951,13 @@ export class Scene {
   private drawStations(t: number): void {
     const ctx = this.ctx;
 
-    // 2 fryer, 3 grill hand, 4 front of house, 5 delivery hatch, 6+ venues on the board.
-    if (this.owned(1) > 0) this.drawFryer(206, GRATE_TOP + 16, t);
-    if (this.owned(4) > 0) this.drawHatch(330, 84);
-    if (this.owned(2) > 0) this.drawStaff(268, COUNTER_TOP - 6, "#E8E3D8", t, 0, this.business.staffNames[2]);
-    if (this.owned(3) > 0) this.drawStaff(336, COUNTER_TOP - 6, "#D8E3EA", t, 1.7, this.business.staffNames[3]);
-    if (this.owned(0) > 0) this.drawTongs(174, GRATE_TOP + 30, this.owned(0));
+    // Bay 0 fryer, bay 1 the grill crew, bay 2 front of house. Tongs live on the wall rail above
+    // the grill and the pickup hatch is at the far end — neither belongs on the bench.
+    if (this.owned(0) > 0) this.drawTongs(16, 104, this.owned(0));
+    if (this.owned(1) > 0) this.drawFryer(bayX(0), GRATE_TOP + 16, t);
+    if (this.owned(2) > 0) this.drawCrew(bayX(1), 2, "#E8E3D8", t, 0, "cook");
+    if (this.owned(3) > 0) this.drawCrew(bayX(2), 3, "#2E3A44", t, 1.7, "server");
+    if (this.owned(4) > 0) this.drawHatch(348, 54);
 
     // Venues earn a line on the board.
     const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
@@ -935,56 +977,195 @@ export class Scene {
     }
   }
 
+  /**
+   * Tongs and prep, hung on a wall rail above the grill. Tier 0 is a pair on the rail; by tier 3
+   * there are two rails and a row of mise-en-place tubs, which is what fifty pairs of tongs
+   * actually looks like in a kitchen.
+   */
   private drawTongs(x: number, y: number, count: number): void {
     const ctx = this.ctx;
-    const pairs = Math.min(4, Math.ceil(count / 12));
-    ctx.strokeStyle = "#B9C0C7";
-    ctx.lineWidth = 1.6;
-    for (let i = 0; i < pairs; i += 1) {
-      const px = x + i * 7;
-      ctx.beginPath();
-      ctx.moveTo(px, y);
-      ctx.lineTo(px + 3, y - 16);
-      ctx.moveTo(px + 3, y);
-      ctx.lineTo(px + 3, y - 16);
-      ctx.stroke();
+    const tier = this.tier(0);
+    const rails = tier >= 2 ? 2 : 1;
+    const perRail = Math.min(6, Math.max(1, Math.ceil(count / 10)) + tier);
+
+    for (let rail = 0; rail < rails; rail += 1) {
+      const ry = y - rail * 15;
+      ctx.fillStyle = "#5C646C";
+      ctx.fillRect(x, ry - 17, perRail * 9 + 6, 2.5);
+      ctx.strokeStyle = "#6E767E";
+      ctx.lineWidth = 1.6;
+      for (let i = 0; i < perRail; i += 1) {
+        const px = x + 4 + i * 9;
+        ctx.beginPath();
+        ctx.moveTo(px, ry);
+        ctx.lineTo(px + 3, ry - 15);
+        ctx.moveTo(px + 3, ry);
+        ctx.lineTo(px + 3, ry - 15);
+        ctx.stroke();
+      }
+    }
+
+    // Mise-en-place tubs on the bench edge from tier 2 — the prep bench earning its keep.
+    if (tier >= 2) {
+      const tubs = tier >= 3 ? 4 : 2;
+      for (let i = 0; i < tubs; i += 1) {
+        const tx = x + i * 12;
+        ctx.fillStyle = "#C8CED4";
+        ctx.fillRect(tx, BENCH_TOP + 2, 10, 9);
+        ctx.fillStyle = ["#7CA84E", "#C6402B", "#E0B23A", "#E8E3D8"][i % 4] as string;
+        ctx.fillRect(tx + 1, BENCH_TOP + 3, 8, 4);
+      }
     }
   }
 
+  /**
+   * The fryer bank. One basket, then two, then three, then an auto-lift rig that cycles on its
+   * own — the tier upgrades you buy, made physical. Sized to its bay so it can't grow into
+   * the crew standing next door.
+   */
   private drawFryer(x: number, y: number, t: number): void {
     const ctx = this.ctx;
-    ctx.fillStyle = "#C3CAD1";
-    ctx.fillRect(x - 26, y - 16, 52, 30);
-    ctx.fillStyle = "#E4E9ED";
-    ctx.fillRect(x - 26, y - 16, 52, 5);
-    ctx.fillStyle = "#E8B93F";
-    ctx.fillRect(x - 21, y - 6, 42, 14);
-    // Basket bubbling.
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    for (let i = 0; i < 4; i += 1) {
-      const bx = x - 15 + i * 10;
-      const by = y + 4 - ((t * 22 + i * 9) % 12);
+    const tier = this.tier(1);
+    const baskets = [1, 2, 3, 3][tier] ?? 1;
+    const wide = Math.min(BAY_W - 10, 30 + baskets * 8);
+    const left = x - wide / 2;
+    const top = y - 16;
+
+    // Stainless body with a control panel, so it reads as an appliance rather than a cabinet.
+    ctx.fillStyle = "#20252A";
+    ctx.fillRect(left - 1, top - 1, wide + 2, 33);
+    const body = ctx.createLinearGradient(0, top, 0, top + 32);
+    body.addColorStop(0, "#D2D8DE");
+    body.addColorStop(0.45, "#AEB5BC");
+    body.addColorStop(1, "#868E96");
+    ctx.fillStyle = body;
+    ctx.fillRect(left, top, wide, 32);
+
+    // Oil well, recessed into the top — you look down into a fryer, not through it.
+    ctx.fillStyle = "#1C1610";
+    ctx.fillRect(left + 3, top + 3, wide - 6, 15);
+    const oil = ctx.createLinearGradient(0, top + 3, 0, top + 18);
+    oil.addColorStop(0, "#A8761E");
+    oil.addColorStop(1, "#5E4110");
+    ctx.fillStyle = oil;
+    ctx.fillRect(left + 4, top + 4, wide - 8, 13);
+
+    const basketW = (wide - 10) / baskets;
+    for (let b = 0; b < baskets; b += 1) {
+      const bx = left + 5 + b * basketW;
+      // From tier 3 the baskets lift and drop on their own — nobody is standing there.
+      const lift = tier >= 3 ? Math.max(0, Math.sin(t * 1.1 + b * 2.1)) * 7 : 0;
+      const by = top + 5 - lift;
+
+      ctx.fillStyle = "#E8B93F";
+      ctx.fillRect(bx + 1, by + 1, basketW - 4, 10);
+      ctx.strokeStyle = "#5C646C";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, by + 0.5, basketW - 3, 11);
+      for (let g = 1; g < 3; g += 1) {
+        ctx.beginPath();
+        ctx.moveTo(bx + g * ((basketW - 3) / 3), by);
+        ctx.lineTo(bx + g * ((basketW - 3) / 3), by + 11);
+        ctx.stroke();
+      }
+      // Handle up over the rim.
+      ctx.strokeStyle = "#3A4046";
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.arc(bx, by, 1.4, 0, Math.PI * 2);
+      ctx.moveTo(bx + basketW - 4, by + 2);
+      ctx.lineTo(bx + basketW - 1, by - 6);
+      ctx.stroke();
+
+      // Oil working, only where a basket is actually in it.
+      if (lift < 2) {
+        ctx.fillStyle = "rgba(255,240,200,0.5)";
+        for (let i = 0; i < 3; i += 1) {
+          const px = bx + 2 + i * ((basketW - 6) / 3);
+          const py = top + 16 - ((t * 20 + i * 7 + b * 5) % 12);
+          ctx.beginPath();
+          ctx.arc(px, py, 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Control panel.
+    ctx.fillStyle = "#2E353B";
+    ctx.fillRect(left + 3, top + 22, wide - 6, 7);
+    for (let d = 0; d < Math.min(3, baskets); d += 1) {
+      ctx.fillStyle = tier >= 3 ? "#7CC46B" : "#E0B23A";
+      ctx.beginPath();
+      ctx.arc(left + 8 + d * 9, top + 25.5, 1.8, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.strokeStyle = "#8A9199";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x + 18, y - 8);
-    ctx.lineTo(x + 26, y - 18);
-    ctx.stroke();
+
+    // The auto-lift gantry.
+    if (tier >= 3) {
+      ctx.fillStyle = "#8C949C";
+      ctx.fillRect(left, top - 9, wide, 3);
+      ctx.fillStyle = "#5C646C";
+      for (let b = 0; b < baskets; b += 1) {
+        ctx.fillRect(left + 5 + b * basketW + basketW / 2, top - 7, 2, 6);
+      }
+    }
   }
 
+  /**
+   * The delivery end, on the wall past the menu board: a hatch, then bags waiting, then a rack
+   * of them. Couriers themselves live out on the strip.
+   */
   private drawHatch(x: number, y: number): void {
     const ctx = this.ctx;
+    const tier = this.tier(4);
     ctx.fillStyle = "#20252A";
-    ctx.fillRect(x - 30, y, 60, 18);
-    ctx.fillStyle = "rgba(255,190,110,0.65)";
+    ctx.fillRect(x - 36, y, 72, 50);
+    ctx.fillStyle = "#2A3036";
+    ctx.fillRect(x - 33, y + 3, 66, 44);
+    ctx.fillStyle = "rgba(255,190,110,0.8)";
     ctx.font = "700 7px ui-monospace, monospace";
     ctx.textAlign = "center";
-    ctx.fillText("PICKUP", x, y + 12);
+    ctx.fillText("PICKUP", x, y + 13);
     ctx.textAlign = "left";
+
+    // Bags on the shelf, two rows once there are enough of them.
+    const bags = [1, 2, 4, 6][tier] ?? 1;
+    for (let i = 0; i < bags; i += 1) {
+      const bx = x - 30 + (i % 3) * 21;
+      const by = y + 18 + Math.floor(i / 3) * 15;
+      ctx.fillStyle = "#3E7FA8";
+      ctx.fillRect(bx, by, 16, 13);
+      ctx.fillStyle = "rgba(255,255,255,0.32)";
+      ctx.fillRect(bx + 3, by + 2, 10, 3);
+    }
+  }
+
+  /**
+   * The people at a station. Tier 0 is one of them; tier 3 is four, spread across the bay, on
+   * offset bob phases so they never move in lockstep. Only the first is named — a row of labels
+   * is noise, and the name that matters is the one you hired first.
+   */
+  private drawCrew(
+    x: number,
+    index: number,
+    whites: string,
+    t: number,
+    phase: number,
+    role: "cook" | "server",
+  ): void {
+    const heads = 1 + this.tier(index);
+    const spread = Math.min(20, (BAY_W - 24) / Math.max(1, heads - 1));
+    const left = x - ((heads - 1) * spread) / 2;
+    for (let i = 0; i < heads; i += 1) {
+      this.drawStaff(
+        left + i * spread,
+        COUNTER_TOP - 6,
+        whites,
+        t,
+        phase + i * 1.3,
+        i === 0 ? this.business.staffNames[index] : undefined,
+        role,
+      );
+    }
   }
 
   private drawStaff(
@@ -993,7 +1174,8 @@ export class Scene {
     whites: string,
     t: number,
     phase: number,
-    name?: string,
+    name: string | undefined,
+    role: "cook" | "server",
   ): void {
     const ctx = this.ctx;
     const bob = Math.sin(t * 3 + phase) * 1.2;
@@ -1003,8 +1185,8 @@ export class Scene {
     ctx.fillRect(x - 10.5, y - 23, 21, 23);
     ctx.fillStyle = whites;
     ctx.fillRect(x - 9, y - 22, 18, 22);
-    // Apron, in the house red.
-    ctx.fillStyle = "#B44A32";
+    // Cooks wear the house red apron; front of house wear the brand tee under a black cap.
+    ctx.fillStyle = role === "cook" ? "#B44A32" : "#C6402B";
     ctx.fillRect(x - 8, y - 11, 16, 11);
     ctx.fillStyle = "rgba(0,0,0,0.16)";
     ctx.fillRect(x - 8, y - 11, 16, 1.5);
@@ -1012,12 +1194,22 @@ export class Scene {
     ctx.beginPath();
     ctx.arc(x, y - 28, 7, 0, Math.PI * 2);
     ctx.fill();
-    // Cap.
-    ctx.fillStyle = whites;
-    ctx.fillRect(x - 8, y - 36, 16, 5);
-    ctx.beginPath();
-    ctx.arc(x, y - 36, 6, Math.PI, Math.PI * 2);
-    ctx.fill();
+    if (role === "cook") {
+      // Chef's cap.
+      ctx.fillStyle = "#F2EEE6";
+      ctx.fillRect(x - 8, y - 36, 16, 5);
+      ctx.beginPath();
+      ctx.arc(x, y - 36, 6, Math.PI, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Flat cap with a peak.
+      ctx.fillStyle = "#1E242A";
+      ctx.beginPath();
+      ctx.arc(x, y - 33, 7.5, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(x - 7.5, y - 34, 15, 3);
+      ctx.fillRect(x - 11, y - 34, 8, 2.5);
+    }
     ctx.fillStyle = "#241F1C";
     ctx.beginPath();
     ctx.arc(x - 2.4, y - 28, 1, 0, Math.PI * 2);
@@ -1029,11 +1221,12 @@ export class Scene {
       const label = name.toUpperCase();
       ctx.font = "700 8px ui-monospace, monospace";
       const wide = ctx.measureText(label).width + 8;
+      const nx = Math.min(W - wide / 2 - 2, Math.max(wide / 2 + 2, x));
       ctx.fillStyle = "rgba(20,18,16,0.62)";
-      ctx.fillRect(x - wide / 2, y - 50, wide, 12);
+      ctx.fillRect(nx - wide / 2, y - 50, wide, 12);
       ctx.fillStyle = "rgba(255,214,160,0.92)";
       ctx.textAlign = "center";
-      ctx.fillText(label, x, y - 41);
+      ctx.fillText(label, nx, y - 41);
       ctx.textAlign = "left";
     }
   }
@@ -1062,6 +1255,11 @@ export class Scene {
     ctx.fillRect(left, GRATE_TOP, right - left, GRATE_HEIGHT);
     ctx.strokeStyle = "#2A2724";
     ctx.lineWidth = 4;
+    if (this.tier(2) >= 2) {
+      // A second flat-top butted up against the first — you can see the join.
+      ctx.fillStyle = "#3A3532";
+      ctx.fillRect(GRILL_RIGHT - 2, GRATE_TOP, 4, GRATE_HEIGHT);
+    }
     for (let i = 0; i <= 5; i += 1) {
       const y = GRATE_TOP + (i / 5) * GRATE_HEIGHT;
       ctx.beginPath();
@@ -1071,7 +1269,8 @@ export class Scene {
     }
     if (this.reduced) return;
     const strength = 0.45 + this.business.busy * 0.45 + this.flare;
-    for (let i = 0; i < 6; i += 1) {
+    const jets = Math.round((right - left) / 26);
+    for (let i = 0; i < jets; i += 1) {
       const x = left + 16 + i * 26;
       const wobble = Math.sin(t * 7 + i * 1.9) * 0.5 + 0.5;
       const height = (10 + wobble * 14) * strength;
@@ -1100,8 +1299,9 @@ export class Scene {
    */
   private drawPatties(t: number): void {
     const ctx = this.ctx;
-    const count = Math.min(6, 2 + Math.round(this.business.busy * 4));
-    const span = GRILL_RIGHT - GRILL_X - 28;
+    const right = this.grillRight();
+    const count = Math.min(4 + this.tier(2) * 2, 2 + Math.round(this.business.busy * 5));
+    const span = right - GRILL_X - 28;
 
     for (let i = 0; i < count; i += 1) {
       const x = GRILL_X + 16 + (span * i) / Math.max(1, count - 1);

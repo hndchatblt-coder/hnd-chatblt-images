@@ -23,6 +23,7 @@ import {
   save,
   settleOffline,
   tap as engineTap,
+  tierUpgradeId,
   tick,
   totalGenerators,
   upgradeCost,
@@ -79,6 +80,24 @@ function staffNames(state: GameState): Record<number, string> {
     }
   });
   return names;
+}
+
+/**
+ * How many tier upgrades are owned per generator, 0-3.
+ *
+ * These are the x2s at 10/25/50 owned — the most significant purchases in the game, and until now
+ * completely invisible: they produced a toast and nothing else. The scene draws a different rig
+ * for each tier, so buying one physically replaces the equipment (PLAN_THE_LINE.md 2.1).
+ */
+function stationTiers(state: GameState): number[] {
+  const owned = new Set(state.upgrades);
+  return config.generators.list.map((gen) => {
+    let tier = 0;
+    for (let i = 0; i < config.generatorTiers.thresholds.length; i += 1) {
+      if (owned.has(tierUpgradeId(gen.id, i))) tier = i + 1;
+    }
+    return tier;
+  });
 }
 
 const UPGRADE_FAMILY: Record<string, string> = {
@@ -158,6 +177,7 @@ export default function App(): JSX.Element {
         busy,
         autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
         staffNames: staffNames(state),
+        tiers: stationTiers(state),
       });
       audio.setBusy(busy);
       sinceSave += dt;
