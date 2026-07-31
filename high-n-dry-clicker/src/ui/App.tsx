@@ -28,7 +28,12 @@ import {
   normalizeLayout,
   productionWeights,
   swapBays,
+  buyPerk,
+  canSellBusiness,
+  pendingGoodwill,
+  sellBusiness,
   tap as engineTap,
+  tapGolden,
   tierUpgradeId,
   tick,
   totalGenerators,
@@ -131,6 +136,22 @@ function nextPurchase(
   return best;
 }
 
+/**
+ * The golden patty, told as a person. `progress` runs 0 → 1 across the window you have to serve
+ * them; the scene draws it as a closing ring rather than a countdown bar.
+ */
+function vipFor(state: GameState): { id: string; name: string; progress: number } | null {
+  const on = state.golden.onScreen;
+  if (!on) return null;
+  const effect = config.golden.effects.find((e) => e.id === on.effectId);
+  const span = on.expiresAt - on.spawnedAt;
+  return {
+    id: on.effectId,
+    name: effect?.name ?? "Somebody",
+    progress: span > 0 ? Math.min(1, Math.max(0, (state.timeSeconds - on.spawnedAt) / span)) : 1,
+  };
+}
+
 const UPGRADE_FAMILY: Record<string, string> = {
   tier: "Station",
   click: "The pass",
@@ -144,11 +165,12 @@ export default function App(): JSX.Element {
 
   const [, force] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [panel, setPanel] = useState<"staff" | "upgrades">("staff");
+  const [panel, setPanel] = useState<"staff" | "upgrades" | "books">("staff");
   const [bulk, setBulk] = useState(1);
   const [view, setView] = useState<View>(0);
   const [unlockedView, setUnlockedView] = useState<View>(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [sellArmed, setSellArmed] = useState(false);
   const [torn, setTorn] = useState<string | null>(null);
   /** Rolling $/sec samples. A sense of progress is a derivative, and we never used to show one. */
   const cpsHistory = useRef<{ at: number; cps: number }[]>([]);
@@ -201,12 +223,23 @@ export default function App(): JSX.Element {
       save(adapter, state, config);
       force((v) => v + 1);
     };
+    scene.onTapVip = () => {
+      const state = stateRef.current;
+      const id = tapGolden(state, config);
+      if (!id) return;
+      const effect = config.golden.effects.find((e) => e.id === id);
+      audio.stinger();
+      navigator.vibrate?.([12, 40, 12, 40, 20]);
+      if (effect) showToast(`${effect.name}. ${effect.line}`);
+      save(adapter, state, config);
+      force((v) => v + 1);
+    };
     sceneRef.current = scene;
     return () => {
       scene.destroy();
       sceneRef.current = null;
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     let raf = 0;
@@ -231,6 +264,7 @@ export default function App(): JSX.Element {
         layout: normalizeLayout(state.layout, config, bayCount(state.upgrades, config)),
         bays: bayCount(state.upgrades, config),
         tiers: stationTiers(state),
+        vip: vipFor(state),
       });
       audio.setBusy(busy);
       sinceSave += dt;
@@ -384,6 +418,44 @@ export default function App(): JSX.Element {
     force((v) => v + 1);
   }, [showToast]);
 
+  /**
+   * Sell the business. Nothing the player earned is ever removed — Goodwill, perks and
+   * achievements all survive. Confirmation is a two-tap arm because it's the one irreversible
+   * action in the game, not because we want to nag (hard rule 7).
+   */
+  const onSell = useCallback(() => {
+    const state = stateRef.current;
+    if (!canSellBusiness(state, config)) return;
+    if (!sellArmed) {
+      setSellArmed(true);
+      window.setTimeout(() => setSellArmed(false), 4000);
+      return;
+    }
+    const awarded = sellBusiness(state, config);
+    setSellArmed(false);
+    sceneRef.current?.sold();
+    audio.stinger();
+    navigator.vibrate?.([14, 60, 14, 60, 24]);
+    showToast(
+      `Sold. ${awarded} goodwill, and a crew who have never met you. The new owners have changed the tongs.`,
+    );
+    save(adapter, state, config);
+    force((v) => v + 1);
+  }, [sellArmed, showToast]);
+
+  const onBuyPerk = useCallback(
+    (id: string, name: string) => {
+      const state = stateRef.current;
+      if (!buyPerk(state, id, config)) return;
+      audio.stinger();
+      navigator.vibrate?.([8, 30, 12]);
+      showToast(`${name}. That one stays with you.`);
+      save(adapter, state, config);
+      force((v) => v + 1);
+    },
+    [showToast],
+  );
+
   const onToggleMute = useCallback(() => {
     audio.init();
     setMuted((m) => {
@@ -423,6 +495,8 @@ export default function App(): JSX.Element {
   const affordableUpgrades = upgrades.filter((u) => state.cash >= u.cost).length;
 
   // Nothing to arrange until there are at least two stations to arrange.
+  const sellable = canSellBusiness(state, config);
+  const goodwillPending = pendingGoodwill(state, config);
   const lineIsArrangeable =
     config.layout.placeable.filter((i) => (state.generators[i] ?? 0) > 0).length >= 2;
 
@@ -551,10 +625,101 @@ export default function App(): JSX.Element {
           Upgrades
           {affordableUpgrades > 0 && <i className="tab__dot">{affordableUpgrades}</i>}
         </button>
+        <button
+          className={`tab${panel === "books" ? " tab--on" : ""}`}
+          role="tab"
+          aria-selected={panel === "books"}
+          onClick={() => setPanel("books")}
+        >
+          The books
+          {sellable && <i className="tab__dot">!</i>}
+        </button>
       </nav>
 
       <section className="shop">
-        {panel === "staff" ? (
+        {panel === "books" ? (
+          <>
+            <div className="shop__head">
+              <span>Goodwill {state.goodwill}</span>
+              <span>
+                {state.prestigeCount === 0
+                  ? "never sold"
+                  : `sold ${state.prestigeCount} time${state.prestigeCount === 1 ? "" : "s"}`}
+              </span>
+            </div>
+
+            <button
+              className={`docketbtn${sellable ? " docketbtn--afford" : ""}`}
+              onClick={onSell}
+              disabled={!sellable}
+            >
+              <span>
+                <span className="docketbtn__kind">The exit</span>
+                <span className="docketbtn__name">
+                  {sellArmed ? "Sure?" : "Sell the business"}
+                </span>
+                <span className="docketbtn__flavour">
+                  {sellable
+                    ? sellArmed
+                      ? "Everything on the books goes. Goodwill, perks and the wall stay yours."
+                      : "Walk away with the reputation. Start again with it behind you."
+                    : `Not yet. The books need to show ${formatCash(config.prestige.minLifetimeRevenueToSell)} lifetime.`}
+                </span>
+              </span>
+              <span>
+                <span className="docketbtn__price">+{goodwillPending}</span>
+                <span className="docketbtn__owned">goodwill</span>
+              </span>
+            </button>
+
+            {state.goodwill > 0 && (
+              <div className="shop__head">
+                <span>What you keep</span>
+                <span>{state.perks.length} of {config.prestige.perks.length}</span>
+              </div>
+            )}
+
+            {config.prestige.perks.map((perk) => {
+              const owned = state.perks.includes(perk.id);
+              const affordable = !owned && state.goodwill >= perk.cost;
+              if (!owned && state.goodwill === 0) return null;
+              return (
+                <button
+                  key={perk.id}
+                  className={`docketbtn${affordable ? " docketbtn--afford" : ""}`}
+                  onClick={() => onBuyPerk(perk.id, perk.name)}
+                  disabled={!affordable}
+                >
+                  <span>
+                    <span className="docketbtn__kind">{owned ? "Yours" : "Goodwill"}</span>
+                    <span className="docketbtn__name">{perk.name}</span>
+                    <span className="docketbtn__flavour">{perk.flavour}</span>
+                  </span>
+                  <span>
+                    <span className="docketbtn__price">{owned ? "—" : perk.cost}</span>
+                  </span>
+                </button>
+              );
+            })}
+
+            <div className="shop__head">
+              <span>The wall</span>
+              <span>
+                {state.achievements.length} of {config.achievements.length}
+              </span>
+            </div>
+            <div className="wall">
+              {config.achievements.map((a) => {
+                const got = state.achievements.includes(a.id);
+                return (
+                  <span key={a.id} className={`wall__item${got ? " wall__item--got" : ""}`}>
+                    {got ? a.name : "· · ·"}
+                  </span>
+                );
+              })}
+            </div>
+          </>
+        ) : panel === "staff" ? (
           <>
             <div className="shop__head">
               <span>{totalGenerators(state)} on the books</span>

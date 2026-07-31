@@ -7,9 +7,18 @@ direction. `PROGRESS.md` is the append-only iteration log.
 
 ## The shape of this project
 
-One screen. One number. One thumb. Cookie Clicker's exact skeleton, High N' Dry's skin and
-voice. **A second gameplay screen means you've gone wrong** (brief §0). Scope discipline is the
-point: one prototype finished to a high bar, not a bigger game half-finished.
+One screen. One number. One thumb. **A second gameplay screen means you've gone wrong** (brief §0).
+Scope discipline is the point: one prototype finished to a high bar, not a bigger game
+half-finished.
+
+**Two amendments Ben has made to the brief since it was written**, both recorded where they
+happened rather than quietly applied:
+
+- *"Cookie clicker was the wrong direction."* The skeleton is no longer copied. The screen is a
+  working line, cut away side-on, in the language of Idle Miner Tycoon and Egg Inc rather than a
+  mascot object over a list. See `DESIGN_TOKENS.md` pass 3.
+- *"Maybe as you add friers and staff you place them."* Stations can be rearranged on the bench —
+  **in the shop scene itself**, never a build mode. See `PLAN_THE_LINE.md`.
 
 **This is not Burger Warlord / Global Domination.** That project (`../high-n-dry-global-domination/`)
 is parked. Don't import from it, don't reuse its balance, don't resurrect its layers.
@@ -31,7 +40,13 @@ is parked. Don't import from it, don't reuse its balance, don't resurrect its la
 6. **Never weaken an assertion or delete a test to get a gate green.** If an assertion is wrong,
    stop and tell Ben. Do not fix it yourself. This is a hard stop-and-ask trigger.
 7. **No dark patterns.** No forced ads, no timers designed to pull him back, no fake urgency.
-8. Canvas for the patty scene and particles; DOM for everything else. Never the whole UI in canvas.
+8. Canvas for the shop scene and particles; DOM for everything else. Never the whole UI in canvas.
+   (Was "the patty scene". There is no patty — it was Cookie Clicker's cookie and it was deleted
+   in DESIGN_TOKENS pass 3.)
+9. **Layout is a bonus, never a tax.** Any arrangement of the bench scores at least 1.0x, the best
+   possible is capped below one tier upgrade, and a one-tap optimal AUTO ships alongside the manual
+   interaction. A7/A8/A9 hold all three. If any of them slips, the feature has become a different
+   game and should be cut (PLAN_THE_LINE.md §1).
 
 ## Milestones and gates
 

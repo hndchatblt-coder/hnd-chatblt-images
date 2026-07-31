@@ -423,3 +423,26 @@ engine — you paid for bench, the gear goes on it, rearranging afterwards is st
 
 G1 clean · G2 41/41 · **G3 9/9 GREEN** (A7–A9 new) · G4 1/4 — B1/B2/B4 unchanged and untouched by
 any of this, still waiting on the B2 direction call.
+
+---
+
+## The three systems that had no UI at all
+
+Found while auditing for "is this actually a complete prototype": **the golden patty, selling the
+business, and forty achievements were all fully implemented in the engine and completely
+unreachable from the game.** Prestige is the entire long-term loop and there was no way to do it.
+
+**The golden patty is a person now.** A coin drifting across the screen is a mobile-game
+convention; someone walking in who is obviously worth serving is the same mechanic told in the
+language of the shop. They come through the door under a moving wash of light, and the time you
+have left is a ring closing around them — no countdown bar, no number. Tapping them takes priority
+over serving, because missing the rarest thing on screen for a nearer customer would be miserable.
+
+**The books.** A third panel: sell the business, spend goodwill on the six perks, and the wall of
+forty achievements. Selling is a two-tap arm, not because we want to nag but because it is the one
+irreversible act in the game — and when it lands, the room empties: everyone leaves, the camera
+comes back to the counter, the venues go dark, and a crew who have never met you start tomorrow.
+
+Verified end to end under touch: 43 goodwill awarded, the run reset to zero on the books, the
+achievement wall **kept everything it had** and gained one, and all six perks became purchasable.
+Nothing the player earned is ever removed — hard rule 4, checked rather than assumed.

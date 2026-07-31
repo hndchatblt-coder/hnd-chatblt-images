@@ -185,6 +185,11 @@ export interface Business {
   tiers: number[];
   /** Bay index → generator index, -1 for empty. The bench, as the player arranged it. */
   layout: number[];
+  /**
+   * The golden patty, if one is out. Not an abstract floating coin — someone has walked in who
+   * is worth serving, and the whole room notices. null when there's nobody.
+   */
+  vip: { id: string; name: string; progress: number } | null;
   /** How many bays the bench has — grows with fitouts. */
   bays: number;
 }
@@ -210,6 +215,7 @@ export class Scene {
     tiers: [],
     layout: [],
     bays: 3,
+    vip: null,
   };
 
   private customers: Customer[] = [];
@@ -229,6 +235,10 @@ export class Scene {
   bayLabel?: (generatorIndex: number) => string;
   /** Called when the player asks for two bays to swap. */
   onSwapBays?: (a: number, b: number) => void;
+  /** Called when the golden patty is tapped. */
+  onTapVip?: () => void;
+  /** Where the VIP is standing this frame, in canvas space. */
+  private vipX = W * 0.5;
   private view: View = 0;
   private prevView: View = 0;
   /** 1 = settled on `view`; counts down from 0 during a pull-back. */
@@ -320,6 +330,29 @@ export class Scene {
       hair: HAIR[(id * 3) % HAIR.length] as string,
       role: index === 3 || index === 4 ? "server" : "cook",
     });
+  }
+
+  /**
+   * The business was sold. The room empties: everyone on the floor leaves, the camera comes back
+   * to the counter, and a fresh crew starts tomorrow. The only irreversible act in the game gets
+   * the biggest beat in the game (SCALE_PLAN.md §2.5).
+   */
+  sold(): void {
+    for (const c of this.customers) {
+      c.state = "leaving";
+      c.fade = 1;
+    }
+    this.burgers = [];
+    this.walkers = [];
+    this.stationPop = [];
+    this.push = 1;
+    this.lampPulse = 1;
+    this.unlockedView = 0;
+    this.view = 0;
+    this.prevView = 0;
+    this.viewT = 1;
+    this.heldBay = null;
+    this.puff(W / 2, COUNTER_TOP, 26);
   }
 
   /** A tier upgrade landed — the rig changes, and the camera leans in to watch it. */
@@ -431,6 +464,16 @@ export class Scene {
         this.heldBay = null;
       }
       return false;
+    }
+
+    // The VIP first — they're the rarest thing on screen and missing them because a customer
+    // was closer would be miserable.
+    if (this.business.vip) {
+      const vy = this.vipY();
+      if (Math.hypot(this.vipX - x, vy - 26 - y) < 44) {
+        this.onTapVip?.();
+        return false;
+      }
     }
 
     let best: Customer | null = null;
@@ -702,6 +745,7 @@ export class Scene {
     this.drawCounter();
     this.drawCustomers(t);
     this.drawWalkers(t);
+    this.drawVip(t);
     this.drawBurgers();
     this.drawDust();
     this.drawRisingNumbers();
@@ -1402,6 +1446,82 @@ export class Scene {
     ctx.scale(k, k);
     ctx.translate(-x, -y);
     body();
+    ctx.restore();
+  }
+
+  private vipY(): number {
+    return this.view === 0 ? FLOOR_Y - 6 : this.view === 1 ? 258 : 246;
+  }
+
+  /**
+   * The golden patty, as a person. A coin drifting across the screen would be a mobile-game
+   * convention; someone walking in who is obviously worth serving is the same mechanic told in
+   * the language of the shop (BUILD_BRIEF §2 — the joke is always about something real).
+   */
+  private drawVip(t: number): void {
+    const vip = this.business.vip;
+    if (!vip || this.view > 1) return;
+    const ctx = this.ctx;
+    const scale = this.view === 0 ? 1 : 0.62;
+    // Walks in from the door, hesitates in the middle, leaves if you don't serve them.
+    const p = vip.progress;
+    const x = W + 30 + (W * 0.34 - W - 30) * Math.min(1, p * 3.2);
+    const y = this.vipY() + Math.sin(t * 2.4) * 1.5;
+    this.vipX = x;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // A wash of light that follows them. This is the "drop everything" signal.
+    const halo = ctx.createRadialGradient(0, -30, 4, 0, -30, 76);
+    const pulse = 0.4 + Math.sin(t * 5) * 0.16;
+    halo.addColorStop(0, `rgba(255,205,90,${pulse})`);
+    halo.addColorStop(1, "rgba(255,158,27,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(-76, -104, 152, 132);
+
+    ctx.fillStyle = "rgba(0,0,0,0.34)";
+    ctx.beginPath();
+    ctx.ellipse(0, 3, 18, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Good coat, better shoes.
+    ctx.fillStyle = "#2B2F45";
+    ctx.beginPath();
+    ctx.moveTo(-16, 0);
+    ctx.lineTo(-14, -34);
+    ctx.quadraticCurveTo(0, -41, 14, -34);
+    ctx.lineTo(16, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#E8B93F";
+    ctx.fillRect(-3, -33, 6, 20);
+    ctx.fillStyle = "#F2CBA3";
+    ctx.beginPath();
+    ctx.arc(0, -46, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#3A3A3A";
+    ctx.beginPath();
+    ctx.arc(0, -46, 11.5, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#241F1C";
+    ctx.beginPath();
+    ctx.arc(-4, -46, 1.5, 0, Math.PI * 2);
+    ctx.arc(4, -46, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // How long you've got, as a ring closing. No numbers, no countdown bar.
+    ctx.strokeStyle = `rgba(255,205,90,${0.5 + pulse * 0.5})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, -24, 34, -Math.PI / 2, -Math.PI / 2 + (1 - p) * Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,240,214,0.95)";
+    ctx.font = "700 9px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(vip.name.toUpperCase(), 0, -66);
+    ctx.textAlign = "left";
     ctx.restore();
   }
 

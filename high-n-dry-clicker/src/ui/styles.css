@@ -390,6 +390,34 @@ button {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
+/* -------------------------------------------------------------------- wall */
+/* Forty achievements that were, until now, entirely invisible. */
+
+.wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.wall__item {
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-family: var(--font-num);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6d6459;
+}
+
+.wall__item--got {
+  background: var(--docket);
+  color: var(--char);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
 /* ------------------------------------------------------------------ footer */
 
 .stats {
@@ -458,20 +486,20 @@ button {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   padding: 12px 10px 0;
 }
 
 .tab {
   position: relative;
-  padding: 11px 8px;
+  padding: 11px 4px;
   border-radius: var(--radius);
   background: #3a322d;
   color: #c3b7a8;
   font-family: var(--font-num);
-  font-size: 10.5px;
-  letter-spacing: 0.13em;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
 }
