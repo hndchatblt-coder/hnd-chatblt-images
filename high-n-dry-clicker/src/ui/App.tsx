@@ -22,6 +22,11 @@ import {
   parseTierUpgradeId,
   save,
   settleOffline,
+  bestLayout,
+  layoutValue,
+  normalizeLayout,
+  productionWeights,
+  swapBays,
   tap as engineTap,
   tierUpgradeId,
   tick,
@@ -187,6 +192,14 @@ export default function App(): JSX.Element {
       customerId % 4 === 0
         ? regularName(SEED, stateRef.current.prestigeCount, customerId)
         : undefined;
+    scene.onSwapBays = (a, b) => {
+      const state = stateRef.current;
+      state.layout = swapBays(state.layout, a, b, config);
+      audio.till();
+      navigator.vibrate?.([5, 20, 8]);
+      save(adapter, state, config);
+      force((v) => v + 1);
+    };
     sceneRef.current = scene;
     return () => {
       scene.destroy();
@@ -214,6 +227,7 @@ export default function App(): JSX.Element {
         autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
         staffNames: staffNames(state),
         density: Math.min(1, Math.log10(1 + totalGenerators(state)) / 2.4),
+        layout: normalizeLayout(state.layout, config),
         tiers: stationTiers(state),
       });
       audio.setBusy(busy);
@@ -342,6 +356,30 @@ export default function App(): JSX.Element {
     [showToast, tear],
   );
 
+  /** One tap for the best line there is. Exact, not a heuristic — see layout.ts and A9. */
+  const onAutoArrange = useCallback(() => {
+    audio.init();
+    const state = stateRef.current;
+    const d = derive(state, config);
+    const next = bestLayout(
+      state.generators,
+      productionWeights(state.generators, d.generatorMults, config),
+      config,
+    );
+    const changed = next.join(",") !== normalizeLayout(state.layout, config).join(",");
+    state.layout = next;
+    sceneRef.current?.clearHeldBay();
+    audio.stinger();
+    navigator.vibrate?.([8, 30, 12]);
+    showToast(
+      changed
+        ? "Kez had a look and moved a few things. Nobody was consulted."
+        : "Kez had a look. Says it's already right.",
+    );
+    save(adapter, state, config);
+    force((v) => v + 1);
+  }, [showToast]);
+
   const onToggleMute = useCallback(() => {
     audio.init();
     setMuted((m) => {
@@ -379,6 +417,20 @@ export default function App(): JSX.Element {
   }, [state, state.cash, state.upgrades.length, state.generators]);
 
   const affordableUpgrades = upgrades.filter((u) => state.cash >= u.cost).length;
+
+  // Nothing to arrange until there are at least two stations to arrange.
+  const lineIsArrangeable =
+    config.layout.placeable.filter((i) => (state.generators[i] ?? 0) > 0).length >= 2;
+
+  // Does AUTO actually have something to offer? Lighting the button only when it does teaches
+  // the mechanic without a tutorial and without nagging when the line is already right.
+  const lineCouldImprove = useMemo(() => {
+    if (!lineIsArrangeable) return false;
+    const weights = productionWeights(state.generators, d.generatorMults, config);
+    const now = layoutValue(normalizeLayout(state.layout, config), state.generators, weights, config);
+    const best = layoutValue(bestLayout(state.generators, weights, config), state.generators, weights, config);
+    return best > now * 1.01;
+  }, [state.layout, state.generators, state.upgrades.length, lineIsArrangeable, d.generatorMults]);
 
   // The horizon: what's next, and how long until you can have it at the current rate.
   const horizon = nextPurchase(state, visibleGenerators, upgrades);
@@ -435,6 +487,26 @@ export default function App(): JSX.Element {
           <div className="scene__hint">zoom in to serve · the shop runs itself out here</div>
         )}
       </div>
+
+      {view === 0 && lineIsArrangeable && (
+        <div className="line">
+          <span className="line__label">The line</span>
+          <span className="line__value">
+            {d.layout.orderedPairs > 0 && `flow +${Math.round((d.layout.flowMult - 1) * 100)}%`}
+            {d.layout.orderedPairs > 0 && d.layout.paired.length > 0 && " · "}
+            {d.layout.paired
+              .map((i) => `${crew(i).name.split(" ")[0]} +${Math.round(config.layout.pairBonus * 100)}%`)
+              .join(" · ")}
+            {d.layout.orderedPairs === 0 && d.layout.paired.length === 0 && "nothing doubling up"}
+          </span>
+          <button
+            className={`line__auto${lineCouldImprove ? " line__auto--wants" : ""}`}
+            onClick={onAutoArrange}
+          >
+            Auto
+          </button>
+        </div>
+      )}
 
       {unlockedView > 0 && (
         <div className="zoom">

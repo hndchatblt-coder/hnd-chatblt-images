@@ -44,6 +44,24 @@ const MAX_QUEUE = 7;
 const GRILL_X = 14;
 const GRILL_RIGHT = 150;
 export const BAYS = 3;
+/** Mirrors economy.config.json layout.placeable — the scene stays free of config imports. */
+const PLACEABLE = [0, 1, 2, 3, 4];
+const EMPTY_BAY = -1;
+/** Colour that stands for each station on the back shelf. */
+const STATION_TINT: Record<number, string> = {
+  0: "#C8CED4",
+  1: "#E8B93F",
+  2: "#E8E3D8",
+  3: "#2E3A44",
+  4: "#3E7FA8",
+};
+const SHORT_NAME: Record<number, string> = {
+  0: "PREP",
+  1: "FRYER",
+  2: "GRILL",
+  3: "COUNTER",
+  4: "PICKUP",
+};
 const BAY_LEFT = 154;
 const BAY_W = (W - BAY_LEFT - 6) / BAYS;
 /** Centre of bay `i`. */
@@ -167,6 +185,8 @@ export interface Business {
    * significant purchases in the game were invisible.
    */
   tiers: number[];
+  /** Bay index → generator index, -1 for empty. The bench, as the player arranged it. */
+  layout: number[];
 }
 
 export class Scene {
@@ -188,6 +208,7 @@ export class Scene {
     staffNames: {},
     density: 0,
     tiers: [],
+    layout: [],
   };
 
   private customers: Customer[] = [];
@@ -201,6 +222,12 @@ export class Scene {
   private stationPop: number[] = [];
   /** Camera push-in on a power beat, 1 → 0. */
   private push = 0;
+  /** The bay currently picked up, or null. Tap one, tap another, they swap. */
+  private heldBay: number | null = null;
+  /** Set by the app so the scene can label bays without importing content. */
+  bayLabel?: (generatorIndex: number) => string;
+  /** Called when the player asks for two bays to swap. */
+  onSwapBays?: (a: number, b: number) => void;
   private view: View = 0;
   private prevView: View = 0;
   /** 1 = settled on `view`; counts down from 0 during a pull-back. */
@@ -258,8 +285,18 @@ export class Scene {
     return this.unlockedView;
   }
 
+  /** Which bay is picked up, if any — the app mirrors this into the readout. */
+  getHeldBay(): number | null {
+    return this.heldBay;
+  }
+
+  clearHeldBay(): void {
+    this.heldBay = null;
+  }
+
   setView(view: View): void {
     if (view === this.view || view > this.unlockedView) return;
+    this.heldBay = null;
     this.prevView = this.view;
     this.view = view;
     this.viewT = 0;
@@ -364,6 +401,22 @@ export class Scene {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * W;
     const y = ((clientY - rect.top) / rect.height) * H;
+
+    // The bench is the arranging surface — no build mode, no second screen (BUILD_BRIEF §0).
+    // Tap a bay to pick it up, tap another to swap. Tap the same one again to put it down.
+    if (this.view === 0 && y >= BENCH_TOP && y <= COUNTER_TOP && x >= BAY_LEFT) {
+      const bay = Math.min(BAYS - 1, Math.floor((x - BAY_LEFT) / BAY_W));
+      if (this.heldBay === null) {
+        // Only worth picking up if there's something in it or something to bring to it.
+        this.heldBay = bay;
+      } else if (this.heldBay === bay) {
+        this.heldBay = null;
+      } else {
+        this.onSwapBays?.(this.heldBay, bay);
+        this.heldBay = null;
+      }
+      return false;
+    }
 
     let best: Customer | null = null;
     let bestDistance = this.view === 0 ? 46 : 30;
@@ -623,6 +676,7 @@ export class Scene {
     this.drawMenuBoard();
     this.drawLamp(t);
     this.drawBench();
+    this.drawBayFurniture();
     this.drawBenchClutter();
     this.drawGrill(t);
     this.drawPatties(t);
@@ -1063,87 +1117,172 @@ export class Scene {
    */
   private drawStations(t: number): void {
     const ctx = this.ctx;
+    const layout = this.business.layout;
 
-    // Bay 0 fryer, bay 1 the grill crew, bay 2 front of house. Tongs live on the wall rail above
-    // the grill and the pickup hatch is at the far end — neither belongs on the bench.
-    if (this.owned(0) > 0) {
-      this.popped(0, 40, 104, () => this.drawTongs(16, 104, this.owned(0)));
+    // The bench: whatever the player put in each bay, drawn there.
+    for (let bay = 0; bay < BAYS; bay += 1) {
+      const index = layout[bay] ?? EMPTY_BAY;
+      if (index === EMPTY_BAY || this.owned(index) === 0) continue;
+      this.popped(index, bayX(bay), COUNTER_TOP, () => this.drawStationInBay(index, bay, t));
     }
-    if (this.owned(1) > 0) {
-      this.popped(1, bayX(0), GRATE_TOP + 16, () => this.drawFryer(bayX(0), GRATE_TOP + 16, t));
-    }
-    if (this.owned(2) > 0) {
-      this.popped(2, bayX(1), COUNTER_TOP, () => this.drawCrew(bayX(1), 2, "#E8E3D8", t, 0, "cook"));
-    }
-    if (this.owned(3) > 0) {
-      this.popped(3, bayX(2), COUNTER_TOP, () => this.drawCrew(bayX(2), 3, "#2E3A44", t, 1.7, "server"));
-    }
-    if (this.owned(4) > 0) this.popped(4, 348, 78, () => this.drawHatch(348, 54));
 
-    // Venues earn a line on the board.
-    const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
-    const listed = venues.filter((_, i) => this.owned(5 + i) > 0);
-    if (listed.length > 0) {
-      const boardH = 14 + listed.length * 11;
-      ctx.fillStyle = "#6B4526";
-      ctx.fillRect(8, 48, 130, boardH + 4);
-      ctx.fillStyle = "#2A2622";
-      ctx.fillRect(11, 51, 124, boardH - 2);
-      ctx.fillStyle = "rgba(255,190,110,0.85)";
-      ctx.font = "700 7px ui-monospace, monospace";
-      ctx.textAlign = "left";
-      ctx.fillText("NOW TRADING", 16, 60);
-      ctx.fillStyle = "rgba(246,241,228,0.75)";
-      listed.forEach((name, i) => ctx.fillText(name, 16, 71 + i * 11));
+    // Anything owned but off the line goes on the back shelf. It still produces — the bench is
+    // only where the bonuses live — but you can see it isn't on the line.
+    const off = PLACEABLE.filter((i: number) => this.owned(i) > 0 && !layout.includes(i));
+    if (off.length > 0) this.drawBackShelf(off);
+
+    this.drawTradingBoard();
+  }
+
+  /** Bays are tappable when there's something to move. Lifted bay draws a marching outline. */
+  private drawBayFurniture(): void {
+    if (this.view !== 0) return;
+    const ctx = this.ctx;
+    const held = this.heldBay;
+    for (let bay = 0; bay < BAYS; bay += 1) {
+      const x = BAY_LEFT + bay * BAY_W;
+      // A shallow notch in the bench edge marks where one bay ends and the next begins.
+      ctx.fillStyle = "rgba(40,34,28,0.18)";
+      ctx.fillRect(x, BENCH_TOP, 1.5, COUNTER_TOP - BENCH_TOP);
+      if (held === bay) {
+        ctx.strokeStyle = "rgba(255,158,27,0.9)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(x + 2, BENCH_TOP + 2, BAY_W - 4, COUNTER_TOP - BENCH_TOP - 4);
+        ctx.setLineDash([]);
+      } else if (held !== null) {
+        // Where it could go.
+        ctx.strokeStyle = "rgba(255,240,216,0.32)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 5]);
+        ctx.strokeRect(x + 3, BENCH_TOP + 3, BAY_W - 6, COUNTER_TOP - BENCH_TOP - 6);
+        ctx.setLineDash([]);
+      }
     }
   }
 
+  private drawStationInBay(index: number, bay: number, t: number): void {
+    const x = bayX(bay);
+    if (index === 0) this.drawPrepBench(x, t);
+    else if (index === 1) this.drawFryer(x, GRATE_TOP + 16, t);
+    else if (index === 2) this.drawCrew(x, 2, "#E8E3D8", t, 0, "cook");
+    else if (index === 3) this.drawCrew(x, 3, "#2E3A44", t, 1.7, "server");
+    else if (index === 4) this.drawPickup(x);
+  }
+
   /**
-   * Tongs and prep, hung on a wall rail above the grill. Tier 0 is a pair on the rail; by tier 3
-   * there are two rails and a row of mise-en-place tubs, which is what fifty pairs of tongs
-   * actually looks like in a kitchen.
+   * Gear you own that isn't on the line. Small, on a shelf against the back wall, labelled —
+   * because "the shop is the readout" has to keep holding even when the bench is full.
    */
-  private drawTongs(x: number, y: number, count: number): void {
+  private drawBackShelf(indices: number[]): void {
+    const ctx = this.ctx;
+    const shelfY = 98;
+    ctx.fillStyle = "#9AA2AA";
+    ctx.fillRect(6, shelfY + 13, W - 12, 2.5);
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.fillRect(6, shelfY + 15.5, W - 12, 2);
+
+    indices.forEach((index, i) => {
+      const x = 22 + i * 46;
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "#6E767E";
+      ctx.fillRect(x - 13, shelfY - 1, 26, 14);
+      ctx.fillStyle = STATION_TINT[index] ?? "#C8CED4";
+      ctx.fillRect(x - 11, shelfY + 1, 22, 10);
+      ctx.restore();
+      ctx.fillStyle = "rgba(60,50,40,0.75)";
+      ctx.font = "700 6px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(SHORT_NAME[index] ?? "", x, shelfY + 24);
+      ctx.textAlign = "left";
+    });
+  }
+
+  private drawTradingBoard(): void {
+    const ctx = this.ctx;
+    const venues = ["ROSEBERY", "NEUTRAL BAY", "GHOST KITCHEN", "FRANCHISE", "FACTORY", "STATION", "FUTURES"];
+    const listed = venues.filter((_, i) => this.owned(5 + i) > 0);
+    if (listed.length === 0) return;
+    const boardH = 14 + listed.length * 11;
+    ctx.fillStyle = "#6B4526";
+    ctx.fillRect(8, 44, 130, boardH + 4);
+    ctx.fillStyle = "#2A2622";
+    ctx.fillRect(11, 47, 124, boardH - 2);
+    ctx.fillStyle = "rgba(255,190,110,0.85)";
+    ctx.font = "700 7px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("NOW TRADING", 16, 56);
+    ctx.fillStyle = "rgba(246,241,228,0.75)";
+    listed.forEach((name, i) => ctx.fillText(name, 16, 67 + i * 11));
+  }
+
+  /** Prep: a rack of tongs over a bench of mise-en-place tubs. */
+  private drawPrepBench(x: number, t: number): void {
     const ctx = this.ctx;
     const tier = this.tier(0);
     const rails = tier >= 2 ? 2 : 1;
-    const perRail = Math.min(6, Math.max(1, Math.ceil(count / 10)) + tier);
+    const perRail = 3 + tier;
 
     for (let rail = 0; rail < rails; rail += 1) {
-      const ry = y - rail * 15;
+      const ry = GRATE_TOP + 4 - rail * 14;
       ctx.fillStyle = "#5C646C";
-      ctx.fillRect(x, ry - 17, perRail * 9 + 6, 2.5);
+      ctx.fillRect(x - perRail * 4.5, ry - 15, perRail * 9, 2.5);
       ctx.strokeStyle = "#6E767E";
       ctx.lineWidth = 1.6;
       for (let i = 0; i < perRail; i += 1) {
-        const px = x + 4 + i * 9;
+        const px = x - perRail * 4.5 + 3 + i * 9;
         ctx.beginPath();
         ctx.moveTo(px, ry);
-        ctx.lineTo(px + 3, ry - 15);
+        ctx.lineTo(px + 3, ry - 14);
         ctx.moveTo(px + 3, ry);
-        ctx.lineTo(px + 3, ry - 15);
+        ctx.lineTo(px + 3, ry - 14);
         ctx.stroke();
       }
     }
 
-    // Mise-en-place tubs on the bench edge from tier 2 — the prep bench earning its keep.
-    if (tier >= 2) {
-      const tubs = tier >= 3 ? 4 : 2;
-      for (let i = 0; i < tubs; i += 1) {
-        const tx = x + i * 12;
-        ctx.fillStyle = "#C8CED4";
-        ctx.fillRect(tx, BENCH_TOP + 2, 10, 9);
-        ctx.fillStyle = ["#7CA84E", "#C6402B", "#E0B23A", "#E8E3D8"][i % 4] as string;
-        ctx.fillRect(tx + 1, BENCH_TOP + 3, 8, 4);
-      }
+    const tubs = 2 + tier;
+    const tubW = Math.min(13, (BAY_W - 16) / tubs);
+    for (let i = 0; i < tubs; i += 1) {
+      const tx = x - (tubs * tubW) / 2 + i * tubW;
+      ctx.fillStyle = "#20252A";
+      ctx.fillRect(tx - 1, GRATE_TOP + 13, tubW, 15);
+      ctx.fillStyle = "#C8CED4";
+      ctx.fillRect(tx, GRATE_TOP + 14, tubW - 2, 13);
+      ctx.fillStyle = ["#7CA84E", "#C6402B", "#E0B23A", "#E8E3D8", "#A9714A"][i % 5] as string;
+      ctx.fillRect(tx + 1, GRATE_TOP + 15, tubW - 4, 6);
+    }
+    void t;
+  }
+
+  /** The pickup end: a heated shelf with delivery bags on it. */
+  private drawPickup(x: number): void {
+    const ctx = this.ctx;
+    const tier = this.tier(4);
+    ctx.fillStyle = "#20252A";
+    ctx.fillRect(x - 34, GRATE_TOP - 4, 68, 44);
+    ctx.fillStyle = "#2E353B";
+    ctx.fillRect(x - 31, GRATE_TOP - 1, 62, 38);
+    // Heat lamp inside the shelf.
+    ctx.fillStyle = "rgba(255,158,27,0.4)";
+    ctx.fillRect(x - 29, GRATE_TOP + 1, 58, 3);
+    ctx.fillStyle = "rgba(255,190,110,0.85)";
+    ctx.font = "700 6.5px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("PICKUP", x, GRATE_TOP + 36);
+    ctx.textAlign = "left";
+
+    const bags = [1, 2, 4, 6][tier] ?? 1;
+    for (let i = 0; i < bags; i += 1) {
+      const bx = x - 27 + (i % 3) * 19;
+      const by = GRATE_TOP + 7 + Math.floor(i / 3) * 13;
+      ctx.fillStyle = "#3E7FA8";
+      ctx.fillRect(bx, by, 15, 11);
+      ctx.fillStyle = "rgba(255,255,255,0.32)";
+      ctx.fillRect(bx + 3, by + 2, 9, 2.5);
     }
   }
 
-  /**
-   * The fryer bank. One basket, then two, then three, then an auto-lift rig that cycles on its
-   * own — the tier upgrades you buy, made physical. Sized to its bay so it can't grow into
-   * the crew standing next door.
-   */
   private drawFryer(x: number, y: number, t: number): void {
     const ctx = this.ctx;
     const tier = this.tier(1);
@@ -1231,40 +1370,6 @@ export class Scene {
     }
   }
 
-  /**
-   * The delivery end, on the wall past the menu board: a hatch, then bags waiting, then a rack
-   * of them. Couriers themselves live out on the strip.
-   */
-  private drawHatch(x: number, y: number): void {
-    const ctx = this.ctx;
-    const tier = this.tier(4);
-    ctx.fillStyle = "#20252A";
-    ctx.fillRect(x - 36, y, 72, 50);
-    ctx.fillStyle = "#2A3036";
-    ctx.fillRect(x - 33, y + 3, 66, 44);
-    ctx.fillStyle = "rgba(255,190,110,0.8)";
-    ctx.font = "700 7px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("PICKUP", x, y + 13);
-    ctx.textAlign = "left";
-
-    // Bags on the shelf, two rows once there are enough of them.
-    const bags = [1, 2, 4, 6][tier] ?? 1;
-    for (let i = 0; i < bags; i += 1) {
-      const bx = x - 30 + (i % 3) * 21;
-      const by = y + 18 + Math.floor(i / 3) * 15;
-      ctx.fillStyle = "#3E7FA8";
-      ctx.fillRect(bx, by, 16, 13);
-      ctx.fillStyle = "rgba(255,255,255,0.32)";
-      ctx.fillRect(bx + 3, by + 2, 10, 3);
-    }
-  }
-
-  /**
-   * The people at a station. Tier 0 is one of them; tier 3 is four, spread across the bay, on
-   * offset bob phases so they never move in lockstep. Only the first is named — a row of labels
-   * is noise, and the name that matters is the one you hired first.
-   */
   /** Runs `body` scaled around (x, y) by the station's install pop. Nothing to do at rest. */
   private popped(index: number, x: number, y: number, body: () => void): void {
     const pop = this.stationPop[index] ?? 0;

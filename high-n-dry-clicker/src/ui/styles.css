@@ -544,6 +544,64 @@ button {
 }
 
 
+/* ------------------------------------------------------------------- line */
+/* What the bench arrangement is worth, and one tap to fix it. */
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 6px 6px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-family: var(--font-num);
+  font-size: 9.5px;
+}
+
+.line__label {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8b8073;
+  flex: none;
+}
+
+.line__value {
+  flex: 1 1 auto;
+  color: var(--lamp);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line__auto {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: #3a322d;
+  color: #c3b7a8;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
+  line-height: 1;
+}
+
+/* Lit only when a better line is actually available — teaches the mechanic, never nags. */
+.line__auto--wants {
+  background: var(--lamp);
+  color: #2a1408;
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+.line__auto:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
 /* -------------------------------------------------------------------- zoom */
 /* Steel plates under the scene — never over it, or they sit on the heat lamps.
    The camera can always come back to the counter. */
