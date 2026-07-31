@@ -81,6 +81,14 @@ export interface WorldOptions {
   staffCount?: number;
   /** Where the kitchen is. Defaults to the venue's stock fit-out. */
   layout?: Placement[];
+  /**
+   * Where on the calendar to begin. The sim starts at midnight on a Monday by default, which is
+   * right for the harness and wrong for a player twice over: the shop is shut, and Monday 11am is
+   * the deadest hour of the deadest day — measured, the first half hour had literally zero
+   * customers. A player should land in the middle of a Friday lunch rush.
+   */
+  startHour?: number;
+  startDay?: number;
 }
 
 export const createWorld = (options: WorldOptions): World => {
@@ -152,6 +160,11 @@ export const createWorld = (options: WorldOptions): World => {
     nextStaffId: count,
   };
 
+  if (options.startHour !== undefined || options.startDay !== undefined) {
+    world.clock.elapsed =
+      (options.startDay ?? 0) * time.hoursPerDay * time.secondsPerHour +
+      (options.startHour ?? 0) * time.secondsPerHour;
+  }
   recomputeReputation(world);
   return world;
 };
