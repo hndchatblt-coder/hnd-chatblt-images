@@ -39,6 +39,30 @@ export interface Order {
   expedited: boolean;
 }
 
+/** A batch of something, sitting in a buffer and getting older. */
+export interface Lot {
+  qty: number;
+  madeAt: number;
+  freshnessWindow: number | undefined;
+  /** Quality inherited from whatever went into it. */
+  quality: number;
+}
+
+/** A batch being made right now, including the walk to get to the station. */
+export interface Job {
+  id: string;
+  stationId: string;
+  staffId: string;
+  output: string;
+  batchSize: number;
+  /** Seconds of work left, at skill 1.0. */
+  remaining: number;
+  /** Seconds of walking left before work can start. The throughput tax (§4.5). */
+  travelRemaining: number;
+  inputQuality: number;
+  freshnessWindow: number | undefined;
+}
+
 export interface Task {
   orderId: number;
   itemIndex: number;
@@ -70,8 +94,11 @@ export interface StaffMember {
   morale: number;
   type: "casual" | "partTime" | "fullTime";
   hourlyRate: number;
-  /** Task currently being worked, as `${orderId}:${itemIndex}:${stepId}`. */
-  busyWith: string | null;
+  /** Job currently being worked, or null if free. */
+  jobId: string | null;
+  /** Where they are standing, in tile coords. Walking between stations costs real time. */
+  x: number;
+  y: number;
   /** Game seconds worked in the current shift, for fatigue and slow starters. */
   shiftSeconds: number;
   /** Game seconds worked all up, for skill. */
@@ -90,12 +117,17 @@ export interface DayTotals {
   balked: number;
   revenue: number;
   cogs: number;
-  waste: number;
   wagesAccrued: number;
   ordersCompleted: number;
   waitSecondsTotal: number;
   satisfactionTotal: number;
   reviews: number;
+  /** Value of everything binned as spoiled. A headline number — it is what makes supply land. */
+  waste: number;
+  wasteUnits: number;
+  batchesMade: number;
+  /** Seconds staff spent walking rather than working. The layout tax, made visible. */
+  walkSeconds: number;
   /** Reputation as it stood when this day closed — not the final value (that was a report bug). */
   reputationAtClose: number;
 }
@@ -106,11 +138,14 @@ export const emptyDay = (day: number): DayTotals => ({
   balked: 0,
   revenue: 0,
   cogs: 0,
-  waste: 0,
   wagesAccrued: 0,
   ordersCompleted: 0,
   waitSecondsTotal: 0,
   satisfactionTotal: 0,
   reviews: 0,
+  waste: 0,
+  wasteUnits: 0,
+  batchesMade: 0,
+  walkSeconds: 0,
   reputationAtClose: 0,
 });

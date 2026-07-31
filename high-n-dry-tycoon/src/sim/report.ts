@@ -31,6 +31,8 @@ export const dayLine = (d: DayTotals): string => {
     `rev ${pad(money(d.revenue), 10)}`,
     `cogs ${pad(pct(cogsPct), 6)}`,
     `wages ${pad(pct(labourPct), 6)}`,
+    `waste ${pad(money(d.waste), 8)}`,
+    `walk ${pad((d.walkSeconds / 60).toFixed(0), 4)}m`,
     `gross ${pad(money(gross), 10)}`,
     `rep ${d.reputationAtClose.toFixed(2)}`,
   ].join("  ");
@@ -56,8 +58,11 @@ export const summary = (world: World): string => {
       served: a.served + d.ordersCompleted,
       wait: a.wait + d.waitSecondsTotal,
       sat: a.sat + d.satisfactionTotal,
+      waste: a.waste + d.waste,
+      wasteUnits: a.wasteUnits + d.wasteUnits,
+      walk: a.walk + d.walkSeconds,
     }),
-    { covers: 0, balked: 0, revenue: 0, cogs: 0, wages: 0, served: 0, wait: 0, sat: 0 },
+    { covers: 0, balked: 0, revenue: 0, cogs: 0, wages: 0, served: 0, wait: 0, sat: 0, waste: 0, wasteUnits: 0, walk: 0 },
   );
 
   const meanWait = total.served > 0 ? total.wait / total.served / 60 : 0;
@@ -75,6 +80,8 @@ export const summary = (world: World): string => {
     `revenue      ${money(total.revenue)}`,
     `cogs         ${money(total.cogs)} (${pct(total.revenue > 0 ? total.cogs / total.revenue : 0)})`,
     `wages        ${money(total.wages)} (${pct(total.revenue > 0 ? total.wages / total.revenue : 0)})`,
+    `waste        ${money(total.waste)} (${pct(total.revenue > 0 ? total.waste / total.revenue : 0)}) — ${total.wasteUnits} units binned`,
+    `walk time    ${(total.walk / 60).toFixed(0)} min of staff time spent walking`,
     `gross        ${money(total.revenue - total.cogs - total.wages)}`,
     `reputation   ${world.reputation.toFixed(2)} stars from ${world.reviews.length} reviews`,
     `cash         ${money(world.cash)}`,

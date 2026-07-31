@@ -5,7 +5,6 @@
  * makes a recipe a factory line rather than a countdown.
  */
 import { recipeById } from "../../config/recipes.js";
-import type { Task } from "../entities.js";
 import type { World } from "../world.js";
 
 export const takeOrders = (world: World): void => {
@@ -36,33 +35,4 @@ export const takeOrders = (world: World): void => {
     customer.orderId = order.id;
     customer.state = "waiting";
   }
-};
-
-/** Every step whose dependencies are satisfied and which nobody is already working. */
-export const readyTasks = (world: World): Task[] => {
-  const out: Task[] = [];
-  for (const order of world.orders) {
-    if (order.completedAt !== null) continue;
-    order.items.forEach((item, itemIndex) => {
-      const recipe = recipeById.get(item.recipeId);
-      if (!recipe) return;
-      for (const stepId of item.remaining) {
-        const step = recipe.steps.find((s) => s.id === stepId);
-        if (!step) continue;
-        const key = `${order.id}:${itemIndex}:${stepId}`;
-        if (world.inFlight.has(key)) continue;
-        const ready = step.dependsOn.every((d) => item.done.includes(d));
-        if (!ready) continue;
-        out.push({
-          orderId: order.id,
-          itemIndex,
-          stepId,
-          station: step.station,
-          remaining: step.duration,
-          assignedTo: null,
-        });
-      }
-    });
-  }
-  return out;
 };

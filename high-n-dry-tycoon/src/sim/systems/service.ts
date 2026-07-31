@@ -5,7 +5,6 @@
  * any one of them ruins the order. That is how it actually works: perfect food twenty minutes
  * late is still a bad experience.
  */
-import { economy } from "../../config/economy.js";
 import { recipeById } from "../../config/recipes.js";
 import { reviews as reviewCfg } from "../../config/reviews.js";
 import type { Order } from "../entities.js";
@@ -42,13 +41,11 @@ export const stepService = (world: World): void => {
     for (const item of order.items) {
       const recipe = recipeById.get(item.recipeId);
       if (!recipe) continue;
+      // COGS was already booked by the kitchen when it made the food — including the batches
+      // that never sold. Charging again here would double-count and hide waste.
+      void recipe;
       world.cash += world.menuPrice[item.recipeId] ?? 0;
       world.day.revenue += world.menuPrice[item.recipeId] ?? 0;
-      for (const [ingredient, qty] of Object.entries(recipe.ingredients)) {
-        const cost = (economy.ingredientCost[ingredient] ?? 0) * qty;
-        world.cash -= cost;
-        world.day.cogs += cost;
-      }
     }
 
     world.day.ordersCompleted += 1;

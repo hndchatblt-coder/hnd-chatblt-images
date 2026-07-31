@@ -17,6 +17,14 @@ export interface Step {
   batchSize: number;
   dependsOn: string[];
   output: string;
+  /**
+   * Raw ingredients this step consumes, per unit produced.
+   *
+   * Ingredients belong to the step that actually uses them, not to the recipe as a whole. The
+   * first version charged the whole recipe's ingredient list on every root step, so beef, buns
+   * and salad were each bought three times over and COGS came out at 94% of revenue.
+   */
+  consumes?: Record<string, number>;
   /** Seconds before quality starts to decay (§4.7). */
   freshnessWindow?: number;
 }
@@ -24,7 +32,7 @@ export interface Step {
 export interface Recipe {
   id: string;
   name: string;
-  /** Raw ingredients consumed per unit sold. */
+  /** Documentation only — the truth is `consumes` on each step. Used for menu costing. */
   ingredients: Record<string, number>;
   steps: Step[];
 }
@@ -37,10 +45,10 @@ export const recipes: Recipe[] = [
     name: "Classic cheeseburger",
     ingredients: { beef: 1, bun: 1, cheese: 1, garnish: 1 },
     steps: [
-      { id: "patty", station: "grill", duration: 90, batchSize: 4, dependsOn: [], output: "patty", freshnessWindow: 480 },
-      { id: "bun", station: "toast", duration: 25, batchSize: 6, dependsOn: [], output: "bun", freshnessWindow: 180 },
-      { id: "garnish", station: "prep", duration: 12, batchSize: 8, dependsOn: [], output: "garnish", freshnessWindow: 1200 },
-      { id: "assemble", station: "assembly", duration: 18, batchSize: 1, dependsOn: ["patty", "bun", "garnish"], output: "burger" },
+      { id: "patty", station: "grill", duration: 90, batchSize: 4, dependsOn: [], output: "patty", consumes: { beef: 1 }, freshnessWindow: 480 },
+      { id: "bun", station: "toast", duration: 25, batchSize: 6, dependsOn: [], output: "bun", consumes: { bun: 1 }, freshnessWindow: 180 },
+      { id: "garnish", station: "prep", duration: 12, batchSize: 8, dependsOn: [], output: "garnish", consumes: { garnish: 1 }, freshnessWindow: 1200 },
+      { id: "assemble", station: "assembly", duration: 18, batchSize: 1, dependsOn: ["patty", "bun", "garnish"], output: "burger", consumes: { cheese: 1 } },
       { id: "plate", station: "pass", duration: 6, batchSize: 1, dependsOn: ["assemble"], output: "cheeseburger" },
     ],
   },
@@ -49,7 +57,7 @@ export const recipes: Recipe[] = [
     name: "Chips",
     ingredients: { potato: 1, oil: 1 },
     steps: [
-      { id: "basket", station: "fryer", duration: 195, batchSize: 3, dependsOn: [], output: "chips", freshnessWindow: 300 },
+      { id: "basket", station: "fryer", duration: 195, batchSize: 3, dependsOn: [], output: "chipsCooked", consumes: { potato: 1, oil: 1 }, freshnessWindow: 300 },
       { id: "plate", station: "pass", duration: 6, batchSize: 1, dependsOn: ["basket"], output: "chips" },
     ],
   },

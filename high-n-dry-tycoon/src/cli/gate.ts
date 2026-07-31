@@ -1,12 +1,11 @@
 /**
- * The M0 gate, as written in the brief (§15):
- *
- *   `npm run sim -- --days 7 --seed 42` gives a stable day report;
- *   identical seed gives byte-identical output.
- *
- * Run by `npm run gate` after typecheck and tests. Exits non-zero on failure so it can sit in CI.
+ * Milestone gates (§15). Run by `npm run gate` after typecheck and tests. Non-zero exit on
+ * failure so it can sit in CI.
  */
 import { execFileSync } from "node:child_process";
+import { layoutWithGrillOffset, runLayoutSeeded } from "../harness/layoutProbe.js";
+import { defaultLayout } from "../sim/layouts.js";
+import { venueById } from "../config/venues.js";
 import { createWorld, runDays } from "../sim/world.js";
 
 let failures = 0;
@@ -15,43 +14,79 @@ const check = (name: string, ok: boolean, detail: string): void => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}  ${detail}`);
 };
 
+/* ------------------------------------------------------------------- M0 */
 console.log("M0 gate — headless core\n");
 
-// 1. The literal command from the brief runs and is byte-identical across invocations.
-const run = (): string =>
-  execFileSync("npx", ["tsx", "src/cli/sim.ts", "--days", "7", "--seed", "42"], {
+const run = (seed: string): string =>
+  execFileSync("npx", ["tsx", "src/cli/sim.ts", "--days", "7", "--seed", seed], {
     encoding: "utf8",
   });
 
-const first = run();
-const second = run();
-check(
-  "byte-identical across processes",
-  first === second,
-  `${first.length} bytes, two separate node processes`,
-);
+const first = run("42");
+check("byte-identical across processes", first === run("42"), `${first.length} bytes, two processes`);
+check("a different seed gives a different run", first !== run("43"), "seed 42 vs 43");
 
-// 2. A different seed must actually differ — otherwise "deterministic" just means "not random".
-const other = execFileSync("npx", ["tsx", "src/cli/sim.ts", "--days", "7", "--seed", "43"], {
-  encoding: "utf8",
-});
-check("a different seed gives a different run", first !== other, "seed 42 vs seed 43");
-
-// 3. The report is stable in shape: seven trading days, every one of them with trade on it.
 const world = createWorld({ seed: "42", staffCount: 2 });
 runDays(world, 7);
-const traded = world.history.filter((d) => d.ordersCompleted > 0);
-check("seven days of trade", traded.length === 7, `${traded.length} days with completed orders`);
-
-// 4. Nobody is left holding food that never got handed over.
 check(
-  "no orders stranded at close",
-  world.orders.every((o) => o.completedAt === null || o.completedAt <= world.clock.elapsed),
-  `${world.orders.length} open at end of run`,
+  "seven days of trade",
+  world.history.filter((d) => d.ordersCompleted > 0).length === 7,
+  `${world.history.filter((d) => d.ordersCompleted > 0).length} days with completed orders`,
 );
-
-// 5. The idle bot must survive — the brief forbids punishing absence.
 check("idle survives seven days", world.cash > 0, `cash $${world.cash.toFixed(2)}`);
 
-console.log(failures === 0 ? "\nM0 GATE GREEN" : `\nM0 GATE RED — ${failures} failure(s)`);
+/* ------------------------------------------------------------------- M1 */
+console.log("\nM1 gate — space\n");
+
+const venue = venueById.get("leichhardt");
+if (!venue) throw new Error("no leichhardt");
+
+const seeds = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const staffForGate = 2;
+const near = runLayoutSeeded("stock fit-out", "leichhardt", defaultLayout(venue), 14, seeds, staffForGate);
+const far = runLayoutSeeded(
+  "+6 tiles apart",
+  "leichhardt",
+  layoutWithGrillOffset("leichhardt", 6),
+  14,
+  seeds,
+  staffForGate,
+);
+console.log(`${seeds.length} seeds x 14 days, ${staffForGate} staff — means:\n`);
+
+const pad = (s: string, n: number): string => s.padEnd(n);
+console.log(
+  [pad("layout", 16), pad("grill→pass", 12), pad("served", 9), pad("wait", 8), pad("walking", 10), "revenue"].join(""),
+);
+for (const r of [near, far]) {
+  console.log(
+    [
+      pad(r.label, 16),
+      pad(`${r.grillToPassTiles} tiles`, 12),
+      pad(r.served.toFixed(0), 9),
+      pad(`${r.meanWaitMinutes.toFixed(1)}m`, 8),
+      pad(`${r.walkMinutes.toFixed(0)} min`, 10),
+      `$${r.revenue.toFixed(0)}`,
+    ].join(""),
+  );
+}
+
+const movedBy = far.grillToPassTiles - near.grillToPassTiles;
+const throughputDrop = (near.served - far.served) / near.served;
+const walkRise = (far.walkMinutes - near.walkMinutes) / near.walkMinutes;
+
+console.log("");
+check("grill and pass are 6+ tiles further apart", movedBy >= 6, `${near.grillToPassTiles} → ${far.grillToPassTiles} tiles`);
+check(
+  "throughput measurably drops",
+  far.served < near.served,
+  `${near.served.toFixed(0)} → ${far.served.toFixed(0)} served (${(throughputDrop * 100).toFixed(1)}% fewer)`,
+);
+check(
+  "and the cause is visible as walk time",
+  far.walkMinutes > near.walkMinutes,
+  `${near.walkMinutes.toFixed(0)} → ${far.walkMinutes.toFixed(0)} min walking (+${(walkRise * 100).toFixed(0)}%)`,
+);
+
+console.log(failures === 0 ? "\nGATES GREEN" : `\nGATES RED — ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

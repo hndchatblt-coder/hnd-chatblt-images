@@ -12,11 +12,14 @@ import { staffConfig, staffNames } from "../config/staff.js";
 import { dtGameSeconds, time } from "../config/time.js";
 import { venueById, type VenueDef } from "../config/venues.js";
 import { advance, createClock, dayIndex, isTrading, type Clock } from "./clock.js";
-import { emptyDay, type Customer, type DayTotals, type Order, type Review, type StaffMember, type StationInstance, type Task } from "./entities.js";
+import { emptyDay, type Customer, type DayTotals, type Job, type Lot, type Order, type Review, type StaffMember, type StationInstance } from "./entities.js";
+import { canPlace, toInstance, type Placement } from "./floor.js";
+import { defaultLayout } from "./layouts.js";
+import { floor as floorCfg } from "../config/floor.js";
 import { Rng } from "./rng.js";
 import { stepArrivals } from "./systems/arrivals.js";
 import { takeOrders } from "./systems/orders.js";
-import { stepProduction } from "./systems/production.js";
+import { binSpoiled, fillOrders, stepKitchen } from "./systems/kitchen.js";
 import { flushReviews, recomputeReputation } from "./systems/reputation.js";
 import { stepService } from "./systems/service.js";
 
@@ -34,8 +37,10 @@ export interface World {
   orders: Order[];
   staff: StaffMember[];
   stations: StationInstance[];
-  /** Tasks currently being worked, keyed `${orderId}:${itemIndex}:${stepId}`. */
-  inFlight: Map<string, Task>;
+  /** Batches in flight. */
+  jobs: Job[];
+  /** Buffers: item id -> lots, oldest first. Cooked stock lives here and ages here. */
+  stock: Map<string, Lot[]>;
 
   reviews: Review[];
   pendingReviews: Review[];
@@ -47,6 +52,7 @@ export interface World {
 
   nextCustomerId: number;
   nextOrderId: number;
+  nextJobId: number;
 }
 
 export interface WorldOptions {
@@ -54,12 +60,23 @@ export interface WorldOptions {
   venueId?: string;
   /** How many staff to open with. */
   staffCount?: number;
+  /** Where the kitchen is. Defaults to the venue's stock fit-out. */
+  layout?: Placement[];
 }
 
 export const createWorld = (options: WorldOptions): World => {
   const venue = venueById.get(options.venueId ?? "leichhardt");
   if (!venue) throw new Error(`unknown venue: ${options.venueId}`);
   const rng = new Rng(options.seed);
+
+  // A layout that doesn't fit is a config bug, not something to route around at runtime.
+  const placed = options.layout ?? defaultLayout(venue);
+  const accepted: Placement[] = [];
+  for (const p of placed) {
+    const check = canPlace(venue, accepted, p);
+    if (!check.ok) throw new Error(`cannot place ${p.type} at ${p.x},${p.y}: ${check.reason}`);
+    accepted.push(p);
+  }
 
   const staff: StaffMember[] = [];
   const count = options.staffCount ?? 1;
@@ -74,7 +91,9 @@ export const createWorld = (options: WorldOptions): World => {
       morale: staffConfig.moraleStart,
       type: "casual",
       hourlyRate: staffConfig.baseHourlyRate.casual * (1 + economy.wages.casualLoading),
-      busyWith: null,
+      jobId: null,
+      x: floorCfg.doorTile.x,
+      y: floorCfg.doorTile.y,
       shiftSeconds: 0,
       hoursWorked: 0,
     });
@@ -91,8 +110,9 @@ export const createWorld = (options: WorldOptions): World => {
     customers: [],
     orders: [],
     staff,
-    stations: [],
-    inFlight: new Map(),
+    stations: placed.map(toInstance),
+    jobs: [],
+    stock: new Map(),
     reviews: [],
     pendingReviews: [],
     rollingServiceSeconds: 300,
@@ -100,6 +120,7 @@ export const createWorld = (options: WorldOptions): World => {
     history: [],
     nextCustomerId: 1,
     nextOrderId: 1,
+    nextJobId: 1,
   };
 
   recomputeReputation(world);
@@ -116,8 +137,10 @@ export const tick = (world: World): void => {
     takeOrders(world);
   }
 
-  // Production and service run outside trading hours too — the kitchen finishes what it started.
-  stepProduction(world);
+  // The kitchen keeps going after close — it finishes what it started, and stock keeps ageing.
+  stepKitchen(world);
+  fillOrders(world);
+  binSpoiled(world);
   stepService(world);
   flushReviews(world);
 
@@ -141,6 +164,8 @@ const rollDay = (world: World, newDay: number): void => {
   for (const s of world.staff) {
     s.stamina = 1;
     s.shiftSeconds = 0;
+    s.x = floorCfg.doorTile.x;
+    s.y = floorCfg.doorTile.y;
   }
   world.marketingAwareness *= 1 - demand.marketingDecayPerDay;
 };
