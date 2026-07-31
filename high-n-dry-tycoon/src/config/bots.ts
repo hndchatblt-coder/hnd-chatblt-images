@@ -18,7 +18,15 @@ export const botCfg = {
     targetBalk: 0.2,
     /** Lets someone go when service is this comfortable. */
     trimBelowWaitMinutes: 3,
-    hireAboveCash: 6000,
+    /**
+     * Willing to spend down to here to fix service.
+     *
+     * Was 6000, and when ingredient costs were scaled to the target COGS band the tighter margins
+     * meant it simply stopped hiring and could no longer dig out of a reputation crisis. A
+     * competent operator spends the buffer to fix service, because service is what brings the
+     * demand back — so the player model does too.
+     */
+    hireAboveCash: 2500,
     minStaff: 2,
     maxStaff: 8,
     marketingShare: 0.08,

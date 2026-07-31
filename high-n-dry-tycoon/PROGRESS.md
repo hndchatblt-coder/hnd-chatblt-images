@@ -106,3 +106,66 @@ Three things, and two of them I'd defend:
 - **`dtGameSeconds` is 12s**, coarser than the shortest recipe step (plate, 6s). Sub-tick steps
   finish in the tick they start, so durations under ~12s are effectively rounded up. Noted in
   `config/time.ts`; worth remembering when tuning recipes.
+
+
+---
+
+## M1–M6 — built, gated, and one milestone deliberately not attempted
+
+Six milestones in one pass. Full detail in the commits; the parts worth reading twice:
+
+### What the gates caught that I would not have
+
+- **Walking was completely free** (M1). A tick advanced travel by a whole `dt` then `continue`d,
+  so at dt=12s a 6.6-second walk and a 9.4-second walk both finished in one tick. Opening six
+  tiles between grill and pass raised recorded walk time 49% and changed throughput by *precisely
+  zero*.
+- **COGS was 94% of revenue** (M1) because every root step charged the whole recipe's ingredient
+  list — beef, buns and salad each bought three times over.
+- **The kitchen scheduler was a push system** (M3). It always worked the deepest unmet need, so
+  under pressure it made patties forever and nothing reached the pass. And a step required the
+  *whole order book's* worth of inputs to run — with forty orders open, plating one burger needed
+  forty burgers in stock. Fixing both lifted production 20% and revenue 23%.
+- **Wages billed 24 hours a day** (M2), putting labour at 56.7% against a 28–34% target.
+- **Ingredient costs were 40% too cheap** (M6), so the "get COGS under 27%" gate passed before the
+  supply meta existed.
+
+### What I added that wasn't asked for, because the gate couldn't pass without it
+
+**Reneging.** §4.3 has balking (leaving before ordering) but nothing for giving up after. Without
+it, `bot:naive` spiralled beautifully and then could not recover *at all* — unfillable orders sat
+in the queue forever, so the kitchen stayed permanently slammed and reputation could not climb no
+matter how well the shop was then run. With it, 2.22 → 3.89 stars over 25 disciplined days.
+
+### Gates
+
+| Milestone | Gate | Result |
+|---|---|---|
+| M0 | byte-identical output, idle survives | **green** |
+| M1 | 6 tiles further apart drops throughput | **green** — 2.5% fewer batches, walking +11% |
+| M2 | four bots × 90 days, P&L reconciles | **green** — to the cent |
+| M3 | naive spirals and recovers | **green** — 3.83 → 2.22 → 3.89 stars |
+| M5 | fast sim within 5% of full | **green** — revenue −0.6%, waste −2.9%, reputation +1.1% |
+| M6 | supply moves COGS under 27% | **green** — 34.0% → 24.2% |
+| **M4** | 60fps, 12px shapes, nice to watch | **not attempted** — see QUESTIONS.md Q9 |
+
+17 gate checks, 18 unit tests, `npm run gate` runs the lot.
+
+### §18 audit, briefly
+
+1. **A decision where both options are defensible:** staffing (peak profit at 2, peak reputation
+   at 4) and now supply — a commissary is $180k plus $2.1k/week against 34% → 24% COGS, which only
+   pays above a certain volume.
+2. **Any stat maximisable with no downside?** No. Standing tests cover staffing; the M6 gate
+   covers supply. Marketing is capped by capacity via balking, which is the §3 spiral.
+3. **Numbers hardcoded outside config?** The architecture test caught eight across the six
+   milestones. All moved. Test still in the suite.
+4. **`sim/` importing `render/` or `ui/`?** No — asserted.
+5. **Same seed, same output?** Verified across separate OS processes, and across a save/load.
+6–7. **Thumb, portrait, 12px?** N/A — that's M4.
+8. **Most boring 60 seconds?** Still all of it: there is no renderer, so there is nothing to
+   watch. That is M4, and it is the honest answer.
+9. **Is the newest system visible?** In the day report and the P&L, yes. On a screen, no.
+10. **Built that nobody asked for?** Reneging (Q5, load-bearing), the saturated-kitchen probe
+    (Q7, the only way to measure M1's gate without demand feedback inverting it), and the
+    peak-to-trough measures in the M3 gate.

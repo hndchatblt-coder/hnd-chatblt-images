@@ -8,14 +8,20 @@ export const economy = {
   /** Menu price per item id. */
   menuPrice: { cheeseburger: 16.5, chips: 6.5 } as Record<string, number>,
 
-  /** Cost per unit of raw ingredient. COGS counts waste and remakes, not just what sold. */
+  /**
+   * Cost per unit of raw ingredient. COGS counts waste and remakes, not just what sold.
+   *
+   * Scaled so an unsupplied single venue lands in the 30-36% band §14 targets. The first pass was
+   * 40% cheaper, which put baseline COGS at 24% — and made the M6 gate ("get under 27%") pass
+   * before the supply meta existed at all.
+   */
   ingredientCost: {
-    beef: 2.35,
-    bun: 0.85,
-    cheese: 0.42,
-    garnish: 0.36,
-    potato: 0.9,
-    oil: 0.15,
+    beef: 3.3,
+    bun: 1.19,
+    cheese: 0.59,
+    garnish: 0.5,
+    potato: 1.26,
+    oil: 0.21,
   } as Record<string, number>,
 
   wages: {

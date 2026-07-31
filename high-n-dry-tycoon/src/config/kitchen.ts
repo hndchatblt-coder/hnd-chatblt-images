@@ -21,12 +21,12 @@ export const kitchen = {
    * produced. Rough by design — this is a reporting figure, not an accounting one.
    */
   wasteValuePerUnit: {
-    patty: 2.35,
-    bun: 0.85,
-    garnish: 0.36,
-    burger: 3.98,
-    cheeseburger: 3.98,
-    chipsCooked: 1.05,
-    chips: 1.05,
+    patty: 3.3,
+    bun: 1.19,
+    garnish: 0.5,
+    burger: 5.58,
+    cheeseburger: 5.58,
+    chipsCooked: 1.47,
+    chips: 1.47,
   } as Record<string, number>,
 } as const;

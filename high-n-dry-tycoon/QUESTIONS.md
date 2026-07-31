@@ -154,3 +154,47 @@ loud that in the *live* game the effect is smaller and noisier than the gate num
 
 Still connected to **Q1**: 2.5% under saturation is honest but modest. My recommendation there
 (make carrying an explicit move) stands.
+
+## Q8 — Ingredient costs were 40% too cheap, which made the M6 gate meaningless
+
+Baseline COGS came out at **24.3%** against §14's 30–36% target for a competent pre-commissary
+player. That mattered more than it sounds: M6's gate is *"a competent supply solution moves COGS
+from 34% to under 27%"* — and it passed **before the supply meta existed at all**, because the
+starting point was already under the target.
+
+Scaled ingredient costs up 40%. Now:
+
+| | COGS |
+|---|---|
+| one venue, no volume | **34.0%** |
+| three venues, top retail tier | 28.6% |
+| commissary | **24.2%** |
+
+Which is exactly the arc §8 asks for. **Assumed:** menu prices stay ($16.50 burger, $6.50 chips)
+and ingredient costs move. The other way round works identically if you'd rather the menu was
+cheaper — say which and I'll flip it.
+
+**Knock-on worth knowing:** the tighter margins immediately broke `bot:balanced`'s ability to dig
+out of a reputation crisis — it stopped hiring and flatlined at 2.9 stars. Fixed by letting it
+spend down to $2,500 rather than $6,000 before hiring, on the grounds that a competent operator
+spends the buffer to fix service because service is what brings demand back. That's a change to
+the *player model*, not to the game.
+
+---
+
+## Q9 — M4 is not done. Here's exactly where it stopped.
+
+M0, M1, M2, M3, M5 and M6 are built and gated. **M4 — the procedural art pass — is not.**
+
+It's the largest milestone in the brief and the only one whose gate can't be checked headlessly:
+60fps on a throttled mid-range device, a 15-second recording that's genuinely nice to watch, and
+every shape readable at 12px. Doing it badly would be worse than not doing it, and I'd rather hand
+you a simulation that's provably correct than a renderer that's provably pretty.
+
+What's ready for it: `src/config/brand.ts` has named tokens with TODOs for your real hexes, the
+sim exposes everything the renderer needs (station positions, staff positions and what they're
+carrying, lot ages for the raw→burnt colour ramp, ticket ages, customer states), and the
+`sim/` → `render/` boundary is asserted by test so the renderer can't corrupt the model.
+
+**The one thing I need from you before starting it: the real High N' Dry hexes.** §16 says
+branding is settled as "real venues, menu and colours" but I don't have the colours.

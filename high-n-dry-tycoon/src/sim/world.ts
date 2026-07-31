@@ -36,6 +36,10 @@ export interface World {
   cash: number;
   /** Every dollar that has ever moved, by account. The M2 gate reconciles this against cash. */
   ledger: Record<string, number>;
+  /** Units of each ingredient bought in the trailing week, which is what earns volume tiers. */
+  weeklyVolume: Record<string, number>;
+  /** Whether the group runs a commissary — it beats every retail tier (§8). */
+  hasCommissary: boolean;
   /** Wages earned but not yet paid. Lands Sunday 23:00 (§4.9). */
   wagesOwed: number;
   lastPayroll: number;
@@ -122,6 +126,8 @@ export const createWorld = (options: WorldOptions): World => {
     venue,
     cash: economy.startingCash,
     ledger: {},
+    weeklyVolume: {},
+    hasCommissary: false,
     wagesOwed: 0,
     lastPayroll: 0,
     reputation: 0,

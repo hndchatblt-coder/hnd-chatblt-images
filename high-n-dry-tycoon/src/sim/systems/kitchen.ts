@@ -18,6 +18,7 @@
 import { kitchen } from "../../config/kitchen.js";
 import { economy } from "../../config/economy.js";
 import { post } from "./economy.js";
+import { unitCost } from "./supply.js";
 import { incidentProductionMult, stationDisabled } from "./incidents.js";
 import { recipeById, type Recipe, type StationType, type Step } from "../../config/recipes.js";
 import { staffConfig } from "../../config/staff.js";
@@ -238,7 +239,10 @@ export const stepKitchen = (world: World): void => {
 
     // Raw ingredients are bought by the step that consumes them, per unit of the batch.
     for (const [ingredient, qty] of Object.entries(pick.step.consumes ?? {})) {
-      const cost = (economy.ingredientCost[ingredient] ?? 0) * qty * pick.step.batchSize;
+      const units = qty * pick.step.batchSize;
+      // Volume earns tiers, and a commissary beats every tier (§8).
+      const cost = unitCost(ingredient, world.weeklyVolume[ingredient] ?? 0, world.hasCommissary) * units;
+      world.weeklyVolume[ingredient] = (world.weeklyVolume[ingredient] ?? 0) + units;
       post(world, "cogs", -cost);
       world.day.cogs += cost;
     }
