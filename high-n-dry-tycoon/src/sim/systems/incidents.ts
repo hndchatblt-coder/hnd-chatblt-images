@@ -117,13 +117,13 @@ export const recoveryPlan = (world: World): RecoveryObjective[] | null => {
     {
       id: "wait",
       label: `Keep mean wait under ${reviewCfg.recoveryTargetWaitMinutes} min`,
-      progress: Math.min(1, reviewCfg.recoveryTargetWaitMinutes / Math.max(0.1, meanWait)),
+      progress: Math.min(1, reviewCfg.recoveryTargetWaitMinutes / Math.max(reviewCfg.recoveryMinWaitMinutes, meanWait)),
       met: meanWait > 0 && meanWait < reviewCfg.recoveryTargetWaitMinutes,
     },
     {
       id: "waste",
       label: `Keep waste under ${(reviewCfg.recoveryTargetWaste * 100).toFixed(0)}%`,
-      progress: Math.min(1, reviewCfg.recoveryTargetWaste / Math.max(0.001, wastePct)),
+      progress: Math.min(1, reviewCfg.recoveryTargetWaste / Math.max(reviewCfg.recoveryMinWastePct, wastePct)),
       met: wastePct < reviewCfg.recoveryTargetWaste,
     },
     {

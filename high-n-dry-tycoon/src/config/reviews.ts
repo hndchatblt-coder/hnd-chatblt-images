@@ -39,6 +39,9 @@ export const reviews = {
   recoveryTargetWaste: 0.04,
   /** Meeting the plan ages bad reviews out this much faster. */
   recoveryHalfLifeMultiplier: 0.5,
+  /** Floors for the plan's progress bars, so a shop with no data doesn't divide by zero. */
+  recoveryMinWaitMinutes: 0.1,
+  recoveryMinWastePct: 0.001,
 
   /** Below this, the review-bomb event fires and the Recovery Plan appears (§9). */
   crisisStars: 2.5,
