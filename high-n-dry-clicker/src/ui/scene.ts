@@ -156,6 +156,12 @@ export interface Business {
   /** Who is standing where, by generator index. */
   staffNames: Record<number, string>;
   /**
+   * 0..1 how much shop there is, from total units owned. Drives the continuous stuff — dockets on
+   * the rail, mess on the bench, trays, how fast the crew move. The tier ladder is stepped; this
+   * is what stops there being a flat stretch between the steps (PLAN_THE_LINE.md 2.5).
+   */
+  density: number;
+  /**
    * Tier upgrades owned per generator, 0-3 (the x2s at 10/25/50 owned). Each step physically
    * replaces the equipment — see PLAN_THE_LINE.md 2.1. Until this landed, the 36 most
    * significant purchases in the game were invisible.
@@ -180,6 +186,7 @@ export class Scene {
     busy: 0,
     autoServesPerSecond: 0,
     staffNames: {},
+    density: 0,
     tiers: [],
   };
 
@@ -616,9 +623,11 @@ export class Scene {
     this.drawMenuBoard();
     this.drawLamp(t);
     this.drawBench();
+    this.drawBenchClutter();
     this.drawGrill(t);
     this.drawPatties(t);
     this.drawStations(t);
+    this.drawDocketRail();
     this.drawSmoke();
     this.drawGrease();
     this.drawCounter();
@@ -1380,7 +1389,8 @@ export class Scene {
     role: "cook" | "server",
   ): void {
     const ctx = this.ctx;
-    const bob = Math.sin(t * 3 + phase) * 1.2;
+    // They work faster when the shop is going — the crew are part of the tempo readout.
+    const bob = Math.sin(t * (3 + this.business.busy * 3.5) + phase) * (1.2 + this.business.busy * 0.7);
     const y = groundY + bob;
     // Whites on a light stainless bench need an edge or they dissolve into it.
     ctx.fillStyle = "rgba(40,30,22,0.3)";
@@ -1444,6 +1454,67 @@ export class Scene {
     // Lamplight catching the front lip of the stainless.
     ctx.fillStyle = "rgba(255,214,160,0.5)";
     ctx.fillRect(0, BENCH_TOP, W, 2);
+  }
+
+  /**
+   * The bench, lived-in. A docket rail that fills up, trays that stack, and mess that accumulates
+   * — all off `density`, all deterministic so nothing twitches between frames.
+   */
+  private drawBenchClutter(): void {
+    const ctx = this.ctx;
+    const d = this.business.density;
+
+    // Trays stacked by the pass. A busy shop runs through them.
+    const trays = 1 + Math.round(d * 5);
+    for (let i = 0; i < trays; i += 1) {
+      ctx.fillStyle = i % 2 === 0 ? "#B44A32" : "#9E4029";
+      ctx.fillRect(96, COUNTER_TOP - 6 - i * 4, 46, 4);
+    }
+
+    // Mess. Deterministic positions so it never twitches, and it only ever accumulates.
+    const spots = Math.round(d * 14);
+    for (let i = 0; i < spots; i += 1) {
+      const x = 20 + ((i * 6151) % (W - 40));
+      const y = BENCH_TOP + 2 + ((i * 3719) % 46);
+      ctx.fillStyle = i % 3 === 0 ? "rgba(198,64,43,0.16)" : "rgba(90,70,40,0.14)";
+      ctx.beginPath();
+      ctx.ellipse(x, y, 2 + ((i * 13) % 4), 1.4 + ((i * 7) % 3) * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Orders on. Hangs off the heat-lamp bar where a real rail does, and fills as the business
+   * grows. Purely scenery — it says how much work is on, it isn't a control. (The docket-to-rail
+   * *interaction* was cut in M2 because it read as an instruction; this is the furniture.)
+   */
+  private drawDocketRail(): void {
+    const ctx = this.ctx;
+    const tickets = Math.round(this.business.density * 12);
+    if (tickets === 0) return;
+
+    const railY = LAMP_BAR_Y + 13;
+    ctx.fillStyle = "#5C646C";
+    ctx.fillRect(52, railY, W - 104, 1.5);
+
+    for (let i = 0; i < tickets; i += 1) {
+      const x = 58 + i * 23;
+      if (x > W - 62) break;
+      const lean = (((i * 37) % 5) - 2) * 0.02;
+      ctx.save();
+      ctx.translate(x, railY);
+      ctx.rotate(lean);
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(-6, 1, 14, 13);
+      ctx.fillStyle = "#F6F1E4";
+      ctx.fillRect(-7, 0, 14, 13);
+      ctx.fillStyle = "rgba(90,80,66,0.5)";
+      for (let l = 0; l < 3; l += 1) ctx.fillRect(-5, 3 + l * 3, 10, 1);
+      // The peg it hangs on.
+      ctx.fillStyle = "#3A4046";
+      ctx.fillRect(-1.5, -2.5, 3, 3);
+      ctx.restore();
+    }
   }
 
   private drawGrill(t: number): void {

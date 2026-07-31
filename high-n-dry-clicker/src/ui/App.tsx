@@ -213,6 +213,7 @@ export default function App(): JSX.Element {
         busy,
         autoServesPerSecond: Math.min(4, Math.log10(1 + d.cps) * 0.5),
         staffNames: staffNames(state),
+        density: Math.min(1, Math.log10(1 + totalGenerators(state)) / 2.4),
         tiers: stationTiers(state),
       });
       audio.setBusy(busy);
