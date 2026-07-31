@@ -8,6 +8,7 @@
 import { recipeById } from "../../config/recipes.js";
 import { reviews as reviewCfg } from "../../config/reviews.js";
 import type { Order } from "../entities.js";
+import { post } from "./economy.js";
 import type { World } from "../world.js";
 
 export const waitScore = (waitSeconds: number): number => {
@@ -44,8 +45,9 @@ export const stepService = (world: World): void => {
       // COGS was already booked by the kitchen when it made the food — including the batches
       // that never sold. Charging again here would double-count and hide waste.
       void recipe;
-      world.cash += world.menuPrice[item.recipeId] ?? 0;
-      world.day.revenue += world.menuPrice[item.recipeId] ?? 0;
+      const price = world.menuPrice[item.recipeId] ?? 0;
+      post(world, "revenue", price);
+      world.day.revenue += price;
     }
 
     world.day.ordersCompleted += 1;

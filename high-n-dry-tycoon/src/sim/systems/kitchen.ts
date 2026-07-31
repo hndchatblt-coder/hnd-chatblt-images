@@ -17,6 +17,7 @@
  */
 import { kitchen } from "../../config/kitchen.js";
 import { economy } from "../../config/economy.js";
+import { post } from "./economy.js";
 import { recipeById, type Recipe, type StationType, type Step } from "../../config/recipes.js";
 import { staffConfig } from "../../config/staff.js";
 import { traitById } from "../../config/traits.js";
@@ -217,7 +218,7 @@ export const stepKitchen = (world: World): void => {
     // Raw ingredients are bought by the step that consumes them, per unit of the batch.
     for (const [ingredient, qty] of Object.entries(pick.step.consumes ?? {})) {
       const cost = (economy.ingredientCost[ingredient] ?? 0) * qty * pick.step.batchSize;
-      world.cash -= cost;
+      post(world, "cogs", -cost);
       world.day.cogs += cost;
     }
 

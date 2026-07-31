@@ -19,7 +19,8 @@ export const dayLine = (d: DayTotals): string => {
   const balkRate = d.covers + d.balked > 0 ? d.balked / (d.covers + d.balked) : 0;
   const gross = d.revenue - d.cogs;
   const cogsPct = d.revenue > 0 ? d.cogs / d.revenue : 0;
-  const labourPct = d.revenue > 0 ? d.wagesAccrued / d.revenue : 0;
+  const wages = -(d.ledger.wages ?? 0);
+  const labourPct = d.revenue > 0 ? wages / d.revenue : 0;
 
   return [
     `D${pad(String(d.day), 3)}`,
@@ -45,6 +46,42 @@ export const header = (world: World): string =>
     `menu       ${Object.entries(world.menuPrice).map(([k, v]) => `${k} ${money(v)}`).join(", ")}`,
   ].join("\n");
 
+/**
+ * The end-of-day P&L (§11.5). Labour% and COGS% are the two numbers a real operator watches, so
+ * they are the two the player watches.
+ *
+ * Built from the ledger rather than from tallies kept alongside it — that is what lets the M2
+ * gate reconcile it against cash to the cent.
+ */
+export const profitAndLoss = (world: World): string => {
+  const l = world.ledger;
+  const revenue = l.revenue ?? 0;
+  const line = (label: string, amount: number): string =>
+    `  ${label.padEnd(14)}${pad(money(amount), 12)}${pad(revenue > 0 ? pct(Math.abs(amount) / revenue) : "", 9)}`;
+
+  const costs: [string, number][] = [
+    ["COGS", l.cogs ?? 0],
+    ["Wages", l.wages ?? 0],
+    ["Rent", l.rent ?? 0],
+    ["Utilities", l.utilities ?? 0],
+    ["Insurance", l.insurance ?? 0],
+    ["POS", l.pos ?? 0],
+    ["Marketing", l.marketing ?? 0],
+    ["Equipment", (l.equipment ?? 0) + (l.equipmentSale ?? 0)],
+    ["Interest", l.interest ?? 0],
+  ];
+
+  const net = Object.values(l).reduce((a, b) => a + b, 0);
+  return [
+    "",
+    "P&L",
+    line("Revenue", revenue),
+    ...costs.filter(([, v]) => v !== 0).map(([k, v]) => line(k, v)),
+    `  ${"Net".padEnd(14)}${pad(money(net), 12)}`,
+    `  ${"Wages owed".padEnd(14)}${pad(money(world.wagesOwed), 12)}  (accrued, unpaid)`,
+  ].join("\n");
+};
+
 export const summary = (world: World): string => {
   const days = world.history.filter((d) => d.covers > 0 || d.ordersCompleted > 0);
   const walkedIn = days.reduce((a, d) => a + d.covers + d.balked, 0);
@@ -54,7 +91,7 @@ export const summary = (world: World): string => {
       balked: a.balked + d.balked,
       revenue: a.revenue + d.revenue,
       cogs: a.cogs + d.cogs,
-      wages: a.wages + d.wagesAccrued,
+      wages: a.wages - (d.ledger.wages ?? 0),
       served: a.served + d.ordersCompleted,
       wait: a.wait + d.waitSecondsTotal,
       sat: a.sat + d.satisfactionTotal,

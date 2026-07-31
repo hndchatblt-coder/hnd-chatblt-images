@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import { sweepStaff } from "../src/harness/sweep.js";
 
 describe("every dial fights another dial", () => {
-  const rows = sweepStaff([1, 2, 3, 4, 6, 8], 14, "42");
+  // Range chosen to span the turnover. Wages are shift-only, so the shop absorbs more staff than
+  // it used to before hiring stops paying — and revenue plateaus at 6 because the kitchen runs out
+  // of stations, which is space doing its job.
+  const rows = sweepStaff([1, 2, 4, 6, 8, 10, 12], 14, "42");
 
   it("staffing has a genuine optimum rather than being free to max", () => {
     // Pillar: "Any single stat can be maxed with no downside" is a stated fail condition.
@@ -17,6 +20,14 @@ describe("every dial fights another dial", () => {
     expect(best).toBeLessThan(rows.length - 1);
     // And overstaffing must actually hurt, not merely stop helping.
     expect(gross[gross.length - 1]!).toBeLessThan(0);
+  });
+
+  it("revenue plateaus once there are more staff than stations", () => {
+    // More bodies than benches does nothing, which is the spatial constraint showing up in the
+    // economy rather than only in the walk times.
+    const last = rows[rows.length - 1]!;
+    const secondLast = rows[rows.length - 2]!;
+    expect(Math.abs(last.revenue - secondLast.revenue)).toBeLessThan(1);
   });
 
   it("more staff always buys shorter waits — the cost is money, not service", () => {

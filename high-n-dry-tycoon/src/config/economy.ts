@@ -35,5 +35,18 @@ export const economy = {
     utilitiesPerStationHour: 0.55,
   },
 
+  marketing: {
+    /**
+     * Dollars of spend per point of awareness at five stars. Awareness multiplies demand
+     * directly, so this is the exchange rate between cash today and customers tomorrow.
+     */
+    dollarsPerAwarenessPoint: 900,
+    /**
+     * Marketing efficiency scales with reputation and never falls below this. A bad shop pays
+     * more per customer and those customers then balk — bad money after bad (§4.9).
+     */
+    minEfficiency: 0.25,
+  },
+
   overdraft: { annualRate: 0.14, compoundDaily: true },
 } as const;

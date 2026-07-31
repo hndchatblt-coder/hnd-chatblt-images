@@ -26,7 +26,7 @@ export const sweepStaff = (counts: number[], days: number, seed: string): SweepR
       (a, d) => ({
         rev: a.rev + d.revenue,
         cogs: a.cogs + d.cogs,
-        wages: a.wages + d.wagesAccrued,
+        wages: a.wages - (d.ledger.wages ?? 0),
         served: a.served + d.ordersCompleted,
         wait: a.wait + d.waitSecondsTotal,
         cov: a.cov + d.covers,

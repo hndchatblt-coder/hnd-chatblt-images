@@ -62,3 +62,40 @@ means service points are doing real work, which is good, but the gate as written
 
 **Assumed:** the gate means "increase grill→pass distance by 6 tiles", not "translate the grill".
 Cheap to change if you meant something else.
+
+## Q3 — Naive ends up *richer* than balanced. The spiral doesn't bite yet.
+
+After 90 days (M2 gate):
+
+| bot | cash | reputation | labour% |
+|---|---|---|---|
+| naive | **$560,533** | **2.80** | 10.7% |
+| balanced | $282,775 | 3.74 | 33.2% |
+
+`bot:naive` markets constantly, understaffs, runs at 2.8 stars — and finishes with twice the cash.
+The punishment spiral in §3 is not yet punishing, because under-staffing saves more in wages than
+bad reputation costs in demand.
+
+M3 adds errors, fatigue and incidents, which should tilt this. But I want to flag the shape of the
+problem now: **the spiral only bites if the reputation→demand link is stronger than the
+wages→margin link.** Right now it isn't, and the exponent on `reputationMultiplier` (1.6) is the
+dial that decides it.
+
+**Assumed for now:** M3's error and incident systems close the gap. If they don't, the honest fix
+is raising the reputation exponent so the difference between 2.8 and 3.7 stars is brutal rather
+than 25% of demand. Will report the number after M3.
+
+---
+
+## Q4 — More staff than stations does nothing, and I think that's right
+
+Revenue plateaus dead flat from 6 staff onward (~$68,147 at 6, 8, 10, 12 staff) because the shop
+only has 7 stations and bodies can't share a bench. Gross goes **negative at 10 staff**.
+
+That's the spatial constraint showing up in the economy rather than only in walk times, and I
+think it's exactly what pillar 1 wants — the answer to "I need more throughput" becomes *buy a
+second grill and find somewhere to put it*, not *hire another body*.
+
+Flagging only because it makes the staffing curve very flat between 2 and 6, so the hiring decision
+is less interesting than the equipment one. **No action taken.** Tell me if you want bodies to
+matter more than benches.

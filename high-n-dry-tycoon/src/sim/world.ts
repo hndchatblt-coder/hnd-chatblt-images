@@ -11,7 +11,8 @@ import { economy } from "../config/economy.js";
 import { staffConfig, staffNames } from "../config/staff.js";
 import { dtGameSeconds, time } from "../config/time.js";
 import { venueById, type VenueDef } from "../config/venues.js";
-import { advance, createClock, dayIndex, isTrading, type Clock } from "./clock.js";
+import { advance, createClock, dayIndex, hourOfDay, isTrading, type Clock } from "./clock.js";
+import { stepEconomy } from "./systems/economy.js";
 import { emptyDay, type Customer, type DayTotals, type Job, type Lot, type Order, type Review, type StaffMember, type StationInstance } from "./entities.js";
 import { canPlace, toInstance, type Placement } from "./floor.js";
 import { defaultLayout } from "./layouts.js";
@@ -25,10 +26,18 @@ import { stepService } from "./systems/service.js";
 
 export interface World {
   rng: Rng;
+  /** Kept so a save can replay the RNG to exactly where it was. */
+  seed: string;
+  rngCalls: number;
   clock: Clock;
   venue: VenueDef;
 
   cash: number;
+  /** Every dollar that has ever moved, by account. The M2 gate reconciles this against cash. */
+  ledger: Record<string, number>;
+  /** Wages earned but not yet paid. Lands Sunday 23:00 (§4.9). */
+  wagesOwed: number;
+  lastPayroll: number;
   reputation: number;
   marketingAwareness: number;
   menuPrice: Record<string, number>;
@@ -53,6 +62,7 @@ export interface World {
   nextCustomerId: number;
   nextOrderId: number;
   nextJobId: number;
+  nextStaffId: number;
 }
 
 export interface WorldOptions {
@@ -101,9 +111,14 @@ export const createWorld = (options: WorldOptions): World => {
 
   const world: World = {
     rng,
+    seed: String(options.seed),
+    rngCalls: 0,
     clock: createClock(),
     venue,
     cash: economy.startingCash,
+    ledger: {},
+    wagesOwed: 0,
+    lastPayroll: 0,
     reputation: 0,
     marketingAwareness: 0,
     menuPrice: { ...economy.menuPrice },
@@ -121,6 +136,7 @@ export const createWorld = (options: WorldOptions): World => {
     nextCustomerId: 1,
     nextOrderId: 1,
     nextJobId: 1,
+    nextStaffId: count,
   };
 
   recomputeReputation(world);
@@ -130,6 +146,7 @@ export const createWorld = (options: WorldOptions): World => {
 /** One fixed 10 Hz tick. Never tie any of this to frame rate (§4.1). */
 export const tick = (world: World): void => {
   const dayBefore = dayIndex(world.clock);
+  const hourBefore = hourOfDay(world.clock);
   advance(world.clock);
 
   if (isTrading(world.clock)) {
@@ -144,14 +161,9 @@ export const tick = (world: World): void => {
   stepService(world);
   flushReviews(world);
 
-  // Wages accrue by the hour worked and land as a lump on Sunday night (§4.9). M0 accrues them;
-  // M2 pays them.
-  if (isTrading(world.clock)) {
-    const hours = dtGameSeconds / time.secondsPerHour;
-    const penalty = economy.wages.penaltyRates[(dayIndex(world.clock) + 1) % time.daysPerWeek] ?? 1;
-    for (const s of world.staff) world.day.wagesAccrued += s.hourlyRate * penalty * hours;
-  }
+  stepEconomy(world, hourBefore);
 
+  world.rngCalls = world.rng.calls;
   const dayAfter = dayIndex(world.clock);
   if (dayAfter !== dayBefore) rollDay(world, dayAfter);
 };

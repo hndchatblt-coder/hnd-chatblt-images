@@ -128,6 +128,8 @@ export interface DayTotals {
   batchesMade: number;
   /** Seconds staff spent walking rather than working. The layout tax, made visible. */
   walkSeconds: number;
+  /** Every dollar that moved today, by account. Reconciles against cash to the cent (M2 gate). */
+  ledger: Record<string, number>;
   /** Reputation as it stood when this day closed — not the final value (that was a report bug). */
   reputationAtClose: number;
 }
@@ -147,5 +149,6 @@ export const emptyDay = (day: number): DayTotals => ({
   wasteUnits: 0,
   batchesMade: 0,
   walkSeconds: 0,
+  ledger: {},
   reputationAtClose: 0,
 });

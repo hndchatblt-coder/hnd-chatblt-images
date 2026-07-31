@@ -7,6 +7,9 @@ import { layoutWithGrillOffset, runLayoutSeeded } from "../harness/layoutProbe.j
 import { defaultLayout } from "../sim/layouts.js";
 import { venueById } from "../config/venues.js";
 import { createWorld, runDays } from "../sim/world.js";
+import { bots } from "../harness/bots.js";
+import { runSessions } from "../harness/session.js";
+import { economy } from "../config/economy.js";
 
 let failures = 0;
 const check = (name: string, ok: boolean, detail: string): void => {
@@ -87,6 +90,52 @@ check(
   far.walkMinutes > near.walkMinutes,
   `${near.walkMinutes.toFixed(0)} → ${far.walkMinutes.toFixed(0)} min walking (+${(walkRise * 100).toFixed(0)}%)`,
 );
+
+/* ------------------------------------------------------------------- M2 */
+console.log("\nM2 gate — economy\n");
+
+const pad2 = (s: string, n: number): string => s.padEnd(n);
+console.log([pad2("bot", 12), pad2("cash", 12), pad2("rep", 7), pad2("staff", 7), pad2("cogs%", 8), pad2("labour%", 9), "reconciles"].join(""));
+
+let allReconcile = true;
+let allRan = true;
+
+for (const bot of bots) {
+  let world;
+  try {
+    world = createWorld({ seed: "42", staffCount: 2 });
+    runSessions(world, bot, 90);
+  } catch (error) {
+    allRan = false;
+    console.log(`${pad2(bot.id, 12)}CRASHED — ${(error as Error).message}`);
+    continue;
+  }
+
+  // The reconciliation: cash must be exactly starting cash plus every posted movement. If these
+  // disagree, some code moved money without telling the ledger and the P&L is fiction.
+  const posted = Object.values(world.ledger).reduce((a, b) => a + b, 0);
+  const expected = economy.startingCash + posted;
+  const drift = Math.abs(world.cash - expected);
+  const reconciles = drift < 0.005;
+  if (!reconciles) allReconcile = false;
+
+  const revenue = world.ledger.revenue ?? 0;
+  console.log(
+    [
+      pad2(bot.id, 12),
+      pad2(`$${world.cash.toFixed(0)}`, 12),
+      pad2(world.reputation.toFixed(2), 7),
+      pad2(String(world.staff.length), 7),
+      pad2(`${((revenue > 0 ? -(world.ledger.cogs ?? 0) / revenue : 0) * 100).toFixed(1)}%`, 8),
+      pad2(`${((revenue > 0 ? -(world.ledger.wages ?? 0) / revenue : 0) * 100).toFixed(1)}%`, 9),
+      reconciles ? "yes" : `NO (${drift.toFixed(4)})`,
+    ].join(""),
+  );
+}
+
+console.log("");
+check("all four bots run 90 days without crashing", allRan, `${bots.length} bots`);
+check("P&L reconciles to the cent", allReconcile, "cash === starting cash + every posted movement");
 
 console.log(failures === 0 ? "\nGATES GREEN" : `\nGATES RED — ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

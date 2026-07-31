@@ -2,26 +2,32 @@
  * Determinism (§13). Same seed plus same inputs must give byte-identical output, or the balance
  * harness is worthless and no bug is ever reproducible.
  *
- * Every stochastic draw in the sim goes through here. There is no `Math.random` anywhere in
- * `src/sim` and a test asserts that.
+ * Every stochastic draw in the sim goes through here — there is no direct use of the platform
+ * random anywhere in `src/sim`, and a test asserts it. `calls` is tracked so a save can replay
+ * the generator to exactly where it was rather than forking the sequence on reload.
  */
 import seedrandom from "seedrandom";
 
+/** Knuth's Poisson degenerates for large lambda. Nothing in this sim should get near it. */
+const POISSON_LAMBDA_LIMIT = 30;
+
 export class Rng {
   private readonly gen: seedrandom.PRNG;
+  calls = 0;
 
   constructor(seed: string | number) {
     this.gen = seedrandom(String(seed));
   }
 
-  /** [0, 1) */
+  /** [0, 1) — the only place a raw number is drawn. */
   next(): number {
+    this.calls += 1;
     return this.gen();
   }
 
   /** [min, max) */
   range(min: number, max: number): number {
-    return min + this.gen() * (max - min);
+    return min + this.next() * (max - min);
   }
 
   int(minInclusive: number, maxExclusive: number): number {
@@ -29,7 +35,7 @@ export class Rng {
   }
 
   chance(p: number): boolean {
-    return this.gen() < p;
+    return this.next() < p;
   }
 
   pick<T>(items: readonly T[]): T {
@@ -44,14 +50,13 @@ export class Rng {
    */
   poisson(lambda: number): number {
     if (lambda <= 0) return 0;
-    // Guard: Knuth degenerates for large lambda. Nothing in this sim should get near it.
-    if (lambda > 30) throw new Error(`poisson lambda too large: ${lambda}`);
+    if (lambda > POISSON_LAMBDA_LIMIT) throw new Error(`poisson lambda too large: ${lambda}`);
     const limit = Math.exp(-lambda);
     let k = 0;
     let p = 1;
     do {
       k += 1;
-      p *= this.gen();
+      p *= this.next();
     } while (p > limit);
     return k - 1;
   }

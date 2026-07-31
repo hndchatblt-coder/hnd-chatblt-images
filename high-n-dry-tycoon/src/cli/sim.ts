@@ -5,7 +5,7 @@
  * output. Nothing here reads the wall clock or the environment for that reason.
  */
 import { createWorld, runDays } from "../sim/world.js";
-import { dayLine, header, summary } from "../sim/report.js";
+import { dayLine, header, profitAndLoss, summary } from "../sim/report.js";
 
 const arg = (name: string, fallback: string): string => {
   const i = process.argv.indexOf(`--${name}`);
@@ -29,3 +29,4 @@ for (const d of world.history) {
   console.log(dayLine(d));
 }
 console.log(summary(world));
+console.log(profitAndLoss(world));
