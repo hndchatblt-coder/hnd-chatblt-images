@@ -446,3 +446,51 @@ comes back to the counter, the venues go dark, and a crew who have never met you
 Verified end to end under touch: 43 goodwill awarded, the run reset to zero on the books, the
 achievement wall **kept everything it had** and gained one, and all six perks became purchasable.
 Nothing the player earned is ever removed — hard rule 4, checked rather than assumed.
+
+---
+
+## A measurement bug in B1 — flagged, not quietly banked
+
+**This changed a red gate to a less-red gate, which is exactly the situation hard rule 6 exists to
+catch, so it is written up rather than pocketed.**
+
+B1 reported a **419-second dead window starting at 26 minutes** on the idle profile. Before
+touching the economy I dumped what the bot was actually doing in that window:
+
+```
+22.4min  generator tongs   $1.86e+2   x1.02
+22.8min  generator fryer   $2.01e+2   x1.11
+...
+26.1min  generator tongs   $3.73e+2   x1.01     <- "dead window" starts here
+26.5min  generator fryer   $4.05e+2   x1.07
+26.9min  generator tongs   $4.29e+2   x1.01
+27.4min  generator fryer   $4.65e+2   x1.06
+```
+
+It bought something **every 25–35 seconds** for the entire "419 seconds of nothing to do".
+
+**The cause.** The detector asked "is anything affordable at this sample?" The bot spends its cash
+the instant anything is affordable, so the answer is *no* on almost every tick — including the tick
+it just bought on. The dead run therefore accumulated almost monotonically and only reset when a
+golden patty happened to appear.
+
+Someone who has just bought a fryer and is watching the money climb towards the next one is not in
+a dead window. Someone who has bought nothing for minutes is. **The assertion was right; the
+instrument was wrong** — a purchase now counts as something happening.
+
+**B1 went 419s → 114s.** The remainder is genuine and is *not* being touched.
+
+### What G4 looks like now, honestly
+
+| | worst | budget | where |
+|---|---|---|---|
+| **B1** dead window | 114s | 90s | idle, at 177min — right after its sale, when it owns nothing again |
+| **B4** purchase cliff | 173s | 90s | idle, at 3min — the cold start, before the first tongs |
+| casual | 0s dead, 99s gap | | |
+| tryhard | 0s dead, 83s gap | | **within budget on both** |
+
+Both remaining failures are the **same shape**: the opening minutes of a run with no generators and
+no tapping. Casual is a whisker over (99s vs 90s); tryhard passes outright. The fix is either
+starting cash, a cheaper first rung, or accepting that a genuinely idle player's first three
+minutes are slow — and it interacts with the B2 ladder question, so it is **Ben's call and has not
+been made unilaterally**.

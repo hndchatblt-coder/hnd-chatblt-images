@@ -230,11 +230,22 @@ export function runProfile(
       purchasesThisTick += 1;
     }
 
-    // Dead window: nothing affordable, nothing on screen, nothing in flight.
+    // Dead window: the player has nothing to do and nothing to watch.
+    //
+    // `bought` matters here and its absence was a measurement bug. The bot spends its cash the
+    // instant anything is affordable, so "nothing is affordable at this sample" is true on almost
+    // every tick — including the tick it just made a purchase on. That made B1 report a 419s dead
+    // window over a stretch where the bot was demonstrably buying something every ~25 seconds.
+    // Someone who just bought a fryer and is watching the money climb towards the next one is not
+    // in a dead window; someone who has bought nothing for minutes is. The assertion was right
+    // and the instrument was wrong.
     const opts = purchaseOptions(state, effectiveTapsPerSecond(profile, state), c);
     const anythingAffordable = opts.some((o) => o.affordable && o.gainPerSecond > 0);
     const somethingHappening =
-      state.golden.onScreen !== null || state.golden.activeEffects.length > 0 || taps > 0;
+      purchasesThisTick > 0 ||
+      state.golden.onScreen !== null ||
+      state.golden.activeEffects.length > 0 ||
+      taps > 0;
     if (!anythingAffordable && !somethingHappening) {
       if (deadRun === 0) deadRunStartedAt = state.timeSeconds;
       deadRun += c.sim.tickSeconds;
