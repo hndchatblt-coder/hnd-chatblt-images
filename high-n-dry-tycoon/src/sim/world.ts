@@ -21,8 +21,9 @@ import { Rng } from "./rng.js";
 import { stepArrivals } from "./systems/arrivals.js";
 import { takeOrders } from "./systems/orders.js";
 import { binSpoiled, fillOrders, stepKitchen } from "./systems/kitchen.js";
+import { stepIncidents } from "./systems/incidents.js";
 import { flushReviews, recomputeReputation } from "./systems/reputation.js";
-import { stepService } from "./systems/service.js";
+import { stepReneging, stepService } from "./systems/service.js";
 
 export interface World {
   rng: Rng;
@@ -50,6 +51,10 @@ export interface World {
   jobs: Job[];
   /** Buffers: item id -> lots, oldest first. Cooked stock lives here and ages here. */
   stock: Map<string, Lot[]>;
+
+  /** Everything currently going wrong. Degrade only — nothing here can end a run (§4.10). */
+  incidents: { id: string; endsAt: number }[];
+  incidentLog: { at: number; id: string; line: string }[];
 
   reviews: Review[];
   pendingReviews: Review[];
@@ -128,6 +133,8 @@ export const createWorld = (options: WorldOptions): World => {
     stations: placed.map(toInstance),
     jobs: [],
     stock: new Map(),
+    incidents: [],
+    incidentLog: [],
     reviews: [],
     pendingReviews: [],
     rollingServiceSeconds: 300,
@@ -155,9 +162,11 @@ export const tick = (world: World): void => {
   }
 
   // The kitchen keeps going after close — it finishes what it started, and stock keeps ageing.
+  stepIncidents(world);
   stepKitchen(world);
   fillOrders(world);
   binSpoiled(world);
+  stepReneging(world);
   stepService(world);
   flushReviews(world);
 

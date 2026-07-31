@@ -6,6 +6,7 @@
  */
 import { reviews as cfg } from "../../config/reviews.js";
 import { time } from "../../config/time.js";
+import { reputationCap } from "./incidents.js";
 import type { World } from "../world.js";
 
 export const recomputeReputation = (world: World): void => {
@@ -25,7 +26,10 @@ export const recomputeReputation = (world: World): void => {
     weight += w;
   }
 
-  world.reputation = weight > 0 ? weighted / weight : cfg.priorStars;
+  const raw = weight > 0 ? weighted / weight : cfg.priorStars;
+  // A bad inspection caps what the shop can be worth until it is remedied — it does not destroy
+  // the reviews already earned (§4.10).
+  world.reputation = Math.min(raw, reputationCap(world));
 };
 
 export const flushReviews = (world: World): void => {

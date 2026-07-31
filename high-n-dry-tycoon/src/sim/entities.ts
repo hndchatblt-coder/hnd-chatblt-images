@@ -115,6 +115,8 @@ export interface DayTotals {
   day: number;
   covers: number;
   balked: number;
+  /** Ordered, waited too long, walked out. Angrier than a balk (§4.3).*/
+  reneged: number;
   revenue: number;
   cogs: number;
   wagesAccrued: number;
@@ -126,6 +128,8 @@ export interface DayTotals {
   waste: number;
   wasteUnits: number;
   batchesMade: number;
+  /** Batches dropped, burnt or wrongly made. Spikes when understaffed and slammed. */
+  errors: number;
   /** Seconds staff spent walking rather than working. The layout tax, made visible. */
   walkSeconds: number;
   /** Every dollar that moved today, by account. Reconciles against cash to the cent (M2 gate). */
@@ -138,6 +142,7 @@ export const emptyDay = (day: number): DayTotals => ({
   day,
   covers: 0,
   balked: 0,
+  reneged: 0,
   revenue: 0,
   cogs: 0,
   wagesAccrued: 0,
@@ -148,6 +153,7 @@ export const emptyDay = (day: number): DayTotals => ({
   waste: 0,
   wasteUnits: 0,
   batchesMade: 0,
+  errors: 0,
   walkSeconds: 0,
   ledger: {},
   reputationAtClose: 0,

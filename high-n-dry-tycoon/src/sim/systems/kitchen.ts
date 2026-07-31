@@ -18,6 +18,7 @@
 import { kitchen } from "../../config/kitchen.js";
 import { economy } from "../../config/economy.js";
 import { post } from "./economy.js";
+import { incidentProductionMult, stationDisabled } from "./incidents.js";
 import { recipeById, type Recipe, type StationType, type Step } from "../../config/recipes.js";
 import { staffConfig } from "../../config/staff.js";
 import { traitById } from "../../config/traits.js";
@@ -135,19 +136,27 @@ export const nextJob = (
     for (const entry of batch) {
       if (shortfall(entry.recipe, entry.step, entry.needed) <= 0) continue;
 
-      // Anything this step depends on that is itself short goes deeper.
+      // A step can run as soon as it has the inputs for ONE batch. Requiring enough for the
+      // whole outstanding order book meant a full house needed forty burgers in stock before
+      // anyone was allowed to plate one, so nothing ever reached the pass.
       let blocked = false;
       for (const depId of entry.step.dependsOn) {
         const dep = stepOf(entry.recipe, depId);
         if (!dep) continue;
-        if (stockQty(world, dep.output) < entry.needed) {
+        if (stockQty(world, dep.output) < entry.step.batchSize) {
           queue.push({ recipe: entry.recipe, step: dep, needed: entry.needed });
           blocked = true;
         }
       }
       if (blocked) continue;
       if (!capable(entry.step.station)) continue;
-      if (best === null || depth > best.depth) {
+      // Shallowest first: finish what is nearly done before starting more raw work.
+      //
+      // This was deepest-first, which is a push system, and under heavy demand it never
+      // finished anything — patties were always short, so the kitchen made patties forever and
+      // nothing ever reached the pass. A real kitchen plates the burger that's ready before
+      // putting more meat on. Pull, not push.
+      if (best === null || depth < best.depth) {
         best = { recipe: entry.recipe, step: entry.step, depth };
       }
     }
@@ -173,6 +182,15 @@ export const workRate = (staff: StaffMember, station: StationType): number => {
   return Math.max(staffConfig.minWorkRate, rate);
 };
 
+const errorTraitMultiplier = (staff: StaffMember): number => {
+  let mult = 1;
+  for (const id of staff.traits) {
+    const trait = traitById.get(id);
+    if (trait?.errorRate) mult *= trait.errorRate;
+  }
+  return mult;
+};
+
 const canWork = (staff: StaffMember, station: StationType): boolean =>
   !staff.traits.some((id) => traitById.get(id)?.refuses?.includes(station));
 
@@ -182,7 +200,10 @@ export const stepKitchen = (world: World): void => {
     if (staff.jobId !== null) continue;
 
     const free = world.stations.filter(
-      (s) => s.busyWith === null && !world.jobs.some((j) => j.stationId === s.id),
+      (s) =>
+        s.busyWith === null &&
+        !world.jobs.some((j) => j.stationId === s.id) &&
+        !stationDisabled(world, s.type),
     );
     if (free.length === 0) break;
 
@@ -269,7 +290,8 @@ export const stepKitchen = (world: World): void => {
       if (budget <= 0) continue;
     }
 
-    job.remaining -= budget * workRate(staff, station.type);
+    // Whatever is going wrong today slows the whole kitchen, but never stops it.
+    job.remaining -= budget * workRate(staff, station.type) * incidentProductionMult(world);
     station.runSeconds += budget;
     staff.shiftSeconds += budget;
 
@@ -287,6 +309,28 @@ export const stepKitchen = (world: World): void => {
     );
 
     if (job.remaining > 0) continue;
+
+    // Errors (§4.6). Tired, rushed and unskilled people drop things — and it spikes exactly when
+    // you are understaffed and slammed, which is the moment the player already feels it.
+    const rush = Math.min(1, world.orders.length / kitchen.rushOrdersForFullPressure);
+    const fatigue = 1 - staff.stamina;
+    const pError =
+      (staffConfig.baseErrorRate *
+        (1 + fatigue * staffConfig.fatigueErrorWeight) *
+        (1 + rush * staffConfig.rushErrorWeight) *
+        errorTraitMultiplier(staff)) /
+      Math.max(staffConfig.minWorkRate, staff.skill[station.type] ?? staffConfig.startingSkill);
+
+    if (world.rng.chance(Math.min(kitchen.maxErrorRate, pError))) {
+      // The batch is wasted. Nothing is destroyed beyond the food itself — the order gets remade.
+      world.day.waste += job.batchSize * (kitchen.wasteValuePerUnit[job.output] ?? 0);
+      world.day.wasteUnits += job.batchSize;
+      world.day.errors += 1;
+      staff.jobId = null;
+      station.busyWith = null;
+      world.jobs.splice(i, 1);
+      continue;
+    }
 
     stockOf(world, job.output).push({
       qty: job.batchSize,

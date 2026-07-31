@@ -99,3 +99,58 @@ second grill and find somewhere to put it*, not *hire another body*.
 Flagging only because it makes the staffing curve very flat between 2 and 6, so the hiring decision
 is less interesting than the equipment one. **No action taken.** Tell me if you want bodies to
 matter more than benches.
+
+## Q5 — I added reneging, which wasn't in the brief. It was load-bearing.
+
+The M3 gate wouldn't pass without it and I want you to know why.
+
+`bot:naive` spiralled perfectly (3.83 → 2.22 stars) but then **could not recover at all** — 25 days
+of disciplined play moved it 2.21 → 2.27. The cause: customers who had ordered never left. Orders
+that couldn't be filled sat in the queue forever, so the kitchen stayed permanently slammed, the
+error rate stayed pinned at its ceiling, and reputation couldn't climb no matter how well the shop
+was then run.
+
+§4.3 has balking (leaving *before* ordering) but nothing for giving up *after*. So a customer who
+has waited three times their patience now walks out, and unlike a balk they're properly angry
+about it — 45% chance of a one-star review.
+
+With it: **2.22 → 3.89 stars over 25 days.** The way out is discipline, exactly as §3 wants.
+
+**Assumed:** three times patience, one star, 45% review rate. All in `config/demand.ts`. Say the
+word if you want them different — but I don't think the game works without the mechanic existing.
+
+---
+
+## Q6 — Two scheduler bugs, and the fix changed the shop's character
+
+Chasing the M1 gate turned up two real faults in how the kitchen decides what to make:
+
+1. **It was a push system, not a pull.** It always worked the *deepest* unmet need, so under
+   pressure patties were always short and the kitchen made patties forever — nothing ever reached
+   the pass. A real kitchen plates the burger that's ready before putting more meat on. Now
+   shallowest-first.
+2. **A step needed the whole order book's worth of inputs before it could run.** With forty
+   orders open, plating one burger required forty burgers in stock. Now a step runs as soon as it
+   has the inputs for one batch.
+
+Together these lifted production 20% and revenue 23% on identical settings, and they're why the
+M1 gate finally reads properly (2.5% fewer batches for six tiles, walking +11%).
+
+**Worth knowing because it changes tuning:** every number I quoted before this fix was measured on
+a kitchen that was quietly strangling itself. The COGS/labour figures in the M2 notes are still
+roughly right, but treat anything about throughput from M1/M2 as superseded.
+
+---
+
+## Q7 — The M1 gate needs a saturated kitchen to be measurable at all
+
+Measuring "does distance cost throughput" on a live shop is confounded: a slower kitchen makes
+people renege, which *reduces* the work the kitchen is asked to do, which can make the slower
+layout look faster. That inverted the result twice.
+
+The gate now measures a **saturated kitchen** — an unlimited order book, no arrivals, no reneging
+— so throughput is pure capacity. That's a fair test of the question, but it's worth saying out
+loud that in the *live* game the effect is smaller and noisier than the gate number suggests.
+
+Still connected to **Q1**: 2.5% under saturation is honest but modest. My recommendation there
+(make carrying an explicit move) stands.

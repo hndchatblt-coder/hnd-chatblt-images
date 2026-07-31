@@ -9,13 +9,22 @@ import { stationByType } from "../config/stations.js";
 import { venueById } from "../config/venues.js";
 import { canPlace, centreOf, tileDistance, travelSeconds, type Placement } from "../sim/floor.js";
 import { defaultLayout } from "../sim/layouts.js";
-import { createWorld, runDays } from "../sim/world.js";
+import { dtGameSeconds } from "../config/time.js";
+import { createWorld, runDays, tick } from "../sim/world.js";
 
 export interface LayoutResult {
   label: string;
   grillToPassTiles: number;
   grillToPassSeconds: number;
   served: number;
+  /**
+   * Batches the kitchen actually produced. This is throughput; `served` is not.
+   *
+   * Once reneging landed, a slower layout could come out with MORE orders served, because
+   * customers giving up frees the kitchen to finish the ones still waiting. Demand-side outcomes
+   * are the wrong instrument for a question about how far someone has to walk.
+   */
+  batches: number;
   meanWaitMinutes: number;
   walkMinutes: number;
   revenue: number;
@@ -90,11 +99,63 @@ export const runLayoutSeeded = (
     grillToPassTiles: first.grillToPassTiles,
     grillToPassSeconds: first.grillToPassSeconds,
     served: mean((r) => r.served),
+    batches: mean((r) => r.batches),
     meanWaitMinutes: mean((r) => r.meanWaitMinutes),
     walkMinutes: mean((r) => r.walkMinutes),
     revenue: mean((r) => r.revenue),
     waste: mean((r) => r.waste),
   };
+};
+
+/**
+ * Throughput with the demand side held still.
+ *
+ * Comparing two layouts on a live shop is confounded: a slower kitchen makes people renege, which
+ * *reduces* the work the kitchen is asked to do, which can make the slower layout look faster.
+ * Twice now that feedback loop has inverted the result.
+ *
+ * So the honest measurement holds an unlimited order book open and counts what the kitchen
+ * produces. Pure capacity, no demand feedback, which is exactly the question "does distance cost
+ * throughput" is asking.
+ */
+export const throughputUnderSaturation = (
+  venueId: string,
+  layout: Placement[],
+  hours: number,
+  seed: string,
+  staffCount: number,
+): { batches: number; walkMinutes: number } => {
+  const world = createWorld({ seed, venueId, staffCount, layout });
+
+  // A permanently full order book. Refilled every tick so the kitchen is never demand-starved.
+  const topUp = (): void => {
+    while (world.orders.length < 40) {
+      world.orders.push({
+        id: world.nextOrderId++,
+        customerId: -1,
+        placedAt: world.clock.elapsed,
+        items: [
+          { recipeId: "cheeseburger", remaining: [], done: [], quality: 1, ready: false },
+          { recipeId: "chips", remaining: [], done: [], quality: 1, ready: false },
+        ],
+        completedAt: null,
+        remade: false,
+        expedited: false,
+      });
+    }
+  };
+
+  const ticks = Math.round((hours * 3600) / dtGameSeconds);
+  for (let i = 0; i < ticks; i += 1) {
+    topUp();
+    // Clear anything filled so the book never blocks on completed work.
+    world.orders = world.orders.filter((o) => o.completedAt === null && !o.items.every((it) => it.ready));
+    tick(world);
+  }
+
+  const batches = world.history.reduce((a, d) => a + d.batchesMade, 0) + world.day.batchesMade;
+  const walk = world.history.reduce((a, d) => a + d.walkSeconds, 0) + world.day.walkSeconds;
+  return { batches, walkMinutes: walk / 60 };
 };
 
 export const runLayout = (
@@ -115,12 +176,13 @@ export const runLayout = (
   const t = world.history.reduce(
     (a, d) => ({
       served: a.served + d.ordersCompleted,
+      batches: a.batches + d.batchesMade,
       wait: a.wait + d.waitSecondsTotal,
       walk: a.walk + d.walkSeconds,
       revenue: a.revenue + d.revenue,
       waste: a.waste + d.waste,
     }),
-    { served: 0, wait: 0, walk: 0, revenue: 0, waste: 0 },
+    { served: 0, batches: 0, wait: 0, walk: 0, revenue: 0, waste: 0 },
   );
 
   return {
@@ -128,6 +190,7 @@ export const runLayout = (
     grillToPassTiles: tiles,
     grillToPassSeconds: pass && grill ? travelSeconds(centreOf(grill), centreOf(pass)) : 0,
     served: t.served,
+    batches: t.batches,
     meanWaitMinutes: t.served > 0 ? t.wait / t.served / 60 : 0,
     walkMinutes: t.walk / 60,
     revenue: t.revenue,

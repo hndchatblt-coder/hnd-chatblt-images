@@ -6,6 +6,7 @@
  * late is still a bad experience.
  */
 import { recipeById } from "../../config/recipes.js";
+import { demand } from "../../config/demand.js";
 import { reviews as reviewCfg } from "../../config/reviews.js";
 import type { Order } from "../entities.js";
 import { post } from "./economy.js";
@@ -25,6 +26,32 @@ export const satisfactionFor = (world: World, order: Order, waitSeconds: number)
   return waitScore(waitSeconds) * quality * accuracy;
 };
 
+/**
+ * People who gave up. A customer who ordered and then waited three times their patience walks out
+ * — and unlike a balk, they are properly angry about it.
+ */
+export const stepReneging = (world: World): void => {
+  const limit = demand.balk.renegeAtPatienceMultiple;
+  for (const customer of world.customers) {
+    if (customer.state !== "waiting") continue;
+    const waited = (world.clock.elapsed - customer.arrivedAt) / 60;
+    if (waited < customer.patienceMinutes * limit) continue;
+
+    customer.state = "balked";
+    world.day.reneged += 1;
+    if (world.rng.chance(demand.balk.renegeReviewChance)) {
+      world.pendingReviews.push({
+        at: world.clock.elapsed,
+        stars: demand.balk.renegeReviewStars,
+        reason: "waited and gave up",
+      });
+    }
+    // The order goes in the bin. The food, if any of it was made, is wasted.
+    const order = world.orders.find((o) => o.id === customer.orderId);
+    if (order) order.completedAt = world.clock.elapsed;
+  }
+};
+
 export const stepService = (world: World): void => {
   for (const order of world.orders) {
     if (order.completedAt !== null) continue;
@@ -32,7 +59,8 @@ export const stepService = (world: World): void => {
 
     order.completedAt = world.clock.elapsed;
     const customer = world.customers.find((c) => c.id === order.customerId);
-    if (!customer) continue;
+    // A customer who already gave up isn't there to hand it to.
+    if (!customer || customer.state !== "waiting") continue;
     customer.state = "served";
 
     const wait = order.completedAt - order.placedAt;

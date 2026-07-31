@@ -9,6 +9,11 @@ export const kitchen = {
   decaySeconds: 900,
   /** Below this quality an item is binned rather than served. */
   binBelowQuality: 0.35,
+  /** Open orders at which the kitchen feels fully slammed, for the error rush factor. */
+  rushOrdersForFullPressure: 24,
+  /** However bad it gets, most food still comes out right. */
+  maxErrorRate: 0.22,
+
   /** Safety rail on the DAG walk — recipes are shallow and always will be. */
   maxDagDepth: 8,
   /**

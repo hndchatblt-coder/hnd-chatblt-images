@@ -43,6 +43,18 @@ export const demand = {
     reviewStars: 2,
     /** Patience varies person to person. Drawn uniformly across this band on arrival. */
     patienceVariance: { min: 0.75, max: 1.25 },
+    /**
+     * Reneging: a customer who has already ordered will still leave if the wait becomes absurd.
+     * This many times their patience and they're gone, and they are furious about it.
+     *
+     * Without this the shop can never recover from a bad week: orders that can't be filled sit in
+     * the queue forever, so the kitchen stays permanently slammed, error rates stay pinned at the
+     * ceiling, and reputation cannot climb no matter how well the player then plays. The way out
+     * of the spiral has to be discipline, not surgery.
+     */
+    renegeAtPatienceMultiple: 3,
+    renegeReviewStars: 1,
+    renegeReviewChance: 0.45,
   },
 
   /**
