@@ -56,13 +56,15 @@ const STATION_TINT: Record<number, string> = {
   3: "#2E3A44",
   4: "#3E7FA8",
 };
-const SHORT_NAME: Record<number, string> = {
-  0: "PREP",
-  1: "FRYER",
-  2: "GRILL",
-  3: "COUNTER",
-  4: "PICKUP",
-};
+/**
+ * Supplied by the app so the scene calls every station exactly what the shop list sold you.
+ * It used to invent generic role words — you bought "Second pair of tongs" and the scene said
+ * "PREP" — which is most of why the unlocks and the UI didn't line up.
+ */
+let STATION_NAME: string[] = [];
+export function setStationNames(names: string[]): void {
+  STATION_NAME = names;
+}
 const BAY_LEFT = 154;
 const PATTY_Y = GRATE_TOP + 16;
 /** Small ones, several of them. The single giant patty was Cookie Clicker's cookie (pass 3). */
@@ -1221,11 +1223,27 @@ export class Scene {
 
   private drawStationInBay(index: number, bay: number, t: number): void {
     const x = this.bayX(bay);
+    // Crews carry the name of whoever is standing there; kit carries the name you bought it as.
+    if (index !== 2 && index !== 3) this.drawBayName(x, STATION_NAME[index] ?? "");
     if (index === 0) this.drawPrepBench(x, t);
     else if (index === 1) this.drawFryer(x, GRATE_TOP + 16, t);
     else if (index === 2) this.drawCrew(x, 2, "#E8E3D8", t, 0, "cook");
     else if (index === 3) this.drawCrew(x, 3, "#2E3A44", t, 1.7, "server");
     else if (index === 4) this.drawPickup(x);
+  }
+
+  private drawBayName(x: number, label: string): void {
+    if (!label) return;
+    const ctx = this.ctx;
+    const text = label.toUpperCase();
+    ctx.font = "700 7px ui-monospace, monospace";
+    const wide = Math.min(this.bayW() - 6, ctx.measureText(text).width + 8);
+    ctx.fillStyle = "rgba(20,18,16,0.62)";
+    ctx.fillRect(x - wide / 2, BENCH_TOP + 2, wide, 11);
+    ctx.fillStyle = "rgba(255,214,160,0.9)";
+    ctx.textAlign = "center";
+    ctx.fillText(text, x, BENCH_TOP + 10);
+    ctx.textAlign = "left";
   }
 
   /**
@@ -1252,7 +1270,7 @@ export class Scene {
       ctx.fillStyle = "rgba(60,50,40,0.75)";
       ctx.font = "700 6px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText(SHORT_NAME[index] ?? "", x, shelfY + 24);
+      ctx.fillText((STATION_NAME[index] ?? "").toUpperCase(), x, shelfY - 5);
       ctx.textAlign = "left";
     });
   }

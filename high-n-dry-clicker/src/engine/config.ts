@@ -23,6 +23,8 @@ export type PerkEffect =
   | "clickMult";
 
 export interface GeneratorDef {
+  /** Short label the shop scene uses. Must read as the same object as `name`. */
+  sceneName?: string;
   id: string;
   name: string;
   baseCost: number;

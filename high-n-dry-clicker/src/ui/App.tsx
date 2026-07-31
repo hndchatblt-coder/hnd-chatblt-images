@@ -6,7 +6,7 @@
  *
  * The UI reads engine state and dispatches intents; it holds no economy rules (BUILD_BRIEF §5).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   availableUpgrades,
   buyGenerator,
@@ -43,7 +43,7 @@ import {
 } from "../engine/index.js";
 import tickerContent from "../../content/ticker.json";
 import { audio } from "./audio.js";
-import { Scene, VIEW_NAMES, type View } from "./scene.js";
+import { Scene, setStationNames, VIEW_NAMES, type View } from "./scene.js";
 import { regularName, staffFor } from "../engine/staff.js";
 
 const adapter = new LocalStorageAdapter();
@@ -234,6 +234,8 @@ export default function App(): JSX.Element {
       save(adapter, state, config);
       force((v) => v + 1);
     };
+    // One vocabulary: the scene names every station exactly what the shop list sells.
+    setStationNames(config.generators.list.map((g) => g.sceneName ?? g.name));
     sceneRef.current = scene;
     return () => {
       scene.destroy();
@@ -736,7 +738,15 @@ export default function App(): JSX.Element {
               </span>
             </div>
 
-            {visibleGenerators.map((index) => {
+            {visibleGenerators.map((index, position) => {
+              const onTheLine = config.layout.placeable.includes(index);
+              const previous = visibleGenerators[position - 1];
+              const heading =
+                position === 0
+                  ? "The shop floor"
+                  : previous !== undefined && config.layout.placeable.includes(previous) && !onTheLine
+                    ? "Everywhere else"
+                    : null;
               const def = config.generators.list[index];
               if (!def) return null;
               const owned = state.generators[index] ?? 0;
@@ -745,9 +755,24 @@ export default function App(): JSX.Element {
               const each = def.baseRate * (d.generatorMults[index] ?? 1) * d.globalMult;
               const share = d.cps > 0 ? ((d.generatorCps[index] ?? 0) / d.cps) * 100 : 0;
               const nextTier = config.generatorTiers.thresholds.find((t) => owned < t);
+              const bay = normalizeLayout(state.layout, config, bayCount(state.upgrades, config)).indexOf(index);
+              const where =
+                owned === 0
+                  ? null
+                  : !onTheLine
+                    ? "on the strip"
+                    : bay >= 0
+                      ? `bay ${bay + 1}`
+                      : "in the back";
               return (
+                <Fragment key={def.id}>
+                  {heading && (
+                    <div className="shop__group">
+                      <span>{heading}</span>
+                      <span>{onTheLine ? "stations you arrange" : "venues and supply"}</span>
+                    </div>
+                  )}
                 <button
-                  key={def.id}
                   className={`docketbtn${affordable ? " docketbtn--afford" : ""}${
                     torn === `gen:${index}` ? " docketbtn--torn" : ""
                   }`}
@@ -755,6 +780,9 @@ export default function App(): JSX.Element {
                   disabled={!affordable}
                 >
                   <span>
+                    <span className="docketbtn__kind">
+                      {where ?? (onTheLine ? "the shop floor" : "everywhere else")}
+                    </span>
                     <span className="docketbtn__name">{def.name}</span>
                     <span className="docketbtn__flavour">
                       {owned > 0 ? crew(index).quirk : def.flavour}
@@ -773,6 +801,7 @@ export default function App(): JSX.Element {
                     <span className="docketbtn__owned">{owned} owned</span>
                   </span>
                 </button>
+                </Fragment>
               );
             })}
           </>

@@ -264,6 +264,25 @@ button {
   color: #a89b8c;
 }
 
+/* The ladder is two different things: stations you arrange, and venues you don't. Say which. */
+.shop__group {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-family: var(--font-num);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lamp);
+}
+
+.shop__group span:last-child {
+  color: #8b8073;
+  letter-spacing: 0.08em;
+}
+
 /* A docket: thermal paper, torn top edge, monospace price. One of only two button objects. */
 .docketbtn {
   position: relative;
