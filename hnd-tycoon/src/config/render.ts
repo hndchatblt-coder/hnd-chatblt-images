@@ -130,7 +130,116 @@ export const RENDER = {
   /** Customers queue outside the door, up-screen from it. */
   QUEUE: {
     spacingPixels: 17,
-    maxVisible: 14,
+    /**
+     * People abreast, and how many rows of them the street can hold.
+     *
+     * These are NOT free numbers — `STREET_ROWS` is what `fitCamera` reserves
+     * below the door, and a queue laid out past it is drawn underneath the
+     * opaque bottom bar. That happened, was fixed in the audit, and came back
+     * the moment the queue got long enough to need a fifth row. The visible
+     * count is now derived from the rows rather than set beside them, so the
+     * two cannot drift apart again.
+     */
+    perRow: 4,
+    rows: 2,
+    /**
+     * Tiles between rows. `headOffset + (rows - 1) * rowPitch + rowPitch` must
+     * stay inside `STREET_ROWS`, and there is a test for it.
+     *
+     * Two rows, not three. A person sprite is about twice as tall as a tile is
+     * deep, so rows closer than this overlap into a smear — three rows of three
+     * read as vertical stacks of blobs rather than as a crowd of people. Four
+     * abreast in two rows is the same eight people and legibly a queue.
+     */
+    rowPitch: 1.4,
+    /** Tiles from the door to the head of the queue. */
+    headOffset: 1.2,
+    /** Columns are this many tiles apart. Wider than 0.9 — they were merging. */
+    columnPitch: 1.05,
+    /** People on a footpath are smaller than the cook you are watching. */
+    scale: 0.72,
+    /**
+     * How far a wait has to run before it shows in the body. §6.2 asks for
+     * "customer mood through posture" — the slump is the whole of it. Measured
+     * against §7.4's six-minute grace, because that is when a customer starts
+     * actually minding.
+     */
+    slumpAfterMinutes: 6,
+    slumpOverMinutes: 12,
+    slumpPixels: 3.5,
+    slumpLeanDegrees: 5,
+  },
+
+  /**
+   * The walkout. §6.3, and the step 10 exit criterion: **legible on screen
+   * before the stat moves.**
+   *
+   * It has to read as a DECISION, not a despawn. So: arrive at the door, pause
+   * long enough to be seen looking, then turn and walk off down the street,
+   * fading only at the very end. The pause is the most important number here —
+   * without it a walkout is indistinguishable from a customer being served.
+   */
+  WALKOUT: {
+    seconds: 2.6,
+    /** Fraction of the animation spent standing at the door, looking. */
+    lookFraction: 0.3,
+    /**
+     * How far they travel. **Sideways, mostly.**
+     *
+     * The first cut sent them straight down the screen, which put them among
+     * the people still queueing, moving the same way, in the same silhouette —
+     * completely unreadable as a departure. A walkout has to leave the LINE
+     * before it leaves the frame, so the sideways component dominates and it
+     * carries them clear off the edge.
+     */
+    travelPixels: 18,
+    driftPixels: 132,
+    /** Fraction of the animation before they start to fade at all. */
+    fadeFrom: 0.55,
+    /** Bob while walking off — dejected, so slower than the queue's sway. */
+    bobHz: 1.6,
+    bobPixels: 1.4,
+    /**
+     * They go cold as they go. The queue is lit by the shop; someone who has
+     * given up on it is walking back into the street, and §22.2's whole palette
+     * idea is warm box against cold city.
+     *
+     * Light, because this is a MULTIPLY. The first value was a mid slate, which
+     * multiplied against an already-mid customer colour and produced brown
+     * lumps that read as bin bags rather than as people leaving.
+     */
+    tint: 0xa8b6c4,
+  },
+
+  /**
+   * The ticket rail. §22.6 — open orders as a row of docket stubs above the
+   * pass, ageing white -> amber -> red. It is the shop's stress, on screen,
+   * with no number attached to it.
+   */
+  RAIL: {
+    maxVisible: 9,
+    ticketWidth: 19,
+    ticketHeight: 25,
+    gapPixels: 3,
+    /**
+     * Pixels above the pass. The rail hangs over the counter it belongs to.
+     *
+     * It was pinned to the back of the room, where it overlapped the extraction
+     * hood and read as a row of red lockers built into the splashback —
+     * equipment, not paper. Above the pass it is where a real one is, and it is
+     * next to the food it is describing.
+     */
+    liftPixels: 30,
+    /** The coloured band across the top of each docket. Only this ages. */
+    flagHeight: 7,
+    /** A degree or two of tilt each, so they read as paper and not as tiles. */
+    tiltDegrees: 3.5,
+    /** Minutes at which a ticket turns amber, and at which it turns red. */
+    amberMinutes: 5,
+    redMinutes: 11,
+    /** A red ticket pulses. Nothing else on screen does. */
+    pulseHz: 1.9,
+    pulseAlpha: 0.28,
   },
 
   /** Real seconds of a frame beyond which we stop trying to catch up. */

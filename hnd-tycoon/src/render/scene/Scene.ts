@@ -24,15 +24,43 @@ import { footprintOf } from '@/sim/floor';
 import { attentionSplit } from '@/sim/systems/kitchen';
 import type { SimState } from '@/sim/state';
 import type { Job } from '@/sim/entities/station';
+import { BRAND } from '@/config/brand';
+import { TIME } from '@/config/time';
+import { GAME_SECONDS_PER_TICK } from '@/sim/clock';
 import { camera, depthSort, toScreen, toScreenCorner } from '../projection';
 import { ShapeRegistry, SpritePool } from '../shapes/ShapeRegistry';
-import { foodColour } from '../palette';
+import { foodColour, lerpColour } from '../palette';
+
+const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/**
+ * How many people the street can show at once. DERIVED, never set — the street
+ * has a fixed depth that `fitCamera` reserves, and a queue laid out past it is
+ * drawn underneath the opaque bottom bar.
+ */
+const QUEUE_MAX_VISIBLE = RENDER.QUEUE.perRow * RENDER.QUEUE.rows;
+
+/** Game minutes between two ticks. The rail and the slump both read in these. */
+const waitMinutesOf = (from: number, now: number): number =>
+  (Math.max(0, now - from) * GAME_SECONDS_PER_TICK) / TIME.SECONDS_PER_MINUTE;
 
 interface Steam {
   x: number;
   y: number;
   life: number;
   drift: number;
+}
+
+/**
+ * A walkout being played. Drained from `state.walkouts` and animated here,
+ * because the sim has no business knowing how long an animation runs.
+ */
+interface Departing {
+  readonly id: number;
+  readonly alt: boolean;
+  /** Where in the queue they got to before giving up. */
+  readonly slot: number;
+  age: number;
 }
 
 export class Scene {
@@ -50,6 +78,11 @@ export class Scene {
   private foodPool!: SpritePool;
   private steamPool!: SpritePool;
   private pilotPool!: SpritePool;
+  private ticketPool!: SpritePool;
+  private flagPool!: SpritePool;
+
+  /** Walkouts currently playing. See `drawWalkouts`. */
+  private readonly departing: Departing[] = [];
 
   /** Station id -> seconds since it was installed. Drives the install beat. */
   private readonly installing = new Map<string, number>();
@@ -139,14 +172,20 @@ export class Scene {
 
     this.staffPool = new SpritePool(this.registry, 'staff', this.actorLayer);
     this.customerPool = new SpritePool(this.registry, 'customer', this.actorLayer);
-    // Set LAST: reconcileStations() reads this to decide whether an arriving
-    // station gets an install beat, and it runs in the same frame as build().
-    // Setting it first made the whole opening kitchen drop out of the ceiling.
-    this.built = true;
     this.customerAltPool = new SpritePool(this.registry, 'customerAlt', this.actorLayer);
     this.foodPool = new SpritePool(this.registry, 'food', this.actorLayer);
     this.steamPool = new SpritePool(this.registry, 'steam', this.fxLayer);
     this.pilotPool = new SpritePool(this.registry, 'pilot', this.fxLayer);
+    this.ticketPool = new SpritePool(this.registry, 'ticket', this.fxLayer);
+    this.flagPool = new SpritePool(this.registry, 'ticketFlag', this.fxLayer);
+
+    // Set LAST, and it has to actually BE last: reconcileStations() reads it to
+    // decide whether an arriving station gets an install beat, and it runs in
+    // the same frame as build(). Setting it early made the whole opening
+    // kitchen drop out of the ceiling. It was sitting mid-list, which was
+    // harmless only because nothing between here and there reads it — a comment
+    // saying "last" above a line that is not last is a trap for the next edit.
+    this.built = true;
   }
 
   /**
@@ -209,8 +248,15 @@ export class Scene {
     }
   }
 
-  /** One frame. `dt` is real seconds since the last one. */
-  render(state: SimState, dt: number): void {
+  /**
+   * One frame. `dt` is real seconds since the last one; `now` is the sim tick.
+   *
+   * The tick is passed in rather than derived. It was briefly inferred from the
+   * newest order's `placedAt`, which is wrong in the one case that matters: a
+   * stalled kitchen takes no new orders, so time would appear to stop and the
+   * ticket rail would freeze white at exactly the moment it needed to go red.
+   */
+  render(state: SimState, dt: number, now: number): void {
     this.build(state);
     this.reconcileStations(state, dt);
     this.elapsed += dt;
@@ -221,11 +267,15 @@ export class Scene {
     this.foodPool.begin();
     this.steamPool.begin();
     this.pilotPool.begin();
+    this.ticketPool.begin();
+    this.flagPool.begin();
 
     this.drawStations(state);
     this.drawFood(state);
     this.drawStaff(state);
-    this.drawQueue(state);
+    this.drawQueue(state, now);
+    this.drawWalkouts(state, dt);
+    this.drawRail(state, now);
     this.drawSteam(state, dt);
 
     this.staffPool.end();
@@ -234,6 +284,8 @@ export class Scene {
     this.foodPool.end();
     this.steamPool.end();
     this.pilotPool.end();
+    this.ticketPool.end();
+    this.flagPool.end();
   }
 
   /**
@@ -358,10 +410,10 @@ export class Scene {
    * of the queue is at the door and the tail runs down toward the kerb. That
    * ordering matters: it is how a stranger reads which way things are going.
    */
-  private drawQueue(state: SimState): void {
+  private drawQueue(state: SimState, now: number): void {
     const waiting = [...state.customers.values()].filter((c) => c.state === 'waiting');
     const entry = state.site.entryTile;
-    const shown = Math.min(waiting.length, RENDER.QUEUE.maxVisible);
+    const shown = Math.min(waiting.length, QUEUE_MAX_VISIBLE);
 
     for (let i = 0; i < shown; i++) {
       const customer = waiting[i];
@@ -371,16 +423,191 @@ export class Scene {
       const sprite = pool.take();
       sprite.anchor.set(0.5, 1);
 
-      const row = Math.floor(i / 3);
-      const col = (i % 3) - 1;
-      const at = toScreen(entry.x + col * 0.9, entry.y - 1.3 - row * 0.8);
+      const at = this.queueSlot(entry, i);
       // A tiny per-customer sway. People waiting are never quite still.
       const sway = Math.sin((this.elapsed + i * 2.1) * 0.9) * 1.2;
-      sprite.position.set(at.x + sway, at.y);
-      sprite.zIndex = depthSort(entry.y - row) + 5;
-      sprite.alpha = i < RENDER.QUEUE.maxVisible - 2 ? 1 : 0.5;
+
+      /**
+       * §6.2, "customer mood through posture". Nobody is annoyed for the first
+       * six minutes; after that they sag and lean, and by eighteen they are
+       * fully slumped. It is three and a half pixels and five degrees, which is
+       * nothing at all until fourteen people are doing it at once — and then it
+       * is the most legible thing on the screen, with no number attached.
+       */
+      const waitMinutes = waitMinutesOf(customer.arrivedAt, now);
+      const mood = clamp01(
+        (waitMinutes - RENDER.QUEUE.slumpAfterMinutes) / RENDER.QUEUE.slumpOverMinutes,
+      );
+      sprite.position.set(at.x + sway, at.y + mood * RENDER.QUEUE.slumpPixels);
+      sprite.rotation = (mood * RENDER.QUEUE.slumpLeanDegrees * Math.PI) / 180;
+      sprite.scale.set(RENDER.QUEUE.scale);
+      sprite.zIndex = depthSort(entry.y - Math.floor(i / RENDER.QUEUE.perRow)) + 5;
+      // The back of the queue fades rather than ending in a hard edge, so a
+      // line longer than the street can hold reads as "and more" instead of as
+      // a clipping bug.
+      sprite.alpha = i < QUEUE_MAX_VISIBLE - 2 ? 1 : 0.5;
     }
   }
+
+  /**
+   * Where the nth person in the queue stands. Shared with the walkout, so a
+   * departing customer starts from exactly where they were standing.
+   *
+   * Laid out INSIDE the street `fitCamera` reserved. See RENDER.QUEUE — a
+   * queue that runs past it is drawn under the opaque bottom bar, which is a
+   * bug this project has already shipped once.
+   */
+  private queueSlot(entry: { x: number; y: number }, i: number): { x: number; y: number } {
+    const row = Math.floor(i / RENDER.QUEUE.perRow);
+    const col = (i % RENDER.QUEUE.perRow) - (RENDER.QUEUE.perRow - 1) / 2;
+    return toScreen(
+      entry.x + col * RENDER.QUEUE.columnPitch,
+      entry.y - RENDER.QUEUE.headOffset - row * RENDER.QUEUE.rowPitch,
+    );
+  }
+
+  /**
+   * **The step 10 exit criterion.** "A walkout is legible on screen before the
+   * stat moves."
+   *
+   * The stat is a receipt. This is the event, and the whole reason it exists is
+   * that a number ticking from 11 to 12 in a corner is not something a player
+   * notices, and a person turning around and leaving is.
+   *
+   * The shape is deliberate and the pause is the load-bearing part: they arrive
+   * at the back of the queue, stand still long enough to be seen looking at it,
+   * and only then turn and walk off down the street, fading at the very end.
+   * Without the pause it reads as a customer being served, which is the exact
+   * opposite message.
+   */
+  private drawWalkouts(state: SimState, dt: number): void {
+    // Drain. The sim hands these over and never looks at them again.
+    for (const walkout of state.walkouts) {
+      this.departing.push({
+        id: walkout.id,
+        alt: walkout.id % 2 === 1,
+        slot: Math.min(walkout.queueLength, QUEUE_MAX_VISIBLE - 1),
+        age: 0,
+      });
+    }
+    state.walkouts.length = 0;
+
+    const entry = state.site.entryTile;
+    for (let i = this.departing.length - 1; i >= 0; i--) {
+      const d = this.departing[i];
+      if (!d) continue;
+      d.age += dt;
+      const t = d.age / RENDER.WALKOUT.seconds;
+      if (t >= 1) {
+        this.departing.splice(i, 1);
+        continue;
+      }
+
+      const sprite = (d.alt ? this.customerAltPool : this.customerPool).take();
+      sprite.anchor.set(0.5, 1);
+      sprite.scale.set(RENDER.QUEUE.scale);
+      // Cold, so they read as leaving the warm box rather than joining it.
+      sprite.tint = RENDER.WALKOUT.tint;
+
+      const at = this.queueSlot(entry, d.slot);
+      // Left or right, decided by who they are, so two walkouts in the same
+      // second do not overlap into one confusing blob.
+      const side = d.id % 2 === 0 ? -1 : 1;
+      // Standing still, looking. Then away.
+      const away = clamp01(
+        (t - RENDER.WALKOUT.lookFraction) / (1 - RENDER.WALKOUT.lookFraction),
+      );
+      // Down-screen is out of the shop and away down the street. §12 — the
+      // street is at the bottom, so leaving is unambiguously downward.
+      const bob =
+        away > 0 ? Math.sin(d.age * RENDER.WALKOUT.bobHz * Math.PI * 2) * RENDER.WALKOUT.bobPixels : 0;
+      sprite.position.set(
+        at.x + side * away * RENDER.WALKOUT.driftPixels,
+        at.y + away * RENDER.WALKOUT.travelPixels + bob,
+      );
+      // They turn to go. A person leaving is not a person standing.
+      sprite.rotation = side * away * 0.14;
+      sprite.alpha = 1 - clamp01((t - RENDER.WALKOUT.fadeFrom) / (1 - RENDER.WALKOUT.fadeFrom));
+      // In front of the queue they just left, so the departure is never hidden
+      // behind the crowd that caused it.
+      sprite.zIndex = depthSort(entry.y) + 20;
+    }
+  }
+
+  /**
+   * The ticket rail. §22.6, and the age ramp §21.3 reserves three hues for.
+   *
+   * Every open order is a docket. It comes up white, goes amber at five minutes
+   * and red at eleven, and a red one pulses. This is the shop's stress with no
+   * number attached to it — the player learns to read the colour of the rail
+   * out of the corner of their eye and never has to look at a wait figure.
+   */
+  private drawRail(state: SimState, now: number): void {
+    const shown = Math.min(state.openOrders.length, RENDER.RAIL.maxVisible);
+    if (shown === 0) return;
+
+    const pitch = RENDER.RAIL.ticketWidth + RENDER.RAIL.gapPixels;
+    // Over the pass, because that is where dockets live and because it puts the
+    // rail beside the food it is describing. Pinned to the back wall it
+    // overlapped the extraction hood and read as equipment.
+    const pass = state.stations.find((s) => s.type === 'pass');
+    const placement = pass ? state.floor.placementOf(pass.id) : undefined;
+    const anchor = placement
+      ? this.stationPosition(placement.at, 'pass')
+      : toScreen(state.floor.width / 2 - 0.5, 1);
+    if (!anchor) return;
+    const left = anchor.x - (pitch * shown) / 2;
+    const top = anchor.y - RENDER.RAIL.liftPixels - RENDER.RAIL.ticketHeight;
+
+    for (let i = 0; i < shown; i++) {
+      const orderId = state.openOrders[i];
+      const order = orderId === undefined ? undefined : state.orders.get(orderId);
+      if (!order) continue;
+
+      const sprite = this.ticketPool.take();
+      sprite.anchor.set(0.5, 0);
+      const x = left + i * pitch + RENDER.RAIL.ticketWidth / 2;
+      sprite.position.set(x, top);
+      // Paper hangs crooked. Deterministic per slot, so it does not shimmer.
+      const tilt = (((i % 3) - 1) * RENDER.RAIL.tiltDegrees * Math.PI) / 180;
+      sprite.rotation = tilt;
+      sprite.zIndex = 1000;
+
+      // The band across the top. THIS is what ages — the paper stays paper.
+      const flag = this.flagPool.take();
+      flag.anchor.set(0.5, 0);
+      flag.position.set(x, top);
+      flag.rotation = tilt;
+      flag.zIndex = 1001;
+
+      const minutes = waitMinutesOf(order.placedAt, now);
+      if (minutes >= RENDER.RAIL.redMinutes) {
+        flag.tint = BRAND.signal.ticketCritical;
+        // The only pulsing thing on screen. It should be impossible to miss and
+        // there should never be more than one kind of it.
+        flag.alpha =
+          1 - RENDER.RAIL.pulseAlpha * (0.5 + 0.5 * Math.sin(this.elapsed * RENDER.RAIL.pulseHz * Math.PI * 2));
+      } else if (minutes >= RENDER.RAIL.amberMinutes) {
+        flag.tint = lerpColour(
+          BRAND.signal.ticketWarning,
+          BRAND.signal.ticketCritical,
+          clamp01(
+            (minutes - RENDER.RAIL.amberMinutes) /
+              (RENDER.RAIL.redMinutes - RENDER.RAIL.amberMinutes),
+          ),
+        );
+        flag.alpha = 1;
+      } else {
+        flag.tint = BRAND.signal.ticketFresh;
+        flag.alpha = 1;
+      }
+
+      // A six-top docket is a taller docket. Dread, before you read a number.
+      const items = order.lines.reduce((a, l) => a + l.quantity, 0);
+      sprite.scale.set(1, items > 1 ? 1 + Math.min(items, 6) * 0.07 : 1);
+    }
+  }
+
 
   /**
    * Steam. One wisp at stage 0 — the spec is explicit that day one has exactly

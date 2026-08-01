@@ -11,4 +11,6 @@ export const REPORT = {
   MINUTE_DECIMALS: 1,
   /** Decimal places on reported percentages. */
   PERCENT_DECIMALS: 1,
+  /** Decimal places on unitless ratios — awareness, multipliers, star ratings. */
+  RATIO_DECIMALS: 2,
 } as const;

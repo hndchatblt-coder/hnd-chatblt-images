@@ -4,9 +4,13 @@
  * BUILD_PLAN step 7 specified "hiring AND firing"; the audit found firing,
  * resale and financing had all been dropped silently. Q13 then established
  * rostering as the keystone: a permanent hire costs $452 on the Mondays nobody
- * comes, so it can never pay for itself however sharp the Saturday peak is.
+ * comes, so the shape of the week has to be something the player can answer.
  *
  * Every operator solves the peak by rostering. The sim could not express it.
+ *
+ * Step 10 moved where the money is in these gates — see the long note on the
+ * optimum below. What did not move is why the step exists: labour has to be a
+ * curve the player can be wrong about in both directions.
  */
 import { describe, expect, it } from 'vitest';
 import { ECONOMY } from '@/config/economy';
@@ -17,17 +21,20 @@ import { Cash } from '@/sim/types';
 
 const SEEDS = [1, 2, 3, 4, 5, 6];
 const DAYS = 56;
+const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
-/** Run a shop, hire on day one, roster them for the given weekdays. */
-function withCrew(seed: number, days: number[], runDays = DAYS): number {
+/** Run a shop, hire on day one, roster everyone hired for the given weekdays. */
+function withCrew(seed: number, days: number[], runDays = DAYS, hires = 1): number {
   const world = buildScenario({ seed });
   world.runDays(1);
   if (days.length > 0) {
-    const result = buy(world.state, 'hire');
-    expect(result.ok, result.reason).toBe(true);
-    const hired = world.state.staff[1];
-    expect(hired).toBeDefined();
-    for (const day of days) setRoster(world.state, (hired as { id: string }).id, day, true);
+    for (let h = 0; h < hires; h++) {
+      const result = buy(world.state, 'hire');
+      expect(result.ok, result.reason).toBe(true);
+      const hired = world.state.staff[1 + h];
+      expect(hired).toBeDefined();
+      for (const day of days) setRoster(world.state, (hired as { id: string }).id, day, true);
+    }
   }
   world.runDays(runDays - 1);
   return world.state.ledger.cash.cents;
@@ -84,24 +91,74 @@ describe('STEP 7b — an un-rostered staffer costs nothing and does nothing', ()
   });
 });
 
-describe('STEP 7b — rostering the weekend beats rostering the week', () => {
+describe('STEP 7b — the roster has an optimum, and both sides of it lose', () => {
   /**
-   * The gate this whole step exists for. Saturday needs a second person and
-   * Monday does not, so the shape of the roster is the decision — and the
-   * wrong shape is worse than not hiring at all.
+   * The gate this whole step exists for: **staffing must be a curve with a
+   * peak, not a slider.** Understaff and you shed customers; overstaff and you
+   * pay people to watch a bench.
+   *
+   * It used to assert something narrower — that a seven-day roster for the
+   * SECOND person was a trap. That was true and it stopped being true at step
+   * 10, when §6.1 wired reputation into demand. It is worth being precise about
+   * why, because "the test changed" is exactly the sentence a rewrite hides
+   * behind:
+   *
+   * Before, the only thing a second pair of hands bought was the walkouts they
+   * prevented that day. On a Monday that is two customers, against $387 of
+   * wage — a straightforward loss. Now, preventing a walkout also prevents the
+   * two-star review it leaves, and the rating feeds `reputationMultiplier`,
+   * which feeds tomorrow's arrivals. Measured over eight weeks: a seven-day
+   * second staffer ends on 4.00 stars against 3.31 with nobody, and 0.35 +
+   * 1.15 x (s/5)^1.6 turns that gap into 20% more foot traffic. The second
+   * person is not paying for Monday's two covers, they are paying for the
+   * compounding.
+   *
+   * That is §6.1 working as specified, not a regression — and the pillar it has
+   * to satisfy is unharmed, because the THIRD person still loses badly. The
+   * decision moved from "which days" to "how many, and then which days".
+   *
+   *   hires  shape        cash    (56 days, six seeds)
+   *   0      —          $58,377
+   *   1      all 7      $80,755   <- the peak
+   *   2      all 7      $60,019
+   *   3      all 7      $39,123
+   *   2      Thu–Sat    $65,563
+   *   3      Thu–Sat    $56,394
+   *
+   * Note the shape decision reappears above the peak: at two extra hires,
+   * Thu–Sat ($65,563) beats all-7 ($60,019). Once you are past what the kitchen
+   * can absorb, the only staffing that pays is staffing on the busy days.
    */
   const nobody = mean(SEEDS.map((s) => withCrew(s, [])));
-  const weekend = mean(SEEDS.map((s) => withCrew(s, [5, 6])));
-  const everyDay = mean(SEEDS.map((s) => withCrew(s, [0, 1, 2, 3, 4, 5, 6])));
+  const oneAllWeek = mean(SEEDS.map((s) => withCrew(s, ALL_WEEK)));
+  const twoAllWeek = mean(SEEDS.map((s) => withCrew(s, ALL_WEEK, DAYS, 2)));
+  const threeAllWeek = mean(SEEDS.map((s) => withCrew(s, ALL_WEEK, DAYS, 3)));
+  const twoWeekend = mean(SEEDS.map((s) => withCrew(s, [4, 5, 6], DAYS, 2)));
 
-  it('makes a weekend roster the best of the three', () => {
-    expect(weekend).toBeGreaterThan(everyDay);
-    expect(weekend).toBeGreaterThan(nobody);
+  it('punishes understaffing — doing nothing is not the answer', () => {
+    expect(oneAllWeek).toBeGreaterThan(nobody);
   });
 
-  it('leaves a full-week roster losing money — the trap is still a trap', () => {
-    // If every roster paid, there would be no decision, only a purchase.
-    expect(everyDay).toBeLessThan(nobody);
+  it('punishes overstaffing — there is a peak, and it is not the last hire', () => {
+    // If every hire paid, there would be no decision, only a purchase.
+    expect(twoAllWeek).toBeLessThan(oneAllWeek);
+    expect(threeAllWeek).toBeLessThan(twoAllWeek);
+  });
+
+  it('makes over-hiring an actual trap, not merely a smaller win', () => {
+    // The second extra body lands within noise of never hiring at all
+    // ($60,019 against $58,377) — that is the shoulder of the curve, and
+    // asserting a sign there would be asserting noise. The third is
+    // unambiguous: $39,123 against $58,377, a third of the shop's money spent
+    // on people with nothing to do.
+    expect(threeAllWeek).toBeLessThan(nobody);
+  });
+
+  it('makes the SHAPE of the roster matter once headcount is past the peak', () => {
+    // Two extra people every day is money set on fire; two extra people on the
+    // days that are actually busy is merely expensive. The gap between those
+    // two is the roster still being a decision.
+    expect(twoWeekend).toBeGreaterThan(twoAllWeek);
   });
 });
 
@@ -255,19 +312,33 @@ describe('STEP 7b — the roster is visible on the floor (§21.2)', () => {
     const world = buildScenario({ seed: 11 });
     world.runDays(1);
     buy(world.state, 'hire');
-    const hired = world.state.staff[1] as { id: string; arriving: boolean; y: number };
+    const hired = world.state.staff[1] as {
+      id: string;
+      arriving: boolean;
+      y: number;
+      walkSeconds: number;
+    };
+    // On the books, not in the building.
     expect(hired.arriving).toBe(true);
+    expect(hired.y).toBeLessThan(world.state.site.entryTile.y + 1);
 
     for (let d = 0; d < 7; d++) setRoster(world.state, hired.id, d, true);
     runToNextOpen(world);
-    // Out on the street at the moment the doors open. They do not blink into
-    // existence beside the pass.
-    //
-    // This has to be sampled ON the opening tick. One tick is twelve game
-    // seconds, which is twenty-seven tiles of walking in a shop fifteen tiles
-    // deep — so by the next sample they are already at a station. The walk-in
-    // is real and, at the shipped time compression, invisible. See DEBT-1.
     expect(hired.arriving).toBe(false);
-    expect(hired.y).toBeLessThan(world.state.site.entryTile.y + 1);
+
+    // They are charged the walk from the door to wherever the kitchen wants
+    // them — which is the part that is actually true and actually matters. It
+    // used to assert their POSITION was still near the door on this tick, and
+    // that passed by luck: the kitchen happened to have no work for them on
+    // the opening tick, so nothing had moved them yet. The moment §6.2 put a
+    // table of six in the first minute of trade, there was work, and they
+    // crossed the room inside the same tick.
+    //
+    // One tick is twelve game seconds — twenty-seven tiles of walking in a shop
+    // fifteen tiles deep. At 120x compression NO walk is ever visible in the
+    // sim's own sampling; smoothing it is the renderer's job, between ticks,
+    // and it is not done. That is DEBT-1, and this gate no longer pretends
+    // otherwise.
+    expect(hired.walkSeconds).toBeGreaterThan(0);
   });
 });

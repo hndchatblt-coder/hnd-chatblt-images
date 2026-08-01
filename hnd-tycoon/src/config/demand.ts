@@ -87,6 +87,22 @@ export function dayOfWeekMultiplier(dayOfWeek: number): number {
   return DAY_OF_WEEK[dayOfWeek] ?? 1;
 }
 
+/**
+ * §6.1: `reputationMultiplier = 0.35 + 1.15 * (rep / 5) ^ 1.6`.
+ *
+ * The exponent is the whole point. A linear curve makes 4.2 and 4.6 stars
+ * nearly the same business; this one makes the last half-star worth more than
+ * the first three, which is what turns reputation into an economic asset rather
+ * than a score. The floor is what stops a bad month from being unrecoverable —
+ * even a one-star shop keeps a third of its foot traffic, because some people
+ * are just hungry and standing outside.
+ */
+export const REPUTATION_DEMAND = {
+  FLOOR: 0.35,
+  RANGE: 1.15,
+  EXPONENT: 1.6,
+} as const;
+
 export const DEMAND = {
   /**
    * Step 2 only: overrides the site's own foot traffic so the baseline run is
@@ -148,5 +164,13 @@ export const DEMAND = {
      * 60s is the shop's own measured labour cost per cover.
      */
     secondsPerQueuedPersonPerStaff: 60,
+    /**
+     * How many un-drawn walkouts the sim will hold for the renderer.
+     *
+     * Nothing drains this in a headless run, and at 120 arrivals an hour a
+     * seventy-day harness pass produces thousands. More than a few on screen at
+     * once is a crowd rather than a departure anyway.
+     */
+    MAX_PENDING_WALKOUTS: 8,
   },
 } as const;

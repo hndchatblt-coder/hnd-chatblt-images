@@ -247,7 +247,10 @@ html, body {
   position: fixed;
   left: 14px;
   right: 14px;
-  bottom: 24px;
+  /* ABOVE the sheets, not below them — and at the top, because at the bottom it
+     sat squarely over the marketing panel and hid the cost-per-cover figure
+     §8.3 requires be visible. Over the canvas it hides nothing that matters. */
+  top: 118px;
   /* Above the shop sheet (z 10). Every purchase message used to render behind
      it, so the only feedback a player got was a price number changing. */
   z-index: 30;
@@ -259,7 +262,7 @@ html, body {
   border: 1px solid rgba(244, 241, 234, 0.14);
   font-size: 13px;
   line-height: 1.4;
-  animation: rise 180ms ease;
+  animation: drop 180ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -284,6 +287,18 @@ html, body {
   transition: transform 90ms ease;
 }
 .roster-open:active { transform: scale(0.98); }
+.trade-open {
+  flex: 1;
+  min-height: 50px;
+  border-radius: 12px;
+  border: 1px solid rgba(244, 241, 234, 0.2);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  transition: transform 90ms ease;
+}
+.trade-open:active { transform: scale(0.98); }
 
 .roster-note { font-size: 11.5px; color: #a49e97; padding: 0 2px 10px; line-height: 1.4; }
 .roster-days, .roster-row {
@@ -358,3 +373,120 @@ html, body {
 .star.on { color: var(--warm); }
 .stars.sliding .star.on { color: #d6453a; }
 .rating { color: var(--ink-muted); font-size: 11px; }
+
+
+/* --- Prices & marketing. §8.2, §8.3. ------------------------------------ */
+.trade { z-index: 12; }
+.panel {
+  border-top: 1px solid rgba(244, 241, 234, 0.08);
+  padding: 14px 0 18px;
+}
+.panel:first-of-type { border-top: none; }
+.panel h3 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.price-value { font-size: 34px; font-weight: 700; line-height: 1; color: var(--ink); }
+.price-verdict { font-size: 12.5px; color: var(--ink-muted); margin-top: 4px; }
+
+/*
+ * The band. §8.2 wants it LIVE and beside the price, so it is drawn rather
+ * than printed: the fair range is a lit strip and the current price is a
+ * marker standing in or out of it. Reading it takes no arithmetic at all.
+ */
+.band-track {
+  position: relative;
+  height: 10px;
+  margin: 14px 0 6px;
+  border-radius: 5px;
+  background: rgba(244, 241, 234, 0.08);
+  overflow: hidden;
+}
+.band-fair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 179, 71, 0.32);
+  border-left: 1px solid rgba(255, 179, 71, 0.7);
+  border-right: 1px solid rgba(255, 179, 71, 0.7);
+}
+.band-marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--ink);
+  box-shadow: 0 0 0 2px rgba(27, 33, 39, 0.9);
+}
+.band-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
+}
+.band-legend-fair { color: var(--warm); }
+
+.price-buttons { display: flex; gap: 8px; margin: 14px 0 4px; }
+.price-step {
+  flex: 1;
+  min-height: 46px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 241, 234, 0.18);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.price-step:active { transform: scale(0.97); }
+
+.note { font-size: 11.5px; color: #a49e97; line-height: 1.45; margin: 8px 0 0; }
+.note.bad { color: #e08b82; }
+
+.channel { padding: 10px 0; border-top: 1px solid rgba(244, 241, 234, 0.06); }
+.channel:first-of-type { border-top: none; padding-top: 0; }
+.channel-head { display: flex; justify-content: space-between; align-items: baseline; }
+.channel-name { font-size: 14px; font-weight: 650; }
+.channel-spend { font-size: 13px; color: var(--ink-muted); }
+.channel-spend.on { color: var(--warm); }
+.channel-blurb { font-size: 11.5px; color: #a49e97; margin: 3px 0 8px; line-height: 1.4; }
+.channel-buttons { display: flex; gap: 8px; }
+.chip {
+  flex: 1;
+  min-height: 42px;
+  border-radius: 9px;
+  border: 1px solid rgba(244, 241, 234, 0.18);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.chip.on { background: var(--warm); color: #1a1206; border-color: var(--warm); }
+.chip:active { transform: scale(0.97); }
+
+/* §8.3 requires this on the panel. It is the number that tells a spend that
+   is working apart from one that is not, and they look identical without it. */
+.cost-per-cover {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(244, 241, 234, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trade-open, .price-step, .chip { transition: none; }
+}
+
+@keyframes drop {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}

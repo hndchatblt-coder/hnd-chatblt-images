@@ -13,6 +13,7 @@ import { ServiceSystem } from './systems/service';
 import { EconomySystem } from './systems/economy';
 import { BottleneckSystem } from './systems/bottleneck';
 import { ReputationSystem } from './systems/reputation';
+import { DemandSystem } from './systems/demand';
 import { World, type WorldOptions } from './world';
 
 export interface ScenarioOptions extends WorldOptions {
@@ -43,6 +44,7 @@ export function buildScenario(opts: ScenarioOptions): World {
     .register(new ServiceSystem())
     .register(new EconomySystem())
     .register(new ReputationSystem())
+    .register(new DemandSystem())
     .register(new BottleneckSystem());
   return world;
 }

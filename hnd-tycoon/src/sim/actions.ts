@@ -13,7 +13,9 @@
  * when there is nowhere for a second fryer to go, the game says so.
  */
 import { CATALOGUE_BY_ID, ROSTER, type CatalogueItem } from '@/config/catalogue';
+import { MARKETING_CHANNELS, PRICING } from '@/config/marketing';
 import { STATION_SPECS } from '@/config/stations';
+import { fairPriceBand, marketingEfficiency } from './systems/demand';
 import type { StationType } from '@/config/recipes';
 import { footprintOf, type Placement, type Tile } from './floor';
 import { makeStation } from './entities/station';
@@ -130,6 +132,64 @@ export function fire(state: SimState, staffId: string): ActionResult {
     reason: `${staff.name} finishes up in a fortnight. ${Cash.format(notice)} in notice.`,
   };
 }
+
+/**
+ * §8.2. Move the menu price, as a multiple of what the recipes list.
+ *
+ * **It lands tomorrow.** That delay is the design, not an implementation
+ * convenience: if a price rise took effect instantly the player would ride it
+ * up through the lunch rush and drop it before anyone noticed, which is not a
+ * decision, it is a slider. Making it a decision means committing to it for a
+ * day and finding out afterwards whether you were right.
+ */
+export function setPrice(state: SimState, multiplier: number): ActionResult {
+  const clamped = Math.max(
+    PRICING.MIN_MULTIPLIER,
+    Math.min(PRICING.MAX_MULTIPLIER, multiplier),
+  );
+  if (clamped !== multiplier) {
+    return {
+      ok: false,
+      reason: `Prices stay between ${asPercent(PRICING.MIN_MULTIPLIER)} and ${asPercent(PRICING.MAX_MULTIPLIER)} of the menu.`,
+    };
+  }
+  state.pendingPriceMultiplier = clamped;
+  const band = fairPriceBand(state.stars);
+  const verdict =
+    clamped > band.high
+      ? 'Above what a shop at your rating gets away with.'
+      : clamped < band.low
+        ? 'Under the going rate. You will be busy and thin.'
+        : 'About what people expect from you.';
+  return { ok: true, reason: `${asPercent(clamped)} from tomorrow. ${verdict}` };
+}
+
+/**
+ * §8.3. Commit a weekly spend to a channel. Billed with payroll, because "the
+ * Sunday bill is labour plus marketing, two decisions arriving as one number".
+ */
+export function setMarketing(
+  state: SimState,
+  channelId: string,
+  weeklyDollars: number,
+): ActionResult {
+  const channel = MARKETING_CHANNELS.find((c) => c.id === channelId);
+  if (!channel) return { ok: false, reason: `No such channel: ${channelId}` };
+  if (weeklyDollars < NONE) return { ok: false, reason: 'Cannot spend a negative amount.' };
+  state.marketingSpend[channelId] = weeklyDollars;
+  if (weeklyDollars === NONE) return { ok: true, reason: `${channel.label} off.` };
+  // The honest warning, at the moment of the decision rather than in the P&L a
+  // week later. §8.3 is explicit that a bad shop pays more per customer.
+  const efficiency = marketingEfficiency(state.stars);
+  const thin = efficiency < ONE;
+  return {
+    ok: true,
+    reason: `${channel.label} at $${weeklyDollars}/wk.${thin ? ` At ${state.stars.toFixed(1)} stars you are paying about ${(ONE / efficiency).toFixed(1)}x per customer.` : ''}`,
+  };
+}
+
+const PERCENT = 100;
+const asPercent = (x: number): string => `${Math.round(x * PERCENT)}%`;
 
 /** A full week of one person, at every day's own penalty rate. */
 export function weeklyWage(state: SimState): Money {

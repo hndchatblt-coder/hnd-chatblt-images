@@ -13,6 +13,7 @@
  * Satisfaction, reviews and reputation land at step 9. Wait is measured here
  * from the tick the customer walked in, because that is what they experienced.
  */
+import { archetypeOf } from '@/config/archetypes';
 import { ECONOMY } from '@/config/economy';
 import { RECIPES } from '@/config/recipes';
 import { REPORT } from '@/config/report';
@@ -91,13 +92,20 @@ export class ServiceSystem implements System {
     // what makes a queue expensive rather than merely untidy. §8
     // Revenue is the menu price. Packaging is a COGS line below — netting it
     // off here as well charged every order for it twice.
+    //
+    // Two multipliers ride on top. `priceMultiplier` is §8.2's lever: it lands
+    // here in full and immediately, while its cost — fewer arrivals through
+    // `priceResistance` — lands tomorrow and gradually. That asymmetry is
+    // exactly why §8.2 calls pricing "the lever the player forgets they have".
+    // `spend` is §6.2: a passer-by adds a drink, a Regular knows what they want.
+    const archetype = archetypeOf(order.archetypeId);
     let gross = NONE;
     for (const line of order.lines) {
       const recipe = RECIPES[line.recipeId as string];
       if (recipe) gross += recipe.sellPrice.cents * line.quantity;
     }
     state.ledger.post('revenue', {
-      cents: Math.round(gross),
+      cents: Math.round(gross * state.priceMultiplier * archetype.spend),
       currency: state.ledger.cash.currency,
     });
     state.ledger.post('cogs', ECONOMY.PACKAGING_PER_ORDER);

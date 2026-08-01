@@ -164,6 +164,28 @@ export class ShapeRegistry {
       g.roundRect(0, h * 0.3, w, h * 0.7, 3).fill(BRAND.people.customerAlt);
       g.circle(w / 2, h * 0.2, w * 0.34).fill(BRAND.people.skin);
     });
+
+    /**
+     * A docket, in two parts: paper, and the band across the top of it.
+     *
+     * Only the BAND takes the age tint. Tinting the whole docket turned the
+     * rail into a solid red bar that read as equipment bolted to the wall
+     * rather than as paper — the colour has to be a flag ON something, not the
+     * thing itself. §21.3 reserves the three ramp hues for exactly this.
+     */
+    this.bakeGraphics('ticket', (g) => {
+      const tw = RENDER.RAIL.ticketWidth;
+      const th = RENDER.RAIL.ticketHeight;
+      g.roundRect(0, 0, tw, th, 2).fill(BRAND.signal.ticketFresh);
+      // Ruled lines, so it reads as a docket and not as a white rectangle.
+      g.rect(tw * 0.18, th * 0.46, tw * 0.64, 1.4).fill(0x8d8880);
+      g.rect(tw * 0.18, th * 0.64, tw * 0.44, 1.4).fill(0x8d8880);
+      g.rect(tw * 0.18, th * 0.82, tw * 0.54, 1.4).fill(0x8d8880);
+    });
+    this.bakeGraphics('ticketFlag', (g) => {
+      const tw = RENDER.RAIL.ticketWidth;
+      g.roundRect(0, 0, tw, RENDER.RAIL.flagHeight, 2).fill(0xffffff);
+    });
   }
 
   private bakeWall(): void {

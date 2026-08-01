@@ -17,6 +17,8 @@ export interface Customer {
   readonly orderId: OrderId;
   state: CustomerState;
   servedAt: number | null;
+  /** §6.2. Drives patience, spend and how loudly they review. */
+  readonly archetypeId: string;
 }
 
 export interface OrderLine {
@@ -33,6 +35,11 @@ export interface Order {
   readonly id: OrderId;
   readonly customerId: string;
   readonly placedAt: number;
+  /**
+   * Denormalised from the customer. The kitchen and the ticket rail both read
+   * it every tick and neither has any other reason to hold a customer record.
+   */
+  readonly archetypeId: string;
   readonly lines: OrderLine[];
   state: OrderState;
   servedAt: number | null;

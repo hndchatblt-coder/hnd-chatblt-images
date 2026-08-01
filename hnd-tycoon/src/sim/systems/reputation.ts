@@ -13,6 +13,7 @@
  * §6.5: reputation is a keyed map. `dineIn` is the only channel today and
  * `delivery` is a config line, not a refactor.
  */
+import { archetypeOf } from '@/config/archetypes';
 import { REPUTATION } from '@/config/reputation';
 import { TIME } from '@/config/time';
 import { GAME_SECONDS_PER_TICK } from '../clock';
@@ -30,15 +31,29 @@ export interface Review {
   readonly day: number;
 }
 
-/** §7.4, exactly as written. */
-export function waitScore(waitMinutes: number): number {
-  const over = waitMinutes - REPUTATION.WAIT_GRACE_MINUTES;
+/**
+ * §7.4, exactly as written, with §6.2's patience scaling both terms.
+ *
+ * `patience` is 1 for the customer §7.4 describes. An app-speed customer at
+ * 0.35 gets two minutes of grace instead of six and runs out of tolerance in
+ * five instead of fourteen — so the same eight-minute wait is a four-star
+ * experience for a Regular and a one-star one for them. That divergence is the
+ * point: it is why a shop can be well-loved and badly rated at the same time,
+ * which is the whole of §6.5's channel split arriving early.
+ */
+export function waitScore(waitMinutes: number, patience = ONE): number {
+  const over = waitMinutes - REPUTATION.WAIT_GRACE_MINUTES * patience;
   if (over <= NONE) return ONE;
-  return Math.max(NONE, ONE - over / REPUTATION.WAIT_TOLERANCE_MINUTES);
+  return Math.max(NONE, ONE - over / (REPUTATION.WAIT_TOLERANCE_MINUTES * patience));
 }
 
-export function satisfactionOf(waitMinutes: number, quality: number, accuracy = ONE): number {
-  return waitScore(waitMinutes) * quality * accuracy;
+export function satisfactionOf(
+  waitMinutes: number,
+  quality: number,
+  accuracy = ONE,
+  patience = ONE,
+): number {
+  return waitScore(waitMinutes, patience) * quality * accuracy;
 }
 
 /** §7.4: stars = clamp(round(1 + satisfaction * 4), 1, 5). */
@@ -47,11 +62,20 @@ export function starsFor(satisfaction: number): number {
   return Math.max(REPUTATION.MIN_STARS, Math.min(REPUTATION.MAX_STARS, raw));
 }
 
-/** §7.4: the angry skew. Unhappy customers are four times as likely to speak. */
-export function reviewChance(satisfaction: number): number {
-  if (satisfaction >= REPUTATION.HAPPY_THRESHOLD) return REPUTATION.REVIEW_RATE_HAPPY;
-  if (satisfaction < REPUTATION.ANGRY_THRESHOLD) return REPUTATION.REVIEW_RATE_ANGRY;
-  return (REPUTATION.REVIEW_RATE_HAPPY + REPUTATION.REVIEW_RATE_ANGRY) / 2;
+/**
+ * §7.4: the angry skew. Unhappy customers are four times as likely to speak.
+ * §6.2's `loudness` scales it — the app-speed customer reviews everything and
+ * the passer-by reviews nothing, so the rating is not a poll of your customers,
+ * it is a poll of the ones who bother.
+ */
+export function reviewChance(satisfaction: number, loudness = ONE): number {
+  const base =
+    satisfaction >= REPUTATION.HAPPY_THRESHOLD
+      ? REPUTATION.REVIEW_RATE_HAPPY
+      : satisfaction < REPUTATION.ANGRY_THRESHOLD
+        ? REPUTATION.REVIEW_RATE_ANGRY
+        : (REPUTATION.REVIEW_RATE_HAPPY + REPUTATION.REVIEW_RATE_ANGRY) / 2;
+  return Math.min(ONE, base * loudness);
 }
 
 /**
@@ -82,6 +106,9 @@ export class ReputationSystem implements System {
 
   onClose(world: World): void {
     const state = world.state;
+    // Cached once a day so arrivals can read it every tick without walking
+    // 250 reviews three hundred times an hour.
+    state.stars = starsOf(state.reviews, world.clock.dayIndex, 'dineIn');
     for (const channel of REPUTATION.CHANNELS) {
       world.record(
         `stars:${channel}`,
@@ -102,13 +129,19 @@ export class ReputationSystem implements System {
  * about the experience, and the experience ends at the counter.
  */
 export function reviewServedOrder(state: SimState, order: Order, now: number): void {
+  const archetype = archetypeOf(order.archetypeId);
   const waitMinutes =
     ((now - order.placedAt) * GAME_SECONDS_PER_TICK) / TIME.SECONDS_PER_MINUTE;
-  const satisfaction = satisfactionOf(waitMinutes, orderQuality(order));
+  const satisfaction = satisfactionOf(
+    waitMinutes,
+    orderQuality(order),
+    ONE,
+    archetype.patience,
+  );
   state.day.satisfactionSum += satisfaction;
   state.day.satisfactionCount += ONE;
 
-  if (!state.rng.bool(reviewChance(satisfaction))) return;
+  if (!state.rng.bool(reviewChance(satisfaction, archetype.reviewRate))) return;
   state.reviews.push({
     channel: 'dineIn',
     stars: starsFor(satisfaction),
@@ -118,8 +151,8 @@ export function reviewServedOrder(state: SimState, order: Order, now: number): v
 }
 
 /** §6.3: "6% chance of a two-star 'walked out, too busy' review." */
-export function reviewBalk(state: SimState): void {
-  if (!state.rng.bool(REPUTATION.BALK_REVIEW_CHANCE)) return;
+export function reviewBalk(state: SimState, loudness = ONE): void {
+  if (!state.rng.bool(Math.min(ONE, REPUTATION.BALK_REVIEW_CHANCE * loudness))) return;
   state.reviews.push({
     channel: 'dineIn',
     stars: REPUTATION.BALK_STARS,

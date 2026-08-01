@@ -707,3 +707,89 @@ staff=1  covers 4450  wait 37.6m   <- 106% busy: the bottleneck is a person
 staff=2  covers 4929  wait  3.7m
 staff=3  covers 4933  wait  3.3m   <- and then it is not
 ```
+
+---
+
+## Step 10 — demand, pricing, marketing, balking. SHIPPED.
+
+**What is now playable:** you can set your price and watch the fair-price band
+move as your rating does; you can buy marketing and watch cost-per-cover tell
+you whether it is working; a table of six arrives as one dreadful ticket; and
+when somebody gives up on your queue you see them leave before the number moves.
+
+The whole of §6.1 is live, `competitorPressure` included and pinned at zero.
+
+### On screen
+- **The walkout.** They reach the door, look at the line, turn and go. D040.
+- **The ticket rail**, over the pass: paper dockets with a header band that ages
+  white -> amber -> red, red pulsing. A six-top's docket is taller.
+- **Posture.** The queue sags and leans as its wait runs past §7.4's six-minute
+  grace. Three and a half pixels each; unmistakable at fourteen of them.
+- **Prices & marketing sheet** with the §8.2 band drawn (not printed) and the
+  §8.3 cost-per-cover figure.
+
+### Measured
+Roster curve, 56 days, six seeds — the peak moved, see D037:
+
+```
+hires  shape        cash
+0      —          $58,377
+1      all 7      $80,755   <- the peak
+2      all 7      $60,019
+3      all 7      $39,123
+2      Thu-Sat    $65,563   <- shape matters again above the peak
+```
+
+Balk rate by day of week, one staffer, 56 days, four seeds — this is the shape
+the roster decision is made against:
+
+```
+       arrivals/day   balk%   mean queue
+Mon          95         2.0      0.88
+Wed         116         3.0      1.19
+Thu         138         6.7      1.64
+Fri         182        13.0      2.67
+Sat         201        16.8      3.24
+```
+
+`npm run balance`, 70 days, four seeds:
+
+```
+                        naive      idle
+stars bottom by day 30   2.64      3.17
+covers over 70 days     11551      8636   (+34%)
+marketing paid         $5,400        $0
+ending cash           $67,640   $70,483   <- worked harder, finished poorer
+```
+
+### Surprises
+- Adding archetypes moved the LEVEL of the economy twice while looking like it
+  only moved the shape — once through quantity, once through patience. Both
+  needed normalising. D036. This is now the third time a "content" addition has
+  silently re-tuned the game, and it is worth assuming the next one will too.
+- Reputation feeding demand made labour compound, which killed step 7b's
+  original conclusion outright. D037.
+- The step-4 gate "wastes nothing at all on a quiet day" became false, honestly:
+  a six-top toasts six buns at once and assembly works through them one at a
+  time, so the last one sits. 1.5% of production, all of it buns, and a single
+  holding cabinet takes it to 0.3%. The gate now asserts that DROP, which is a
+  stronger claim than zero ever was.
+
+### Debt carried
+- **DEBT-1** (unchanged, now stated plainly in the gate): at 120x compression no
+  walk is visible in the sim's own sampling — one tick is 27 tiles of walking in
+  a 15-tile shop. Smoothing it is the renderer's job, between ticks, and is not
+  done. The step 7b walk-in gate used to assert a POSITION and was passing by
+  luck; it now asserts the walk was charged, which is what is actually true.
+- **D030** (`reconcile()` is a tautology) — still unfixed.
+- `bot:balanced`, `bot:tightarse`, `bot:roboboss` do not exist. They need verbs
+  the game has not got yet (automation is step 12), and a bot that pretended to
+  automate would make step 12's "neither strategy may dominate" unfalsifiable.
+- The §25.2 session model (three 8-minute sessions a day, offline accrual behind
+  the §5.2 caps) is not applied to bots. Needs offline accrual, step 20. Bots
+  decide once per game day, which is a MORE attentive player than the real
+  pattern, so the measured spiral is a lower bound.
+- Financing and resale, still dropped from step 7. `src/save/` is still a
+  `.gitkeep`.
+
+**Next: step 11 — incidents, ambience, recovery.**

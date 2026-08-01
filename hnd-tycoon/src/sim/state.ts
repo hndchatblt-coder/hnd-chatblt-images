@@ -23,6 +23,8 @@ import { Ledger } from './ledger';
 import { Rng } from './rng';
 import type { Review } from './systems/reputation';
 import { ECONOMY } from '@/config/economy';
+import { REPUTATION } from '@/config/reputation';
+import { PRICING } from '@/config/marketing';
 import type { Constraint } from './systems/bottleneck';
 import type { Customer, Order } from './entities/order';
 import { id, ZERO, type Money, type OrderId, type RecipeId, type SiteId, type StaffId } from './types';
@@ -49,6 +51,11 @@ export interface DayAccumulator {
   wasteUnits: number;
   /** Customers who looked at the queue and walked. §6.3 — a headline stat. */
   balked: number;
+  /**
+   * Walkouts by archetype. §6.2 — losing eight passers-by is a different shop
+   * from losing eight Regulars, and the readout has to be able to say which.
+   */
+  balkedBy: Record<string, number>;
   /** Reviews left today. */
   reviews: number;
   satisfactionSum: number;
@@ -66,10 +73,25 @@ export function emptyDay(): DayAccumulator {
     workSeconds: NONE,
     wasteUnits: NONE,
     balked: NONE,
+    balkedBy: {},
     reviews: NONE,
     satisfactionSum: NONE,
     satisfactionCount: NONE,
   };
+}
+
+/**
+ * Somebody who reached the door and kept walking. Drained by the renderer.
+ *
+ * It carries the archetype because §6.2 wants the silhouette to be readable —
+ * losing a table of six looks different from losing one bloke on his lunch
+ * break, and it should look different on screen too.
+ */
+export interface Walkout {
+  readonly id: number;
+  readonly archetypeId: string;
+  /** How long the queue was when they gave up. Drives how far along it they got. */
+  readonly queueLength: number;
 }
 
 export interface SimState {
@@ -125,6 +147,34 @@ export interface SimState {
   readonly reviews: Review[];
   /** A named RNG stream, so reviews cannot shift any other system's sequence. */
   readonly rng: Rng;
+  /**
+   * Walkouts that have not been drawn yet. §6.3, and the step 10 exit criterion:
+   * **a walkout must be legible on screen BEFORE the stat moves.**
+   *
+   * A counter is not legible. Somebody has to visibly reach the door, look at
+   * the queue, turn around and go — and the renderer cannot show that unless
+   * the sim tells it one happened. This is a queue the renderer drains, not
+   * state the sim reads back, which is why it is capped: if nothing is
+   * rendering (the harness, a headless run, a backgrounded tab) it must not
+   * grow without bound.
+   */
+  readonly walkouts: Walkout[];
+
+  // --- §6.1 demand terms -------------------------------------------------
+  /** Live star rating, refreshed each day so arrivals can read it cheaply. */
+  stars: number;
+  /** Menu price as a multiple of the recipe's listed price. §8.2 */
+  priceMultiplier: number;
+  /** Set by the player; lands next trading day. That delay IS the design. */
+  pendingPriceMultiplier: number | null;
+  /** Dollars per week, per channel. §8.3 */
+  readonly marketingSpend: Record<string, number>;
+  readonly channelAwareness: Record<string, number>;
+  marketingAwareness: number;
+  /** §6.1, pinned at zero until specials arrive at step 15. */
+  specialUplift: number;
+  /** §6.1, pinned at zero until Act III. Present so it never needs adding. */
+  readonly competitorPressure: number;
   day: DayAccumulator;
   counters: { customer: number; order: number; job: number };
 }
@@ -199,7 +249,20 @@ export function createState(opts: StateOptions = {}): SimState {
     workingToday: new Set(),
     dayIndex: NONE,
     balked: NONE,
+    walkouts: [],
     reviews: [],
+    // The prior, not a guess: a shop with no reviews IS its prior, and starting
+    // arrivals from a different number than reputation reports would make day
+    // one's demand disagree with day one's star rating.
+    stars: REPUTATION.PRIOR_STARS,
+    priceMultiplier: PRICING.FAIR_PRICE_AT_PRIOR,
+    pendingPriceMultiplier: null,
+    marketingSpend: {},
+    channelAwareness: {},
+    marketingAwareness: NONE,
+    specialUplift: NONE,
+    // §6.1: pinned at zero until Act III, present so it never needs adding.
+    competitorPressure: NONE,
     // Seeded from the RUN, not the site: seeding from the site alone gave
     // every seed an identical review stream, so seed variation looked like it
     // worked and did nothing.

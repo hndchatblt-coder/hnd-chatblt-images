@@ -1,13 +1,186 @@
 /**
  * Policy-bot balance harness. DESIGN.md §25.2.
  *
- * Bots do NOT run continuously — they play three 8-minute sessions per real
- * day with offline gaps and a 9-hour overnight, obeying the §5.2 offline caps.
- * Balancing against a continuous run tunes a game nobody's play pattern
- * matches. See BUILD_PLAN.md step 20.
+ * Never hand-tune balance by playing. Tune with the harness, verify by playing.
  *
- * STEP 1 SCOPE: stub only. bot:idle arrives with the arrivals system.
+ * This ran as a stub that printed a line and exited 0 from step 1 to step 10,
+ * which meant `npm run gate` contained a step that could not fail — the same
+ * defect logged as D030 against `reconcile()`. It is a real check now.
+ *
+ * BUILD_PLAN step 10 exit: **`bot:naive` demonstrably spirals — ship the
+ * chart.** Both halves are here: the assertions below fail the gate if naive
+ * stops spiralling, and the chart is printed so a human can see the shape
+ * rather than take a boolean's word for it.
+ *
+ * Bots do NOT yet run the §25.2 session pattern — three 8-minute sessions a day
+ * with offline accrual behind the §5.2 caps. That needs offline accrual, which
+ * lands at step 20. Until then a bot decides once per game day, which is a more
+ * attentive player than the real pattern, so any spiral measured here is a
+ * LOWER bound on how bad it gets.
  */
-console.log('balance harness: no bots registered yet (Step 1)');
-console.log('bots to build: naive, balanced, tightarse, roboboss, idle');
-process.exit(0);
+import { BOTS, runBot, tail, type BotDay, type BotRun } from '@/harness/bots';
+import { Cash, type Money } from '@/sim/types';
+
+const DAYS = 70;
+const SEEDS = [1, 2, 3, 4];
+/** Days at each end of the run used to judge a trend. Two full weeks. */
+const WINDOW = 14;
+
+const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+const aud = (cents: number): Money => ({ cents: Math.round(cents), currency: 'AUD' });
+
+const failures: string[] = [];
+const runs = new Map<string, BotRun[]>();
+
+for (const bot of BOTS) {
+  runs.set(
+    bot.name,
+    SEEDS.map((seed) => runBot(bot, seed, DAYS)),
+  );
+}
+
+// --- The chart ------------------------------------------------------------
+/**
+ * Sparklines, not a table. The exit criterion is that a human can SEE the
+ * spiral, and a column of numbers is something you scroll past.
+ */
+const BLOCKS = ' ▁▂▃▄▅▆▇█';
+
+function spark(values: number[], width = 60): string {
+  if (values.length === 0) return '';
+  const step = Math.max(1, Math.floor(values.length / width));
+  const sampled: number[] = [];
+  for (let i = 0; i < values.length; i += step) sampled.push(values[i] as number);
+  const lo = Math.min(...sampled);
+  const hi = Math.max(...sampled);
+  const span = hi - lo || 1;
+  return sampled
+    .map((v) => BLOCKS[Math.round(((v - lo) / span) * (BLOCKS.length - 1))] ?? ' ')
+    .join('');
+}
+
+/** Mean across seeds, day by day, so the chart is not one seed's luck. */
+function acrossSeeds(rs: BotRun[], pick: (d: BotDay) => number): number[] {
+  const length = Math.min(...rs.map((r) => r.days.length));
+  const out: number[] = [];
+  for (let i = 0; i < length; i++) {
+    out.push(mean(rs.map((r) => pick(r.days[i] as BotDay))));
+  }
+  return out;
+}
+
+const first = (xs: number[]): number => xs[0] ?? 0;
+const last = (xs: number[]): number => xs[xs.length - 1] ?? 0;
+
+console.log(`\nBALANCE — ${DAYS} game days, ${SEEDS.length} seeds\n`);
+
+for (const bot of BOTS) {
+  const rs = runs.get(bot.name) as BotRun[];
+  const cash = acrossSeeds(rs, (d) => d.cashCents);
+  const stars = acrossSeeds(rs, (d) => d.stars);
+  const balked = acrossSeeds(rs, (d) => d.balked);
+
+  console.log(`  bot:${bot.name}`);
+  console.log(
+    `    cash   ${spark(cash)}  ${Cash.format(aud(first(cash)))} -> ${Cash.format(aud(last(cash)))}`,
+  );
+  console.log(
+    `    stars  ${spark(stars)}  ${first(stars).toFixed(2)} -> ${last(stars).toFixed(2)}`,
+  );
+  console.log(
+    `    walked ${spark(balked)}  ${first(balked).toFixed(0)}/day -> ${last(balked).toFixed(0)}/day`,
+  );
+  console.log('');
+}
+
+// --- The gate -------------------------------------------------------------
+const naiveRuns = runs.get('naive') as BotRun[];
+const idleRuns = runs.get('idle') as BotRun[];
+
+/** §25.2, verbatim: "bot:naive bottoms below 3.0 stars by day 30." */
+const BOTTOM_BY_DAY = 30;
+const BOTTOM_STARS = 3.0;
+
+const bottom = (rs: BotRun[]): number =>
+  mean(
+    rs.map((r) => Math.min(...r.days.filter((d) => d.day <= BOTTOM_BY_DAY).map((d) => d.stars))),
+  );
+const total = (rs: BotRun[], pick: (d: BotDay) => number): number =>
+  mean(rs.map((r) => r.days.reduce((a, d) => a + pick(d), 0)));
+
+const naiveBottom = bottom(naiveRuns);
+const idleBottom = bottom(idleRuns);
+const naiveCovers = total(naiveRuns, (d) => d.covers);
+const idleCovers = total(idleRuns, (d) => d.covers);
+const naiveCash = mean(naiveRuns.map((r) => tail(r, 1, (d) => d.cashCents)));
+const idleCash = mean(idleRuns.map((r) => tail(r, 1, (d) => d.cashCents)));
+const naiveSpend = mean(naiveRuns.map((r) => tail(r, 1, (d) => d.marketingCents)));
+
+/**
+ * The shape of the trap, stated plainly, because it is NOT what "spiral"
+ * makes you expect. Naive does not go broke — §10 forbids a shop dying on
+ * its own, so nothing here ever could. What happens is worse and quieter:
+ *
+ * it looks like it is working. Covers rise by a third. The shop is visibly
+ * busier every single day. And the rating falls through the floor, the extra
+ * covers exactly pay for the advertising that bought them, and after ten weeks
+ * of working much harder the bank balance is no better than the shop that did
+ * nothing at all.
+ */
+console.log('  §25.2 gate — naive spirals, idle is the control:');
+console.log(
+  `    stars bottom by day ${BOTTOM_BY_DAY}   naive ${naiveBottom.toFixed(2)}   idle ${idleBottom.toFixed(2)}`,
+);
+console.log(
+  `    covers over ${DAYS} days       naive ${naiveCovers.toFixed(0)}   idle ${idleCovers.toFixed(0)}  (+${(100 * (naiveCovers / idleCovers - 1)).toFixed(0)}%)`,
+);
+console.log(
+  `    marketing paid          naive ${Cash.format(aud(naiveSpend))}   idle ${Cash.format(aud(0))}`,
+);
+console.log(
+  `    ending cash             naive ${Cash.format(aud(naiveCash))}   idle ${Cash.format(aud(idleCash))}`,
+);
+console.log('');
+
+if (naiveBottom >= BOTTOM_STARS) {
+  failures.push(
+    `bot:naive bottomed at ${naiveBottom.toFixed(2)} stars by day ${BOTTOM_BY_DAY}, not below ${BOTTOM_STARS}. ` +
+      '§25.2 requires it. Marketing into an understaffed kitchen has to cost you the room.',
+  );
+}
+if (idleBottom < BOTTOM_STARS) {
+  failures.push(
+    `bot:idle also bottomed below ${BOTTOM_STARS} (${idleBottom.toFixed(2)}). ` +
+      'Then the drop is the shop, not the strategy, and naive proves nothing.',
+  );
+}
+if (naiveCovers <= idleCovers) {
+  failures.push(
+    `bot:naive served ${naiveCovers.toFixed(0)} covers against idle's ${idleCovers.toFixed(0)}. ` +
+      'The trap only works if the marketing visibly WORKS — a spend that does nothing is a bug, not a trap.',
+  );
+}
+if (naiveCash > idleCash) {
+  failures.push(
+    `bot:naive ended richer than idle (${Cash.format(aud(naiveCash))} vs ${Cash.format(aud(idleCash))}). ` +
+      '§8.3 says marketing a badly-rated shop is bad money after bad; here it paid.',
+  );
+}
+
+// And the floor: idle must SURVIVE. §10 — the player can never lose.
+const idleCashLate = mean(idleRuns.map((r) => tail(r, WINDOW, (d) => d.cashCents)));
+if (idleCashLate <= 0) {
+  failures.push(
+    `bot:idle ran out of money (${Cash.format(aud(idleCashLate))}). ` +
+      'A shop left alone must plateau, never die. There is no fail state in this game.',
+  );
+}
+
+if (failures.length > 0) {
+  console.error('✗ BALANCE FAILURES\n');
+  for (const f of failures) console.error('  ' + f);
+  console.error('');
+  process.exit(1);
+}
+
+console.log('✓ balance — naive spirals, idle survives\n');

@@ -20,6 +20,12 @@ export interface RunSummary {
   readonly meanWaitMinutes: number;
   readonly batches: number;
   readonly wasteUnits: number;
+  /** Finished units plated across the run. Waste is only readable against it. */
+  readonly unitsProduced: number;
+  /** §6.3 walkouts. The stat that has to move before reputation does. */
+  readonly balked: number;
+  /** Star rating at the end of the run. §7.4 */
+  readonly stars: number;
   readonly openAtEnd: number;
   readonly endingCashCents: number;
   readonly coversPerDay: readonly number[];
@@ -33,6 +39,8 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
   let covers = NONE;
   let batches = NONE;
   let waste = NONE;
+  let produced = NONE;
+  let balked = NONE;
   const coversPerDay: number[] = [];
   for (const report of world.dayReports) {
     arrived += Number(report.lines['arrived'] ?? NONE);
@@ -40,6 +48,8 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
     covers += dayCovers;
     batches += Number(report.lines['batches'] ?? NONE);
     waste += Number(report.lines['waste'] ?? NONE);
+    produced += Number(report.lines['units'] ?? NONE);
+    balked += Number(report.lines['balked'] ?? NONE);
     coversPerDay.push(dayCovers);
   }
 
@@ -60,6 +70,9 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
     meanWaitMinutes: meanWaitMinutes(waitTicks, served),
     batches,
     wasteUnits: waste,
+    unitsProduced: produced,
+    balked,
+    stars: world.state.stars,
     openAtEnd: world.state.openOrders.length,
     endingCashCents: world.state.ledger.cash.cents,
     coversPerDay,

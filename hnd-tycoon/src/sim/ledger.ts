@@ -21,6 +21,7 @@ export type Account =
   | 'utilities'
   | 'capex'
   | 'overheads'
+  | 'marketing'
   | 'interest';
 
 /** Accounts that reduce cash. Revenue is the only one that adds. */
@@ -31,6 +32,7 @@ const EXPENSES: readonly Account[] = [
   'utilities',
   'capex',
   'overheads',
+  'marketing',
   'interest',
 ];
 

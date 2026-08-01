@@ -19,6 +19,7 @@ import { Shop } from './Shop';
 import { Roster } from './Roster';
 import { Money } from './Money';
 import { Stars } from './Stars';
+import { Trade } from './Trade';
 import type { Game } from '@/render/Game';
 
 const HUD_HZ = 4;
@@ -52,6 +53,7 @@ export function App(): JSX.Element {
   const [speed, setSpeed] = useState(1);
   const [shopOpen, setShopOpen] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [tradeOpen, setTradeOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const [readout, setReadout] = useState<Readout>(EMPTY);
@@ -157,12 +159,22 @@ export function App(): JSX.Element {
           <button type="button" className="roster-open" onClick={() => setRosterOpen(true)}>
             Who&rsquo;s on
           </button>
+          <button type="button" className="trade-open" onClick={() => setTradeOpen(true)}>
+            Prices
+          </button>
         </div>
       </footer>
 
       <Roster
         open={rosterOpen}
         onClose={() => setRosterOpen(false)}
+        game={() => game.current}
+        onMessage={setToast}
+      />
+
+      <Trade
+        open={tradeOpen}
+        onClose={() => setTradeOpen(false)}
         game={() => game.current}
         onMessage={setToast}
       />

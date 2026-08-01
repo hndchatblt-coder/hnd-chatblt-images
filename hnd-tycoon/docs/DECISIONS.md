@@ -692,3 +692,126 @@ Five glyphs plus a number, tweened (§22.3 — a rating that snapped from 3.8 to
 below three stars so the state is legible muted and at a glance (§22.4).
 
 The fill is the signal; the number is the detail.
+
+---
+
+## D036 — archetypes are normalised, because shape must never move level
+**Step 10. Status: active.**
+
+§6.2's archetype table was added twice with the same bug, in two dimensions,
+and both times it looked balanced and was not.
+
+**Quantity.** The table of six raised covers per ARRIVAL by 40% while wages
+stayed put, so labour became 40% cheaper in real terms overnight. It inverted
+step 7b's whole result. `baseFootTraffic` is covers per hour, not parties per
+hour, so arrivals now divide by `ARCHETYPE_MEAN_QUANTITY` (1.40). Same volume,
+arriving six at a time. The dread is meant to come from the lumpiness, not from
+free money.
+
+**Patience.** The authored table has an ARITHMETIC mean patience of 1.012 and
+looks perfectly balanced. Balking runs as `over / (window * patience)`, which is
+convex, so what governs is the HARMONIC mean — 0.73. Measured, the raw table
+shed 9% of a quiet Monday. `ARCHETYPE_PATIENCE_MEAN` divides it out, preserving
+the spread (which is the whole of §6.2) and leaving the average customer as
+patient as §6.3 calibrated them.
+
+This is the same rule `DAYPART_MEAN` already applies to the daypart curve, and
+the alternative — leaving them raw and re-tuning the economy underneath — would
+have meant every future content addition silently re-balancing the game.
+
+---
+
+## D037 — step 7b's roster gate was rewritten, and why that is not moving goalposts
+**Step 10. Status: active.**
+
+7b asserted that a seven-day roster for the SECOND person was a trap. That was
+true when it was written and stopped being true at step 10, because §6.1 wired
+reputation into demand.
+
+Before, a second pair of hands only bought the walkouts they prevented that day
+— two customers on a Monday against $387 of wage, a straightforward loss. Now
+preventing a walkout also prevents the two-star review it leaves, and the rating
+feeds `reputationMultiplier`, which feeds tomorrow's arrivals. Over eight weeks
+a seven-day second staffer ends on 4.00 stars against 3.31 with nobody, and the
+curve turns that into ~20% more foot traffic.
+
+Measured, 56 days, six seeds:
+
+```
+hires  shape        cash
+0      —          $58,377
+1      all 7      $80,755   <- the peak
+2      all 7      $60,019
+3      all 7      $39,123
+2      Thu-Sat    $65,563
+3      Thu-Sat    $56,394
+```
+
+The pillar survives: both sides of the peak lose, and the SHAPE decision
+reappears above it (at two extra hires Thu–Sat beats all-7). What changed is
+that the decision is now "how many, and then which days" rather than only
+"which days". The gate tests the curve, which is strictly stronger than the
+three-point ordering it replaced.
+
+Deliberately NOT asserted: that two extra hires lose against nobody. At six
+seeds that is $60,019 against $58,377 — the shoulder of the curve, where a sign
+test is a test of noise.
+
+---
+
+## D038 — `npm run balance` stops being a stub that cannot fail
+**Step 10. Status: active.**
+
+From step 1 to step 10, `npm run balance` printed a line and exited 0 inside
+`npm run gate`. That is the same defect as D030's tautological `reconcile()`: a
+gate that cannot fail is worse than no gate, because it reports safety.
+
+It now runs `bot:naive` and `bot:idle` for 70 days over four seeds, prints
+sparklines of cash, stars and walkouts, and fails the build on §25.2's own
+criterion — naive bottoming below 3.0 stars by day 30 — with idle as the
+control that proves the drop is the strategy and not the shop.
+
+**The spiral is not what "spiral" makes you expect, and the script says so.**
+Naive does not go broke; §10 forbids a shop dying on its own. What happens is
+quieter: covers rise 34%, the shop is visibly busier every day, the rating falls
+from 3.17 to 2.64, the extra covers exactly pay for the advertising that bought
+them, and after ten weeks of working much harder the bank balance is *below* the
+shop that did nothing. That is §8.3's "bad money after bad", and it is a better
+trap than bankruptcy because it looks like it is working.
+
+The first version of this gate asserted a TREND in walkouts and passed on noise
+(49.3/day to 49.8/day). Caught by reading the numbers it printed rather than its
+exit code.
+
+---
+
+## D039 — one star rating, and it is the one the economy uses
+**Step 10. Status: active.**
+
+The pricing panel read a freshly-computed rating while the sim read the daily
+cache, so the panel said "over the odds for 3.3 stars" and the action it
+triggered said "about what people expect". Both correct, against different
+numbers, which is worse than either being wrong.
+
+`Game.stars()` now returns `state.stars` — the value `reputationMultiplier`,
+`fairPriceMultiplier` and `marketingEfficiency` all actually read. A rating that
+settles once a day is also closer to how a rating behaves. Passing a channel
+still resolves live, because §6.5's per-channel split has no cache and must stay
+an argument rather than a refactor.
+
+---
+
+## D040 — the walkout is an event, not a counter
+**Step 10. Status: active.**
+
+Step 10's exit criterion is that **a walkout is legible on screen before the
+stat moves**, and a counter ticking 11 to 12 in a corner is not legible. The sim
+now pushes a `Walkout` onto a capped queue that the renderer drains and
+animates: arrive at the door, stand still long enough to be seen looking at the
+line, then turn and go sideways out of frame, cold-tinted and fading.
+
+The pause is the load-bearing part. Without it a walkout is indistinguishable
+from a customer being served, which is the opposite message.
+
+Capped at eight because nothing drains it in a headless run and a 70-day harness
+pass would otherwise accumulate thousands.

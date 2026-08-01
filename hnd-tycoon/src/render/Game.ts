@@ -15,9 +15,13 @@ import {
   canAfford,
   fire,
   priceOf,
+  setMarketing,
+  setPrice,
   setRoster,
   type ActionResult,
 } from '@/sim/actions';
+import { MARKETING_CHANNELS, PRICING, type MarketingChannel } from '@/config/marketing';
+import { costPerCover, fairPriceBand, marketingEfficiency } from '@/sim/systems/demand';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { starsOf } from '@/sim/systems/reputation';
 import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
@@ -78,7 +82,7 @@ export class Game {
     this.app.ticker.add(() => {
       const dt = Math.min(this.app.ticker.deltaMS / 1000, RENDER.MAX_FRAME_SECONDS);
       if (this.running) this.step(dt);
-      this.scene.render(this.world.state, dt);
+      this.scene.render(this.world.state, dt, this.world.clock.now as number);
     });
   }
 
@@ -109,8 +113,23 @@ export class Game {
     return buy(this.world.state, itemId);
   }
 
-  /** Live star rating per channel. §22.5 puts it in the top bar. */
-  stars(channel = 'dineIn'): number {
+  /**
+   * The shop's rating. §22.5 puts it in the top bar.
+   *
+   * **One number, and it is the one the economy uses.** `state.stars` is
+   * recomputed at each day's close and is what `reputationMultiplier`,
+   * `fairPriceMultiplier` and `marketingEfficiency` all read. Computing a
+   * fresher one for the UI produced a panel that said "over the odds for 3.3
+   * stars" while the action it triggered said "about what people expect" —
+   * both correct, against different numbers, which is worse than either being
+   * wrong. A rating that settles once a day is also closer to how one works.
+   *
+   * `channel` still resolves live, because a per-channel breakdown has no cache
+   * and §6.5's whole point is that the day delivery lands this takes an
+   * argument rather than a refactor.
+   */
+  stars(channel?: string): number {
+    if (channel === undefined) return this.world.state.stars;
     return starsOf(this.world.state.reviews, this.world.clock.dayIndex, channel);
   }
 
@@ -136,6 +155,68 @@ export class Game {
 
   setRoster(staffId: string, day: number, on: boolean): ActionResult {
     return setRoster(this.world.state, staffId, day, on);
+  }
+
+  /**
+   * Everything the pricing panel draws. §8.2 — the band is the whole point:
+   * a price input with no reference is a number the player guesses at, and a
+   * price input sitting next to "what a shop at your rating gets away with" is
+   * a decision.
+   */
+  pricing(): {
+    current: number;
+    pending: number | null;
+    band: { low: number; high: number };
+    min: number;
+    max: number;
+    stars: number;
+  } {
+    const state = this.world.state;
+    const stars = this.stars();
+    return {
+      current: state.priceMultiplier,
+      pending: state.pendingPriceMultiplier,
+      band: fairPriceBand(stars),
+      min: PRICING.MIN_MULTIPLIER,
+      max: PRICING.MAX_MULTIPLIER,
+      stars,
+    };
+  }
+
+  setPrice(multiplier: number): ActionResult {
+    return setPrice(this.world.state, multiplier);
+  }
+
+  /**
+   * The marketing panel. §8.3 requires cost-per-cover to be ON it — the whole
+   * trap is that the spend line looks identical whether it is working or not,
+   * and this is the number that tells them apart.
+   */
+  marketing(): {
+    channels: {
+      channel: MarketingChannel;
+      weekly: number;
+      awareness: number;
+    }[];
+    efficiency: number;
+    costPerCoverCents: number;
+    awareness: number;
+  } {
+    const state = this.world.state;
+    return {
+      channels: MARKETING_CHANNELS.map((channel) => ({
+        channel,
+        weekly: state.marketingSpend[channel.id] ?? 0,
+        awareness: state.channelAwareness[channel.id] ?? 0,
+      })),
+      efficiency: marketingEfficiency(this.stars()),
+      costPerCoverCents: costPerCover(state, this.world.clock.daysPerWeek).cents,
+      awareness: state.marketingAwareness,
+    };
+  }
+
+  setMarketing(channelId: string, weeklyDollars: number): ActionResult {
+    return setMarketing(this.world.state, channelId, weeklyDollars);
   }
 
   fire(staffId: string): ActionResult {
