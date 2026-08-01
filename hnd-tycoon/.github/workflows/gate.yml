@@ -1,0 +1,27 @@
+name: gate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # Architecture first — a boundary violation invalidates everything after it.
+      - run: npm run boundaries
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run balance
+      # Determinism is a gate, not a nicety. Same seed, same bytes.
+      - name: determinism
+        run: |
+          npm run sim -- --days 7 --seed 42 > /tmp/a.txt
+          npm run sim -- --days 7 --seed 42 > /tmp/b.txt
+          diff /tmp/a.txt /tmp/b.txt && echo "✓ byte-identical"
