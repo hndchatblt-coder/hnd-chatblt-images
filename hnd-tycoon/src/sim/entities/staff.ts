@@ -33,6 +33,23 @@ export interface Staff {
   y: number;
   /** Seconds spent walking today. The throughput tax, made visible. */
   walkSeconds: number;
+  /**
+   * Which days of the week they work, indexed by `DayOfWeek`.
+   *
+   * This is the verb that makes labour a decision rather than a fixed cost.
+   * A permanent hire is paid on the Mondays nobody comes; a rostered one is
+   * paid for the Saturday they are needed. Every operator solves the peak this
+   * way and the sim could not express it.
+   */
+  roster: boolean[];
+  /** Set when they have been let go. They work out their notice first. */
+  leavingOnDay: number | null;
+  /**
+   * True until they have walked in from the street for the first time. §21.2 —
+   * a new hire arrives through the front door on their first shift; they do not
+   * blink into existence beside the pass.
+   */
+  arriving: boolean;
 }
 
 export function makeStaff(
@@ -41,6 +58,7 @@ export function makeStaff(
   siteId: SiteId,
   skill: number,
   tile: Tile,
+  roster: readonly boolean[],
 ): Staff {
   return {
     id,
@@ -53,7 +71,15 @@ export function makeStaff(
     x: tile.x,
     y: tile.y,
     walkSeconds: 0,
+    roster: [...roster],
+    leavingOnDay: null,
+    arriving: false,
   };
+}
+
+/** On today? Someone working out notice still turns up. */
+export function isRostered(staff: Staff, dayOfWeek: number): boolean {
+  return staff.roster[dayOfWeek] === true;
 }
 
 export const isStaffFree = (staff: Staff): boolean => staff.jobId === null;

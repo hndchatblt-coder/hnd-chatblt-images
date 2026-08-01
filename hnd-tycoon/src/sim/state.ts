@@ -94,6 +94,19 @@ export interface SimState {
   bottleneck: Constraint | null;
   /** Whether the shutters are up. The kitchen starts no new work when false. */
   tradingOpen: boolean;
+  /** How many staff are rostered on today. Read by balking and the readout. */
+  onToday: number;
+  /**
+   * Who is actually working today, snapshotted when the day opened.
+   *
+   * The roster a player edits is next week's; today's is already fixed. Reading
+   * the editable roster live let you put someone on at 7pm to break a rush and
+   * take them off at 2pm to dodge the wage — two hours of cover for a quarter
+   * of the cost, which would have deleted the labour decision entirely.
+   */
+  readonly workingToday: Set<string>;
+  /** Days elapsed. Notice periods are counted against it. */
+  dayIndex: number;
   /** Customers who took one look at the queue and kept walking. §6.3 */
   balked: number;
   day: DayAccumulator;
@@ -142,7 +155,14 @@ export function createState(opts: StateOptions = {}): SimState {
     graphs: buildAllGraphs(RECIPES),
     stations,
     staff: staffDefs.map((s) =>
-      makeStaff(id<StaffId>(s.id), s.name, site.id as SiteId, s.skill, start),
+      makeStaff(
+        id<StaffId>(s.id),
+        s.name,
+        site.id as SiteId,
+        s.skill,
+        start,
+        KITCHEN.OPENING_ROSTER,
+      ),
     ),
     jobs: new Map(),
     stock: new Stock(),
@@ -157,6 +177,9 @@ export function createState(opts: StateOptions = {}): SimState {
     ingredientTier: opts.ingredientTier ?? 'standard',
     bottleneck: null,
     tradingOpen: false,
+    onToday: NONE,
+    workingToday: new Set(),
+    dayIndex: NONE,
     balked: NONE,
     day: emptyDay(),
     counters: { customer: NONE, order: NONE, job: NONE },

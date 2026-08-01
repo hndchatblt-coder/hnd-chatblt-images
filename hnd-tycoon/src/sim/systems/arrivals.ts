@@ -79,7 +79,7 @@ export class ArrivalsSystem implements System {
    */
   private balks(world: World): boolean {
     const queue = world.state.openOrders.length;
-    const hands = Math.max(ONE, world.state.staff.length);
+    const hands = Math.max(ONE, world.state.onToday);
     const estWaitMinutes =
       (queue * (DEMAND.BALK.secondsPerQueuedPersonPerStaff / hands)) / TIME.SECONDS_PER_MINUTE;
     const over = estWaitMinutes - DEMAND.BALK.patienceMinutes;

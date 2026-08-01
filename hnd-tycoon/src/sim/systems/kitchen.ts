@@ -141,7 +141,11 @@ export class KitchenSystem implements System {
     // serving faster had no economic value at any demand rate.
     state.tradingOpen = world.clock.isOpen;
     const budget = new Map<StaffId, number>();
-    for (const staff of state.staff) budget.set(staff.id, GAME_SECONDS_PER_TICK);
+    // Someone rostered off is not in the building. They get no budget, so the
+    // scheduler never picks them and their day costs nothing.
+    for (const staff of state.staff) {
+      if (state.workingToday.has(staff.id)) budget.set(staff.id, GAME_SECONDS_PER_TICK);
+    }
 
     const now = world.clock.now as number;
     const nowSeconds = now * GAME_SECONDS_PER_TICK;

@@ -57,10 +57,10 @@ export class EconomySystem implements System {
         rate,
         GAME_SECONDS_PER_TICK / TIME.SECONDS_PER_HOUR,
       );
-      state.accruedWages = Cash.add(
-        state.accruedWages,
-        Cash.scale(perTick, state.staff.length),
-      );
+      // Only the people who are actually on today. A staffer with Monday off
+      // costs nothing on Monday — that is the whole point of a roster, and it
+      // is what turns labour from a fixed cost into a decision.
+      state.accruedWages = Cash.add(state.accruedWages, Cash.scale(perTick, state.onToday));
     }
   }
 

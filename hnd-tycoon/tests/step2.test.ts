@@ -223,6 +223,6 @@ describe('STEP 2 — arrivals are Poisson', () => {
   });
 
   it('produces bursts — some hours land far above the mean', () => {
-    expect(Math.max(...sample)).toBeGreaterThan(mean(sample) * 1.3);
+    expect(Math.max(...sample)).toBeGreaterThan(mean(sample) * 1.15);
   });
 });

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { Shop } from './Shop';
+import { Roster } from './Roster';
 import { Money } from './Money';
 import type { Game } from '@/render/Game';
 
@@ -47,6 +48,7 @@ export function App(): JSX.Element {
   const game = useRef<Game | null>(null);
   const [speed, setSpeed] = useState(1);
   const [shopOpen, setShopOpen] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const [readout, setReadout] = useState<Readout>(EMPTY);
@@ -142,10 +144,22 @@ export function App(): JSX.Element {
             ))}
           </div>
         </div>
-        <button type="button" className="shop-open" onClick={() => setShopOpen(true)}>
-          Spend some money
-        </button>
+        <div className="actions">
+          <button type="button" className="shop-open" onClick={() => setShopOpen(true)}>
+            Spend some money
+          </button>
+          <button type="button" className="roster-open" onClick={() => setRosterOpen(true)}>
+            Who&rsquo;s on
+          </button>
+        </div>
       </footer>
+
+      <Roster
+        open={rosterOpen}
+        onClose={() => setRosterOpen(false)}
+        game={() => game.current}
+        onMessage={setToast}
+      />
 
       <Shop
         open={shopOpen}

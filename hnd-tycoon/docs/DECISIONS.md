@@ -565,3 +565,79 @@ actual double-charge — passes. The packaging double-charge (D029.3) sat inside
 
 The fix is to reconcile against figures re-derived from sim state rather than
 from the ledger's own postings. Not done yet. Logged so it is not forgotten.
+
+---
+
+## D031 — rostering: labour becomes a decision instead of a fixed cost
+**Step 7b. Status: active.**
+
+BUILD_PLAN step 7 said "hiring **and firing**"; the audit found firing, resale
+and financing dropped silently. Q13 then established rostering as the keystone:
+a permanent hire costs $452 on the Mondays nobody comes, so no peak however
+sharp can make it pay.
+
+Staff now carry a seven-day roster. Wages accrue only for rostered days at that
+day's own penalty rate, and someone rostered off is not in the building at all.
+
+**The first genuine decision in the project.** 56 days, 8 seeds:
+
+| roster | cash | covers | walked |
+|---|---|---|---|
+| nobody | $70,291 | 11,271 | 1,334 |
+| Saturday only | $71,243 | 11,785 | 767 |
+| **Friday + Saturday** | **$72,536** | 12,207 | 357 |
+| Thursday–Saturday | $71,217 | 12,359 | 233 |
+| every day | $60,054 | **12,529** | 41 |
+
+Both directions lose, the middle three are within $1,300 of each other, and the
+roster that serves the MOST covers earns the LEAST. That is the shape §3 asks
+for: every dial fighting another dial.
+
+A new hire starts rostered on **no** days. Inheriting a full week as a default
+is what made a hire a fixed cost rather than a choice.
+
+Firing costs two weeks' notice, paid, and they work it out (§10 — recoverable
+and slow, never instant and never free). Hiring dropped from a week up front to
+one shift, because the roster now prices the days.
+
+---
+
+## D032 — three exploits found by attacking my own diff, all of which my comments claimed were closed
+**Step 7b. Status: fixed.**
+
+Taking the exploiter's lens against the roster diff:
+
+1. **Roster changes applied instantly.** The doc comment said "takes effect
+   tomorrow"; the kitchen read the editable roster live every tick, so putting
+   someone on at 7pm put them on the floor that second.
+2. **And you could roster them off again**, so two hours of peak cover cost
+   $75 instead of $408. That alone would have deleted the labour decision this
+   step exists to create.
+3. **You could end up with zero staff.** `fire` guarded on `staff.length <= 1`,
+   but people working out their notice are still in that array.
+
+Fixed by snapshotting `workingToday` when the day opens, and by counting only
+staff who are actually staying.
+
+The pattern is the one D023 already caught me on and I repeated: **a comment
+describing intended behaviour, shipped over code that does something else.**
+Worth stating plainly because it is now twice.
+
+---
+
+## DEBT-1 — the walk-in is correct and invisible
+**Step 7b. Status: open.**
+
+§21.2 asks that staff arrive through the front door on their first shift. They
+do — asserted at the opening tick, where a new hire is at (4, -2), out on the
+street.
+
+One tick later they are at a station. A tick is twelve game seconds, which at
+0.9 m/s is **twenty-seven tiles of walking in a shop fifteen tiles deep**. No
+per-person motion beat can be seen at the shipped time compression, and that
+includes §21.5's human-irregular versus machine-metronomic contrast, which the
+spec calls the single distinction doing the most visual work.
+
+Not fixable inside this step. It is the design audit's finding 6 — 120x
+compression makes the render layer's best work unobservable — and it needs
+either a slower clock or render-side interpolation decoupled from sim time.

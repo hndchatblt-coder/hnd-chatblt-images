@@ -7,6 +7,30 @@ half-done, say half-done. Future sessions depend on this being true.
 
 ## Current position
 
+### ✅ Step 7b — Rostering and firing (post-audit)
+
+**Labour is a decision now.** Staff carry a seven-day roster; wages accrue only
+for rostered days at that day's penalty rate, and someone rostered off is not in
+the building. Measured over 56 days and 8 seeds, Friday+Saturday ($72,536) beats
+both doing nothing ($70,291) and rostering every day ($60,054) — and the roster
+that serves the most covers earns the least. See D031.
+
+Firing costs two weeks' notice, paid, worked out. Hiring costs one shift up
+front and starts them on no days at all.
+
+**Attacked with the exploiter's lens; found three holes my own comments claimed
+were closed** — instant roster changes, dodging the wage by rostering someone
+off at lunchtime, and firing your way down to zero staff. All fixed and gated.
+See D032.
+
+**Gate: 135 passing, 23 todo, boundaries clean.** Tap latency measured in-page
+at 1–3ms; 62fps software-rendered headless (not a device measurement).
+
+**DEBT-1:** the walk-in beat is correct and invisible — one tick is 27 tiles of
+walking in a 15-tile shop.
+
+---
+
 **Next step: 6 — Money and the P&L.**
 
 **But step 5's gate is not closed and only Ben can close it.** Density stage 0

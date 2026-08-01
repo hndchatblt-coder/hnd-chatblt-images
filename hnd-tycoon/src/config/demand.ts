@@ -121,8 +121,16 @@ export const DEMAND = {
    * "Balk rate is a headline HUD stat — it must move before reputation does."
    */
   BALK: {
-    /** Minutes a customer will wait without minding. */
-    patienceMinutes: 6,
+    /**
+     * Minutes of visible queue a customer will join without thinking about it.
+     *
+     * NOT §7.4's six-minute satisfaction grace — that is how long someone who
+     * has already ordered will wait before minding. This is the shorter,
+     * harsher decision made on the footpath before they commit to anything, and
+     * four minutes of people ahead of you is about where a burger stops being
+     * worth it on a Saturday. PROVISIONAL.
+     */
+    patienceMinutes: 4,
     /** Minutes beyond patience over which the odds run from 0 to the cap. */
     patienceWindowMinutes: 14,
     /** Never certain. Somebody always chances it. */

@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOGUE } from '@/config/catalogue';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
-import { buy } from '@/sim/actions';
+import { buy, setRoster } from '@/sim/actions';
 import { attribute } from '@/sim/systems/bottleneck';
 import { buildScenario } from '@/sim/scenario';
 import { createState } from '@/sim/state';
@@ -199,7 +199,13 @@ describe('STEP 8 — the readout reports the BINDING constraint', () => {
     const before = world.state.bottleneck;
     expect(before?.kind).toBe('staff');
 
-    for (let i = 0; i < 3; i++) buy(world.state, 'hire');
+    for (let i = 0; i < 3; i++) {
+      buy(world.state, 'hire');
+      // A new hire starts on no days at all (step 7b) — putting them on is the
+      // decision. Acting on the readout means rostering, not just hiring.
+      const added = world.state.staff[world.state.staff.length - 1];
+      if (added) for (let d = 0; d < 7; d++) setRoster(world.state, added.id, d, true);
+    }
     world.runDays(2);
 
     const after = world.state.bottleneck;

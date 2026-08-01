@@ -10,7 +10,15 @@ import { Application } from 'pixi.js';
 import { BRAND } from '@/config/brand';
 import { RENDER } from '@/config/render';
 import { TIME } from '@/config/time';
-import { buy, canAfford, priceOf, type ActionResult } from '@/sim/actions';
+import {
+  buy,
+  canAfford,
+  fire,
+  priceOf,
+  setRoster,
+  type ActionResult,
+} from '@/sim/actions';
+import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
@@ -98,6 +106,34 @@ export class Game {
 
   buy(itemId: string): ActionResult {
     return buy(this.world.state, itemId);
+  }
+
+  roster(): { id: string; name: string; roster: boolean[]; leaving: boolean; onToday: boolean }[] {
+    return this.world.state.staff.map((s) => ({
+      id: s.id,
+      name: s.name,
+      roster: [...s.roster],
+      leaving: s.leavingOnDay !== null,
+      onToday: this.world.state.workingToday.has(s.id),
+    }));
+  }
+
+  /** What one person costs for a full shift on each day. §8's penalty rates. */
+  dayCosts(): number[] {
+    const site = this.world.state.site;
+    const jurisdiction = JURISDICTIONS[site.jurisdictionId] ?? JURISDICTIONS['nsw'];
+    if (!jurisdiction) return [];
+    return [0, 1, 2, 3, 4, 5, 6].map(
+      (d) => hourlyCost(jurisdiction, d as never).cents * site.tradingHoursPerDay,
+    );
+  }
+
+  setRoster(staffId: string, day: number, on: boolean): ActionResult {
+    return setRoster(this.world.state, staffId, day, on);
+  }
+
+  fire(staffId: string): ActionResult {
+    return fire(this.world.state, staffId);
   }
 
   private get floorWidth(): number {

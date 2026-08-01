@@ -86,6 +86,28 @@ export class World {
     // system happens to be registered first would silently decide whether
     // anyone else sees yesterday's figures.
     this.state.day = emptyDay();
+    this.state.dayIndex = this.clock.dayIndex;
+    this.state.workingToday.clear();
+    for (const staff of this.state.staff) {
+      if (staff.roster[this.clock.dayOfWeek] === true) this.state.workingToday.add(staff.id);
+    }
+    this.state.onToday = this.state.workingToday.size;
+    // A new hire's first rostered day is the day they walk in. §21.2.
+    for (const staff of this.state.staff) {
+      if (staff.arriving && this.state.workingToday.has(staff.id)) {
+        staff.tile = this.state.site.entryTile;
+        staff.x = this.state.site.entryTile.x;
+        staff.y = this.state.site.entryTile.y - 2;
+        staff.arriving = false;
+      }
+    }
+    // Anyone who has worked out their notice goes home for good.
+    for (let i = this.state.staff.length - 1; i >= 0; i--) {
+      const staff = this.state.staff[i];
+      if (staff && staff.leavingOnDay !== null && this.clock.dayIndex >= staff.leavingOnDay) {
+        this.state.staff.splice(i, 1);
+      }
+    }
     // Run-hours are read by the utilities bill AND the bottleneck readout, so
     // neither system may reset them — whichever was registered first would
     // silently blind the other.

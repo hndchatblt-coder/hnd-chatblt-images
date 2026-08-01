@@ -141,14 +141,15 @@ export function attribute(state: SimState, hoursElapsed: number): Constraint {
 
   // --- Hands ------------------------------------------------------------
   const shift = state.staff.reduce((a, s) => a + s.shiftSeconds, NONE);
-  const staffPressure = state.staff.length ? shift / (seconds * state.staff.length) : NONE;
+  const onToday = Math.max(NONE, state.onToday);
+  const staffPressure = onToday ? shift / (seconds * onToday) : NONE;
   claimants.push({
     kind: 'staff',
     subject: 'staff',
     pressure: Math.min(ONE, staffPressure),
     starving: waitingOn.size > NONE,
     describe: (lost) =>
-      `Not enough hands — ${state.staff.length === ONE ? 'one person is' : `${state.staff.length} people are`} ` +
+      `Not enough hands — ${onToday === ONE ? 'one person is' : `${onToday} people are`} ` +
       `${pct(staffPressure)} occupied` +
       (lost > NONE ? `, costing about ${lost} covers a day` : ''),
   });

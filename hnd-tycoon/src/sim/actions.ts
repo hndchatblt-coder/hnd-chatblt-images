@@ -13,14 +13,13 @@
  * when there is nowhere for a second fryer to go, the game says so.
  */
 import { CATALOGUE_BY_ID, ROSTER, type CatalogueItem } from '@/config/catalogue';
-import { ECONOMY } from '@/config/economy';
 import { STATION_SPECS } from '@/config/stations';
 import type { StationType } from '@/config/recipes';
 import { footprintOf, type Placement, type Tile } from './floor';
 import { makeStation } from './entities/station';
 import { makeStaff } from './entities/staff';
-import { hourlyCost, JURISDICTIONS } from '@/config/economy';
-import { CALENDARS, type DayOfWeek } from '@/config/time';
+import { ECONOMY, hourlyCost, JURISDICTIONS } from '@/config/economy';
+import { CALENDARS, DAY_NAMES, type DayOfWeek } from '@/config/time';
 import { Cash, id, ZERO, type Money, type SiteId, type StaffId } from './types';
 import type { SimState } from './state';
 
@@ -57,7 +56,7 @@ export function buy(state: SimState, itemId: string): ActionResult {
 function hire(state: SimState): ActionResult {
   const cost = hireCost(state);
   if (state.ledger.cash.cents < cost.cents) {
-    return { ok: false, reason: `A week up front is ${Cash.format(cost)}. Not in the account.` };
+    return { ok: false, reason: `A shift up front is ${Cash.format(cost)}. Not in the account.` };
   }
 
   const name = ROSTER[state.staff.length % ROSTER.length] ?? 'New starter';
@@ -67,23 +66,77 @@ function hire(state: SimState): ActionResult {
   // their first shift, walk to their station". Spawning them on top of the
   // existing cook made eight hires look like one person.
   const door = state.floor.nearestWalkable(state.site.entryTile) ?? state.site.entryTile;
-  state.staff.push(makeStaff(staffId, name, state.site.id as SiteId, ONE, door));
+  // On NO days. Putting them on is the decision; inheriting a full week as a
+  // default is what made a hire a fixed cost rather than a choice.
+  const person = makeStaff(staffId, name, state.site.id as SiteId, ONE, door, EMPTY_ROSTER);
+  // They walk in. §21.2 — the arrival IS the install beat for a person.
+  person.arriving = true;
+  state.staff.push(person);
   state.ledger.post('wages', cost);
 
-  return { ok: true, reason: `${name} starts today.`, installedId: staffId };
+  return {
+    ok: true,
+    reason: `${name} is on the books. Roster them for the days you need.`,
+    installedId: staffId,
+  };
+}
+
+const EMPTY_ROSTER: readonly boolean[] = [false, false, false, false, false, false, false];
+
+/**
+ * Put someone on, or take them off, a day of the week. Takes effect tomorrow —
+ * rostering mid-rush would be a way to conjure a pair of hands out of nowhere
+ * exactly when the queue is worst.
+ */
+export function setRoster(
+  state: SimState,
+  staffId: string,
+  day: number,
+  on: boolean,
+): ActionResult {
+  const staff = state.staff.find((s) => s.id === staffId);
+  if (!staff) return { ok: false, reason: 'Nobody by that name.' };
+  if (staff.leavingOnDay !== null) {
+    return { ok: false, reason: `${staff.name} is working out their notice.` };
+  }
+  staff.roster[day] = on;
+  return { ok: true, reason: `${staff.name}: ${DAY_NAMES[day] ?? day} ${on ? 'on' : 'off'}.` };
 }
 
 /**
- * A week's wages up front. Hiring was free, unlimited and instantly
- * unrecoverable — eight taps put a shop $156k down over 60 days with no fire
- * action to undo it. A real cost at the moment of decision is the cheapest way
- * to teach that labour is the biggest line in the business.
+ * Let someone go. §10 — recoverable and slow to fix, never instant and never
+ * free. Two weeks' notice, paid, and they keep working it. If firing were
+ * costless, over-hiring would carry no risk at all and the roster would stop
+ * being a decision worth making carefully.
  */
-export function hireCost(state: SimState): Money {
+export function fire(state: SimState, staffId: string): ActionResult {
+  const staff = state.staff.find((s) => s.id === staffId);
+  if (!staff) return { ok: false, reason: 'Nobody by that name.' };
+  // Count who will still be here, not who is on the payroll today: two people
+  // already working out their notice are not two people.
+  const staying = state.staff.filter((s) => s.leavingOnDay === null).length;
+  if (staying <= ONE) {
+    return { ok: false, reason: 'Somebody has to open the shop.' };
+  }
+  if (staff.leavingOnDay !== null) {
+    return { ok: false, reason: `${staff.name} is already on their way out.` };
+  }
+  const notice = Cash.scale(weeklyWage(state), ECONOMY.NOTICE_WEEKS);
+  staff.leavingOnDay =
+    state.dayIndex + ECONOMY.NOTICE_WEEKS * (CALENDARS[state.site.calendarId]?.daysPerWeek ?? NONE);
+  state.ledger.post('wages', notice);
+  return {
+    ok: true,
+    reason: `${staff.name} finishes up in a fortnight. ${Cash.format(notice)} in notice.`,
+  };
+}
+
+/** A full week of one person, at every day's own penalty rate. */
+export function weeklyWage(state: SimState): Money {
   const jurisdiction = JURISDICTIONS[state.site.jurisdictionId] ?? JURISDICTIONS['nsw'];
   if (!jurisdiction) return ZERO();
-  let week = ZERO();
   const daysPerWeek = CALENDARS[state.site.calendarId]?.daysPerWeek ?? NONE;
+  let week = ZERO();
   for (let day = NONE; day < daysPerWeek; day += ONE) {
     week = Cash.add(
       week,
@@ -91,6 +144,16 @@ export function hireCost(state: SimState): Money {
     );
   }
   return week;
+}
+
+/**
+ * One shift up front. It was a full week before rostering existed, because a
+ * hire WAS a permanent seven-day cost; now the roster prices the days and this
+ * only has to make the decision cost something at the moment you make it.
+ */
+export function hireCost(state: SimState): Money {
+  const daysPerWeek = CALENDARS[state.site.calendarId]?.daysPerWeek ?? ONE;
+  return Cash.scale(weeklyWage(state), ONE / Math.max(ONE, daysPerWeek));
 }
 
 function install(state: SimState, type: StationType, item: CatalogueItem): ActionResult {

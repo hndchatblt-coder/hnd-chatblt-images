@@ -106,6 +106,13 @@ export const ECONOMY = {
   OVERDRAFT_ANNUAL_RATE: 0.14,
   DAYS_PER_YEAR: 365,
 
+  /**
+   * Letting someone go costs two weeks. §10: mistakes are recoverable and slow
+   * to fix, never instant and never free — if firing were costless, over-hiring
+   * would carry no risk and the roster would stop being a decision.
+   */
+  NOTICE_WEEKS: 2,
+
   /** Equipment sells back at 60%. §12 — renovation must cost something. */
   RESALE_FRACTION: 0.6,
 

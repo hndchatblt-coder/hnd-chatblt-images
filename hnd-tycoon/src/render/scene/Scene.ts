@@ -329,6 +329,11 @@ export class Scene {
    */
   private drawStaff(state: SimState): void {
     state.staff.forEach((staff, index) => {
+      // Not in today: not in the building. A roster you cannot see on the
+      // floor is a spreadsheet, and the whole point of it is that Saturday
+      // looks different from Tuesday.
+      if (!state.workingToday.has(staff.id) && !staff.arriving) return;
+
       const sprite = this.staffPool.take();
       sprite.anchor.set(0.5, 1);
       const at = toScreen(staff.x, staff.y);
@@ -343,6 +348,8 @@ export class Scene {
 
       sprite.position.set(at.x, at.y + camera.tileDepth * 0.4 - bob);
       sprite.zIndex = depthSort(staff.y);
+      // Someone working out their notice is still here, just not for long.
+      sprite.alpha = staff.leavingOnDay !== null ? 0.62 : 1;
     });
   }
 

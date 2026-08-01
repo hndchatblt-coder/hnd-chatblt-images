@@ -23,6 +23,13 @@ export const KITCHEN = {
   OPENING_STAFF: [{ id: 'staff-1', name: 'Dev', skill: 1 }] as readonly StaffSlot[],
 
   /**
+   * Who the opening staffer works. Every day — you are the owner and you are
+   * always there. Everyone you hire after this starts on NO days, so putting
+   * them on is a decision you make rather than a default you inherit.
+   */
+  OPENING_ROSTER: [true, true, true, true, true, true, true] as readonly boolean[],
+
+  /**
    * The scheduler pulls, it does not push. Work nearest the customer is
    * started first, so the line drains toward the pass instead of making
    * patties forever while nothing gets plated. Shallowest-first is the whole
