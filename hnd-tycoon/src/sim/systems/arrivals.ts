@@ -11,7 +11,7 @@
  * resistance and the pinned-at-zero competitor pressure all multiply into
  * `ratePerHour` at step 10, and nothing here changes when they do.
  */
-import { DEMAND, type MenuMixEntry } from '@/config/demand';
+import { DEMAND, type MenuMixEntry, type RushWindow } from '@/config/demand';
 import { TICKS_PER_GAME_HOUR } from '../clock';
 import type { Rng } from '../rng';
 import type { System, World } from '../world';
@@ -28,7 +28,10 @@ export class ArrivalsSystem implements System {
    * Customers per game hour before any multiplier. Held on the system rather
    * than read per tick so the harness can vary it without touching config.
    */
-  constructor(private readonly ratePerHourOverride: number | null = null) {}
+  constructor(
+    private readonly ratePerHourOverride: number | null = null,
+    private readonly rush: RushWindow | null = null,
+  ) {}
 
   private stream(world: World): Rng {
     // Forked once and kept. Re-forking each tick would hand back the same
@@ -40,11 +43,19 @@ export class ArrivalsSystem implements System {
   tick(world: World): void {
     if (!world.clock.isOpen) return;
 
-    const perHour =
+    const base =
       this.ratePerHourOverride ?? DEMAND.FLAT_RATE_OVERRIDE ?? world.state.site.baseFootTraffic;
+    const perHour = base * this.rushMultiplier(world.clock.hourOfDay);
     const lambda = perHour / TICKS_PER_GAME_HOUR;
     const arrivals = this.stream(world).poisson(lambda);
     for (let i = NONE; i < arrivals; i += ONE) this.walkIn(world);
+  }
+
+  /** Step 10 replaces this with the full daypart and day-of-week curves. */
+  private rushMultiplier(hourOfDay: number): number {
+    if (!this.rush) return ONE;
+    const inWindow = hourOfDay >= this.rush.fromHour && hourOfDay < this.rush.toHour;
+    return inWindow ? this.rush.multiplier : ONE;
   }
 
   private walkIn(world: World): void {
@@ -71,6 +82,8 @@ export class ArrivalsSystem implements System {
       ],
       state: 'open',
       servedAt: null,
+      qualitySum: NONE,
+      qualityUnits: NONE,
     });
     state.openOrders.push(orderId);
     state.customers.set(customerId, {

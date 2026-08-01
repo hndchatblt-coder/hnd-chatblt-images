@@ -40,6 +40,8 @@ export interface DayAccumulator {
   walkSeconds: number;
   /** Staff-seconds spent actually working. */
   workSeconds: number;
+  /** Units binned for going past saving. §7.3. */
+  wasteUnits: number;
 }
 
 export function emptyDay(): DayAccumulator {
@@ -51,6 +53,7 @@ export function emptyDay(): DayAccumulator {
     unitsProduced: NONE,
     walkSeconds: NONE,
     workSeconds: NONE,
+    wasteUnits: NONE,
   };
 }
 
@@ -67,6 +70,14 @@ export interface SimState {
   readonly orders: Map<OrderId, Order>;
   /** Open orders in arrival order. Served orders are spliced out. */
   readonly openOrders: OrderId[];
+  /**
+   * How much of each intermediate item to hold ahead of demand. Zero is
+   * make-to-order. On state rather than read straight from config because the
+   * player sets these from step 19 and the harness moves them now.
+   */
+  readonly parLevels: Record<string, number>;
+  /** Holding cabinets owned. Each multiplies freshness windows. §14.2 tier 1. */
+  holdingCabinets: number;
   day: DayAccumulator;
   counters: { customer: number; order: number; job: number };
 }
@@ -78,6 +89,9 @@ export interface StateOptions {
   /** An explicit layout, for the harness. Overrides `layoutId`. */
   stations?: readonly PlacedStation[];
   staff?: readonly { id: string; name: string; skill: number }[];
+  /** Overrides `KITCHEN.PAR_LEVELS`. Par-cooking, made testable. */
+  parLevels?: Readonly<Record<string, number>>;
+  holdingCabinets?: number;
 }
 
 export function createState(opts: StateOptions = {}): SimState {
@@ -115,6 +129,8 @@ export function createState(opts: StateOptions = {}): SimState {
     customers: new Map(),
     orders: new Map(),
     openOrders: [],
+    parLevels: { ...KITCHEN.PAR_LEVELS, ...(opts.parLevels ?? {}) },
+    holdingCabinets: opts.holdingCabinets ?? NONE,
     day: emptyDay(),
     counters: { customer: NONE, order: NONE, job: NONE },
   };

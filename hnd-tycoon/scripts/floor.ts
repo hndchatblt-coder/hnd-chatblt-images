@@ -15,11 +15,10 @@
  */
 import { LAYOUTS } from '@/config/layouts';
 import { buildScenario } from '@/sim/scenario';
-import { mean, runSeeds, SEEDS } from '@/harness/probe';
+import { mean, runSeeds, SATURATION_RATE, SEEDS } from '@/harness/probe';
 import { createState } from '@/sim/state';
 
-const DAYS = 7;
-const SATURATION_RATE = 45;
+const DAYS = 5;
 const TIGHT = 'leichhardtTight';
 const STRETCHED = 'leichhardtStretched';
 
@@ -76,10 +75,14 @@ THE FLOOR — does space cost throughput?
 
   >> THROUGHPUT DELTA: ${pct(coversDelta)} covers, ${pct(batchDelta)} batches <<
 
-  Walking is only ${pct(tight.walkShare)} of staff time, so it cannot cost more
-  than that. The reason is step 4: a staffer currently stands and watches a
-  90-second patty and a 195-second fryer basket, because attention profiles do
-  not exist yet. Once tend time is split from elapsed time, staff-seconds per
-  cover falls by roughly two thirds and the same six tiles bite three times as
-  hard. Step 4's gate re-runs this comparison and holds it to 10%.
+  Measured at the knee: the rate at which the tight kitchen is just coping.
+  Below it both layouts serve everyone and this reads zero; far above it the
+  stretched kitchen collapses and it reads whatever you like.
+
+  Walking is ${pct(tight.walkShare)} of staff time tight and ${pct(stretched.walkShare)} stretched.
+  That share is the ceiling on what layout can ever cost.
+
+  Note the shape: the capacity tax is small and the WAIT is where it bites.
+  The stretched kitchen does not fail, it falls behind and never catches up.
+  See docs/QUESTIONS.md Q1 — this number still needs Ben's call.
 `);

@@ -28,14 +28,27 @@ export interface Station {
  * The two walking phases are the whole of design pillar one. A job that
  * teleported its staffer would make the floorplan decoration.
  */
-export type JobPhase = 'travel' | 'work' | 'carry';
+export type JobPhase =
+  /** Walking to the station. */
+  | 'travel'
+  /** Loading it. Staffed. */
+  | 'setup'
+  /** Cooking. The station is held; the staffer is NOT — this is §14.1. */
+  | 'cooking'
+  /** Walking back to it, having been somewhere else. */
+  | 'recall'
+  /** Tending and unloading. Staffed. */
+  | 'finish'
+  /** Carrying the output to whatever consumes it. */
+  | 'carry';
 
 export interface Job {
   readonly id: string;
   readonly recipeId: RecipeId;
   readonly stepId: string;
   readonly stationId: string;
-  readonly staffId: StaffId;
+  /** Null while cooking unattended — that is the whole point of §14.1. */
+  staffId: StaffId | null;
   /** Units this batch will yield. Capped at the step's batchSize. */
   readonly batch: number;
   readonly output: ItemId;
@@ -43,8 +56,22 @@ export interface Job {
   phase: JobPhase;
   /** Seconds of walking left to reach the station. */
   travelRemaining: number;
-  /** Game seconds of work left. */
-  remainingSeconds: number;
+  /** Staffed loading time left. */
+  setupRemaining: number;
+  /** Unattended cooking time left. */
+  cookRemaining: number;
+  /** Staffed tending and unloading time left. */
+  finishRemaining: number;
+  /** Seconds this job has sat cooked and unattended. Drives lapse. */
+  lapseSeconds: number;
+  /** True if leaving it unattended past the grace window spoils it. */
+  readonly canLapse: boolean;
+  /** Quality the output will be born with. Falls as the job lapses. */
+  quality: number;
+  /** Seconds before the output starts to stale, once it exists. */
+  readonly freshnessWindow: number | undefined;
+  /** How deep in the recipe this step sits. Ties broken by it when rescuing. */
+  readonly depth: number;
   /** Seconds of walking left to deliver the output to whatever consumes it. */
   carryRemaining: number;
   /** Where the staffer stands to work. */

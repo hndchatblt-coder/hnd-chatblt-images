@@ -19,6 +19,7 @@ export interface RunSummary {
   readonly covers: number;
   readonly meanWaitMinutes: number;
   readonly batches: number;
+  readonly wasteUnits: number;
   readonly openAtEnd: number;
   readonly coversPerDay: readonly number[];
 }
@@ -30,12 +31,14 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
   let arrived = NONE;
   let covers = NONE;
   let batches = NONE;
+  let waste = NONE;
   const coversPerDay: number[] = [];
   for (const report of world.dayReports) {
     arrived += Number(report.lines['arrived'] ?? NONE);
     const dayCovers = Number(report.lines['covers'] ?? NONE);
     covers += dayCovers;
     batches += Number(report.lines['batches'] ?? NONE);
+    waste += Number(report.lines['waste'] ?? NONE);
     coversPerDay.push(dayCovers);
   }
 
@@ -55,6 +58,7 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
     covers,
     meanWaitMinutes: meanWaitMinutes(waitTicks, served),
     batches,
+    wasteUnits: waste,
     openAtEnd: world.state.openOrders.length,
     coversPerDay,
   };
@@ -86,3 +90,15 @@ export function scaledLine(
 }
 
 export const SEEDS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/**
+ * The arrival rate at which one staffer in the tight Leichhardt layout is just
+ * coping — 96% of arrivals served, mean wait 19 minutes. Layout comparisons
+ * have to be made here: below it both layouts serve everyone and the delta
+ * reads as zero; far above it the stretched kitchen collapses and the delta
+ * reads as whatever you like.
+ *
+ * It moved from 45 to 85 at step 4, when unattended cooking roughly doubled
+ * what one person can get through.
+ */
+export const SATURATION_RATE = 85;

@@ -140,3 +140,29 @@ staffer thrashes between the pass and the grill.
 The drop is emergent, not scripted, and it is exactly the "punishment spiral"
 of §4. It is also precisely what step 8's bottleneck readout has to be able to
 name in plain English. Flagging now so step 8 is measured against it.
+
+## Q10 — Waste at 11% of covers during a rush. Right? `OPEN — blocks nothing`
+
+Make-to-order with a two-hour triple-rate rush bins about 256 units over five
+days against 2258 covers. Away from a rush it bins **nothing at all** — waste
+only appears when the kitchen is overloaded and cooked food sits waiting for
+someone to come back for it, which is the correct shape.
+
+`docs/REAL_NUMBERS.md` asks for waste% and this is the number to check it
+against. If real High N' Dry waste is 3–5%, the lapse penalty is too harsh or
+the freshness windows are too short.
+
+---
+
+## Q11 — Is a 3.6m x 6.0m shop right for Leichhardt? `OPEN — blocks step 5`
+
+Nine tiles by fifteen at 40cm a tile is 3.6 metres wide and 6 metres deep.
+That is a small shop, and step 5 is about to draw it.
+
+Two ways to fix it if it is wrong: more tiles, or bigger tiles. **More tiles**
+is the right lever — the 40cm tile is calibrated against the station
+footprints in §7.1 (a 2x1 grill is 80cm of bench, which is correct), so
+changing tile size would break every footprint at once.
+
+A rough width and depth in metres for each of the three shops is all that is
+needed. Part of Q3.

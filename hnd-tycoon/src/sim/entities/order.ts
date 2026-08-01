@@ -36,6 +36,14 @@ export interface Order {
   readonly lines: OrderLine[];
   state: OrderState;
   servedAt: number | null;
+  /** Sum of item quality x units, for step 9's satisfaction score. */
+  qualitySum: number;
+  qualityUnits: number;
+}
+
+/** Mean quality of everything handed over. 1.0 when nothing has been. */
+export function orderQuality(order: Order): number {
+  return order.qualityUnits > 0 ? order.qualitySum / order.qualityUnits : 1;
 }
 
 /**

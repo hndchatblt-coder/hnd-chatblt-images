@@ -38,7 +38,7 @@ export class ServiceSystem implements System {
         continue;
       }
 
-      this.drawFromPass(state, order);
+      this.drawFromPass(state, order, now * GAME_SECONDS_PER_TICK);
 
       if (isOrderComplete(order)) {
         this.serve(state, order, now);
@@ -60,13 +60,20 @@ export class ServiceSystem implements System {
     world.record('openAtClose', world.state.openOrders.length);
   }
 
-  private drawFromPass(state: SimState, order: Order): void {
+  private drawFromPass(state: SimState, order: Order, nowSeconds: number): void {
     for (const line of order.lines) {
       const outstanding = line.quantity - line.fulfilled;
       if (outstanding <= NONE) continue;
       const available = Math.min(outstanding, state.stock.count(line.item));
-      if (available > NONE && state.stock.take(line.item, available)) {
+      if (available <= NONE) continue;
+      const drawn = state.stock.take(line.item, available, nowSeconds);
+      if (drawn) {
         line.fulfilled += available;
+        // Carried for step 9: satisfaction is wait x quality x accuracy, and
+        // this is the quality term arriving early because the buffer already
+        // knows it.
+        order.qualitySum += drawn.quality * available;
+        order.qualityUnits += available;
       }
     }
   }

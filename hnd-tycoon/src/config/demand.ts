@@ -22,6 +22,19 @@ export interface MenuMixEntry {
   readonly quantity: number;
 }
 
+/**
+ * A demand spike. Step 10 replaces this with the real daypart and day-of-week
+ * curves from §6.1; until then it exists so that "par-cooking ahead of a rush"
+ * is something the harness can actually stage.
+ */
+export interface RushWindow {
+  /** Inclusive start hour of the trading day. */
+  readonly fromHour: number;
+  /** Exclusive end hour. */
+  readonly toHour: number;
+  readonly multiplier: number;
+}
+
 export const DEMAND = {
   /**
    * Step 2 only: overrides the site's own foot traffic so the baseline run is
@@ -38,4 +51,7 @@ export const DEMAND = {
     { recipeId: 'cheeseburger', weight: 0.7, quantity: 1 },
     { recipeId: 'chips', weight: 0.3, quantity: 1 },
   ] as readonly MenuMixEntry[],
+
+  /** The rush the step 4 gate cooks ahead of. Two hours at triple rate. */
+  TEST_RUSH: { fromHour: 18, toHour: 20, multiplier: 3 } as RushWindow,
 } as const;

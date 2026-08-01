@@ -6,6 +6,7 @@
  * order and therefore every balance number. A scenario built by hand in three
  * places is three simulations that agree until the day they don't.
  */
+import type { RushWindow } from '@/config/demand';
 import { ArrivalsSystem } from './systems/arrivals';
 import { KitchenSystem } from './systems/kitchen';
 import { ServiceSystem } from './systems/service';
@@ -14,6 +15,8 @@ import { World, type WorldOptions } from './world';
 export interface ScenarioOptions extends WorldOptions {
   /** Customers per game hour. Defaults to the site's own foot traffic. */
   arrivalsPerHour?: number | null;
+  /** A demand spike to cook ahead of. Step 10 replaces this with real curves. */
+  rush?: RushWindow | null;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface ScenarioOptions extends WorldOptions {
 export function buildScenario(opts: ScenarioOptions): World {
   const world = new World(opts);
   world
-    .register(new ArrivalsSystem(opts.arrivalsPerHour ?? null))
+    .register(new ArrivalsSystem(opts.arrivalsPerHour ?? null, opts.rush ?? null))
     .register(new KitchenSystem())
     .register(new ServiceSystem());
   return world;

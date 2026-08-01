@@ -7,12 +7,12 @@ half-done, say half-done. Future sessions depend on this being true.
 
 ## Current position
 
-**Next step: 4 — Attention profiles and buffers** (`docs/BUILD_PLAN.md`).
+**Next step: 5 — ShapeRegistry and the first watchable burger** (`docs/BUILD_PLAN.md`).
+The first pixels. Phase A is done: there is a simulation you can argue with.
 
-It carries an extra gate: step 3's six-tile throughput delta measured **6.6%**,
-short of the ≥10% recommended for Q1, because walking is only 4% of staff time
-while a cook stands watching a 90-second patty. Splitting attention from
-elapsed time is what should close that. See D014 — nothing was tuned to hide it.
+Blocked-ish on **Q11** — Leichhardt is currently 3.6m x 6.0m, which is a small
+shop, and step 5 is about to draw it. Proceeding on the invented dimensions
+unless Ben says otherwise; the fix is more tiles, not bigger ones.
 
 **Phase A — The engine (steps 1–4).** Headless. No pixels yet. The goal of this
 phase is a simulation you can argue with.
@@ -43,6 +43,102 @@ and a rewrite in Act III.
   determinism diff.
 
 40 tests passing, 32 pending gates.
+
+### ✅ Step 4 — Attention profiles and buffers
+
+The core tension exists, in text, and it is the one the spec promised:
+**par-cooking ahead of a rush is the correct play and also how you lose money.**
+
+Measured over 6 seeds, 5 days, with a two-hour triple-rate rush:
+
+| patties held ahead | mean wait | units binned |
+|---|---|---|
+| 0 (make to order) | 6.54 min | 256 |
+| 4 | 5.07 min | 279 |
+| 8 | 4.34 min | 594 |
+| 12 (+6 chips) | 2.10 min | 1787 |
+
+Covers barely move across all four. Par-cooking buys the *customer's* time, not
+the shop's capacity — if it raised throughput too it would just be an upgrade
+and there would be no decision in it.
+
+Shipped:
+- **The attention split** (§14.1). A job is now six phases and only four hold a
+  person: `travel → setup → cooking → recall → finish → carry`. The staffer is
+  **released during `cooking`**. A patty is 8s loading, 68s cooking alone, 14s
+  finishing — twenty-two seconds of human attention inside ninety seconds of
+  cooking, exactly as the spec says. Assembly and garnish stay fully manual,
+  because there is nothing to walk away from.
+- `src/sim/entities/stock.ts` rewritten as **dated lots**, FIFO out, with §7.3's
+  quality curve and automatic binning below 0.35.
+- **Lapse.** Cooked food sitting on an unattended station loses quality if the
+  step `canLapse`. Finishing a lapsing batch outranks starting new work, or the
+  scheduler would cheerfully let a grill burn while it started another one.
+- **Holding cabinets** (§14.2 tier 1). Multiply freshness windows. They cut the
+  waste par-cooking creates by 77% and change the wait by nothing at all — they
+  buy nothing on their own, only in combination with a decision to cook ahead.
+  That is the shape every good upgrade in this game should have.
+- A rush window in `config/demand.ts`, which step 10 replaces with the real
+  daypart curves.
+
+Exit criteria — 21 tests in `tests/step4.test.ts`, all passing:
+- ✅ Par-cooking measurably improves mean wait (6.54 → 4.34 at par 8).
+- ✅ Par-cooking measurably increases waste (256 → 594).
+- ✅ Both visible in the day report (`meanWaitMin`, `waste`).
+- ✅ Items below quality 0.35 are binned.
+- ✅ A step with `canLapse` degrades when left unattended.
+- ✅ Holding cabinets extend freshness windows.
+- ✅ Unattended cooking lets one person run a bigger kitchen — same shop, same
+  staffer, same arrivals, 20%+ more covers with the split on.
+- ✅ A quiet day wastes **nothing**. Waste is a consequence of a decision or of
+  overload, never a standing tax.
+
+### The step 3 prediction was wrong
+
+D014 predicted attention profiles would roughly triple the six-tile spatial
+tax. They did the opposite to the capacity number: it fell from 6.7% of batches
+to 3.6%, because a staffer who can walk away from a patty has idle time, and
+extra walking eats the idle time before it eats production.
+
+What did not fall is what the customer feels. At the saturation knee the
+stretched layout serves **9.4% fewer covers** and makes them wait **19 → 52
+minutes**. Full numbers and the reasoning in D016; `npm run floor` prints it.
+
+The honest summary of design pillar one, after four steps: **placement
+feasibility is the hard constraint and walking distance is the soft one.** The
+grill can only sit where the gas is. The fryer needs gas *and* extraction,
+which is five tiles in the entire building. That already binds, and it will
+bind much harder at step 12 when a clamshell grill wants two of those tiles.
+
+### The bug that instrumentation found and tests did not
+
+Unattended cooking was written inside the advance/schedule interleave loop,
+which runs until nobody can make progress — so every pass advanced every
+cooking job by a full tick, up to 64 times. The fryer logged **123% of trading
+hours** against a workload implying 49%.
+
+No test caught it. It was found by printing station utilisation while chasing
+something else, and the giveaway was that the inflation scaled with how much of
+a step was unattended. See D017.
+
+Worth generalising: anything that advances on elapsed time rather than on a
+consumed budget must live outside that loop.
+
+### Notes for future sessions
+
+- **The bottleneck is now the staffer, and it is legible.** At 90 arrivals/hr
+  one person is 106% busy; a second takes covers from 4450 to 4929 and the wait
+  from 37.6 minutes to 3.7. That is step 8's readout having something true to
+  say, and step 7's first hire having an obvious reason.
+- `SATURATION_RATE` lives in `src/harness/probe.ts` and moved 45 → 85 this
+  step. Any layout comparison must be made there: below it both layouts serve
+  everyone and the delta reads zero, far above it the stretched kitchen
+  collapses and it reads whatever you like (D018).
+- Par levels and holding cabinets are on `SimState`, not read from config
+  directly, because the player sets them from step 19 and the harness moves
+  them now.
+
+---
 
 ### ✅ Step 3 — The floor
 
@@ -230,6 +326,44 @@ Notes for future sessions:
 
 ---
 
+## Adversarial audit — step 4
+
+**Gameplay.** *A decision where both options are defensible?* **Yes, and it is
+the best one so far: how far ahead to cook.** Nothing is a hedge that costs you
+food; twelve patties ahead is a two-minute wait and seven times the waste.
+Neither is correct, and which one is better depends on whether the rush turns
+up — which the player cannot know when they decide. That is the shape the whole
+game wants. *A stat maximisable with no downside?* **Batch size is fixed** —
+it was the outstanding hole from steps 2 and 3, and freshness closed it:
+over-filling batches now costs waste. `speedMultiplier` is still free, and stays
+free until step 7 gives it a price. Compactness is still free until ambience
+claims floor tiles at step 11. *Anything strictly better than its absence?* The
+holding cabinet was the risk, and it is **not** — it changes the wait by nothing
+at all unless you also decide to cook ahead. *Longest decision-free gap?* Still
+unmeasurable; no player decisions are exposed yet.
+
+**Architecture.** §26 walked again; nothing new hardcoded. One violation caught
+by the boundary checker and worth recording because it was a false positive
+that identified a real hazard: a local variable named `window` in `sim/`.
+Renamed. Numbers outside config: none — par levels, lapse grace, quality decay,
+the waste floor and the cabinet multiplier all live in `config/kitchen.ts`.
+Determinism re-verified by running.
+
+**Presentation.** Still N/A, and this is the last step where that is an
+acceptable answer. Step 5 gates on density stage 0.
+
+**Discipline.** *Rewards opening the app more than twice a day?* No. Par levels
+are a standing setting, not a timed one — deliberately, because a par level
+that had to be re-set before each rush would be exactly the pull-them-back
+mechanic §5.3 and the anti-goals forbid. *Most boring 60 seconds?* Still all of
+it — there are no pixels. *What did you build that nobody asked for?* The
+`UNATTENDED_COOKING` flag. Justified: §14.1's claim that automation buys
+attention rather than time is the spine of the game, and a claim that cannot be
+measured is a slogan. The flag turns it into a number — 20%+ more covers from
+the same person.
+
+---
+
 ## Adversarial audit — step 3
 
 **Gameplay.** *A decision where both options are defensible?* **Yes — the first
@@ -322,12 +456,16 @@ See `docs/QUESTIONS.md`. Currently blocking:
   filling in `docs/REAL_NUMBERS.md`.
 - **Q3 — real floorplans?** Blocks step 3.
 - **Q4 — running shop or empty room at day one?** Blocks step 19.
-- **Q1 — how brutal is space?** Now **measured at 6.6%**, not ≥10%. Needs your
-  number for after step 4. See D014.
+- **Q1 — how brutal is space?** Re-measured after step 4: **9.4% of covers,
+  3.6% of capacity, 2.7x the wait.** Needs your number. See D016.
 - **Q8 — are 150 covers/day and a 4-minute wait right for Leichhardt?** Blocks
   nothing; a cheap, specific slice of Q2.
 - **Q9 — one staffer caps at ~40 covers/hr and then throughput *falls*.**
-  Blocks nothing; step 8's readout has to be able to name this.
+  Superseded in magnitude by step 4 (the cap is now ~85/hr) but the shape
+  stands. Step 8's readout has to be able to name it.
+- **Q10 — waste at 11% of covers during a rush.** Blocks nothing; check against
+  real waste%.
+- **Q11 — is Leichhardt really 3.6m x 6.0m?** Step 5 is about to draw it.
 
 Resolved:
 - **Acts III–V are confirmed real intent.** Keep all §26 architecture. Do not
@@ -352,7 +490,10 @@ against them.
 | 2 | Throughput *falls* above ~40 covers/hr instead of plateauing | Emergent from one staffer thrashing between the pass and the grill. Not scripted, and exactly the §4 spiral. Q9. |
 | 3 | The pivotal gate came in at 6.6%, not ≥10% | Walking is 4% of staff time, so it cannot cost more. Attention profiles (step 4) are the missing piece. Not tuned to hide it. D014. |
 | 3 | The grill cannot move six tiles from anything at Leichhardt | Gas is one wall. Services constrain harder than area — a better game than the one where every station floats. D012. |
-| 3 | Leichhardt at 40cm a tile is 3.6m × 6.0m, which is a very small shop | Provisional, but step 5 is about to draw it. Folded into Q3. |
+| 3 | Leichhardt at 40cm a tile is 3.6m × 6.0m, which is a very small shop | Provisional, but step 5 is about to draw it. Q11. |
+| 4 | My step 3 prediction was wrong — the capacity tax FELL, 6.7% → 3.6% | A staffer who can walk away from a patty has idle time, and walking eats idle before it eats production. The covers delta rose to 9.4% anyway. D016. |
+| 4 | Unattended cooking ran up to 64 times per tick | It sat inside the advance/schedule interleave. Fryer logged 123% of trading hours. Found by instrumentation, not by a test. D017. |
+| 4 | The holding cabinet turned out to have exactly the right shape by accident | It buys nothing alone and a lot in combination. Worth copying deliberately for the rest of the ladder. |
 
 ---
 
@@ -377,13 +518,30 @@ mean wait     3.8m    7.2m    58m     270m
 speed 2x      1.55m   1.66m   —       —       <- 41% of baseline
 ```
 
-Step 3, `npm run floor` — saturated at 45/hr, 8 seeds, 7 days:
+Step 4, `npm run floor` — saturated at 85/hr (the knee moved), 8 seeds, 5 days:
 
 ```
                     tight    stretched
 grill -> pass       5 tiles   11 tiles
-covers               2799        2615     <- -6.6%
-batches              7206        6720     <- -6.7%
-mean wait           80.1m      102.6m
-walk share           4.0%        9.0%     <- the ceiling on what layout can cost
+covers               4459        4039     <- -9.4%
+batches             12904       12435     <- -3.6%   capacity tax
+mean wait           19.1m       51.8m     <- 2.7x    where it actually bites
+walk share          12.9%       21.4%     <- the ceiling on what layout can cost
+```
+
+Step 4, par-cooking into a two-hour triple-rate rush, 6 seeds, 5 days:
+
+```
+par patties      0       4       8      12(+6 chips)
+mean wait      6.54m   5.07m   4.34m    2.10m
+units binned    256     279     594     1787
+covers         2258    2260    2260     2263        <- a trade, not a win
+```
+
+One staffer vs two, tight layout at 90/hr:
+
+```
+staff=1  covers 4450  wait 37.6m   <- 106% busy: the bottleneck is a person
+staff=2  covers 4929  wait  3.7m
+staff=3  covers 4933  wait  3.3m   <- and then it is not
 ```

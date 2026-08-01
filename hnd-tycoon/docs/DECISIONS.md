@@ -245,3 +245,75 @@ than a fixed stride. The first draft used `y * 1e4 + x`, which the magic-number
 check (D009) caught. Deriving it removed a latent aliasing bug at the same
 time: any site wider than the stride would have collapsed two tiles onto one
 key, silently.
+
+---
+
+## D016 — the six-tile delta is 9.4% of covers and 3.6% of capacity, and my step 3 prediction was wrong
+**Step 4. Status: active — supersedes D014's prediction, not its principle.**
+
+D014 predicted that attention profiles would roughly triple the spatial tax,
+on the reasoning that staff-seconds per cover would fall by two thirds while
+the walking stayed the same.
+
+**That was wrong, and wrong in an interesting direction.** Once a staffer can
+walk away from a cooking patty, they have idle time — and extra walking eats
+the idle time before it eats production. The raw capacity tax actually FELL,
+from 6.7% of batches to 3.6%.
+
+What did not fall is what a customer experiences. Measured at the saturation
+knee (85 arrivals/hr, where the tight kitchen serves 96% of arrivals):
+
+|  | tight | stretched |
+|---|---|---|
+| covers | 4459 | 4039 |
+| mean wait | 19.1 min | 51.8 min |
+| walk share of staff time | 12.9% | 21.4% |
+
+**9.4% of covers, and nearly triple the wait.** The stretched kitchen does not
+fail so much as fall behind and never catch up.
+
+So the honest answer to "how brutal is space" has two halves, and only one of
+them is about walking:
+
+1. **Placement feasibility is the hard constraint.** The grill can only sit
+   where the gas is; the fryer needs gas AND extraction, which is five tiles in
+   the whole building. That already binds and will bind much harder at step 12
+   when a clamshell grill wants two of those tiles.
+2. **Walking distance is a real but secondary tax** — a few per cent of
+   capacity, amplified into ~10% of covers and 2.7x the wait once the kitchen
+   is at its limit.
+
+Q1 stays open with this data attached. Six tiles is 2.4 metres; asking 2.4
+metres to cost 10% of a burger shop's *capacity* may simply not be realistic,
+and the covers figure is rate-sensitive enough that quoting it alone would be
+cherry-picking.
+
+---
+
+## D017 — cooking advanced up to 64 times per tick
+**Step 4. Status: active.**
+
+The advance/schedule interleave runs until nobody can make further progress.
+The first draft of unattended cooking sat inside that loop, so every pass
+advanced every cooking job by a full tick.
+
+Found by instrumenting station utilisation rather than by a test: the fryer
+logged **123% of trading hours** against a workload implying 49%, and the
+grill 52% against 40%. The inflation scaled with how much of a step was
+unattended, which is what identified it.
+
+Cooking now advances once per tick, before the loop, and charges the station
+only for the cooking it actually did rather than a whole tick per call.
+
+The class of bug is worth remembering: anything that advances on wall-clock
+rather than on a consumed budget must live outside that loop.
+
+---
+
+## D018 — one saturation rate, exported once
+**Step 4. Status: active.**
+
+`SATURATION_RATE` lives in `src/harness/probe.ts` and is imported by both test
+files and `npm run floor`. It moved from 45 to 85 at step 4 and three separate
+copies would have drifted silently, which is precisely how a layout comparison
+comes to be measured at the wrong load and report the wrong sign.
