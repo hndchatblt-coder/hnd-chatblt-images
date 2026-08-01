@@ -91,3 +91,38 @@ consequence; rename whenever.
 What's ambiguous, what the options are, what the recommendation is and why.
 
 -->
+
+## Q8 — Is 150 covers a day and a 4-minute wait right for Leichhardt? `OPEN — blocks nothing`
+
+Step 2's baseline: 14 arrivals/hour over an 11-hour day gives ~150 covers and a
+mean wait of 3.8 minutes. Both are invented and both are inside the band the
+gate accepts, so the gate is not evidence they're right.
+
+Four minutes feels fast for a burger cooked to order. If the real number is
+8–12, the whole production economy is more strained than what's currently
+modelled and the first hire matters much sooner.
+
+Answer via `docs/REAL_NUMBERS.md` — this is Q2 in a specific, cheap form.
+
+---
+
+## Q9 — One staffer caps at ~40 covers/hour, then throughput *falls*. Intended? `OPEN — blocks nothing, informs step 8`
+
+Measured over 8 seeds:
+
+| arrivals/hr | covers/day | mean wait |
+|---|---|---|
+| 14 | 156 | 3.8 min |
+| 30 | 329 | 7.2 min |
+| 45 | 427 | 58 min |
+| 70 | 346 | 270 min |
+
+Two things worth a look. Forty covers an hour from one person is high — it
+comes from batching, which gets *more* efficient as the queue deepens, and the
+real constraint on a single human isn't modelled until attention profiles land
+at step 4. And past the knee, throughput doesn't plateau, it drops: the one
+staffer thrashes between the pass and the grill.
+
+The drop is emergent, not scripted, and it is exactly the "punishment spiral"
+of §4. It is also precisely what step 8's bottleneck readout has to be able to
+name in plain English. Flagging now so step 8 is measured against it.

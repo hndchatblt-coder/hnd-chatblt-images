@@ -11,13 +11,7 @@
  */
 import { describe, it } from 'vitest';
 
-describe('STEP 2 — one customer, one burger', () => {
-  it.todo('a 7-day run produces plausible covers and mean wait');
-  it.todo('doubling station speed roughly halves mean wait');
-  it.todo('the DAG resolves dependencies in a valid topological order');
-  it.todo('an order is only served once every step in its recipe has completed');
-  it.todo('arrivals are Poisson — variance is close to the mean, bursts occur');
-});
+// STEP 2 — LIVE in tests/step2.test.ts. Converted, failed, passed.
 
 describe('STEP 3 — the floor (THE pivotal gate)', () => {
   /**

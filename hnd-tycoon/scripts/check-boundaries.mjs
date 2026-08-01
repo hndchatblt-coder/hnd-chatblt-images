@@ -84,6 +84,43 @@ for (const file of safeWalk(join(ROOT, 'src/sim'))) {
   }
 }
 
+// --- Rule 5: no tunable numbers outside src/config ----------------------
+/**
+ * CLAUDE.md hard rule 5. This was documentation, and documentation loses to a
+ * deadline — so it is a check now.
+ *
+ * Allowed bare literals: 0, 1, -1, 2 and 100. Zero and one are structural
+ * (empty, single, first). Two covers halving, pairs and squares. A hundred is
+ * percent conversion. Anything else in sim/ is a balance decision hiding in a
+ * system file, and balance decisions belong in config where the harness can
+ * reach them.
+ */
+const ALLOWED_LITERALS = new Set(['0', '1', '2', '100']);
+const NUMERIC = /(?<![\w.$])(\d+(?:\.\d+)?(?:e-?\d+)?)(?![\w.])/g;
+
+/**
+ * Files whose numbers are algorithm constants, not balance decisions. Moving
+ * mulberry32's multiplier into a config file would not make it tunable, it
+ * would make it a landmine. Keep this list to things of that kind — if you are
+ * about to add a systems file here, you are adding it for the wrong reason.
+ */
+const LITERAL_EXEMPT = new Map([['src/sim/rng.ts', 'mulberry32 and FNV-1a constants']]);
+
+for (const file of safeWalk(join(ROOT, 'src/sim'))) {
+  if (LITERAL_EXEMPT.has(relative(ROOT, file))) continue;
+  const src = stripNonCode(readFileSync(file, 'utf8'));
+  const offenders = new Set();
+  for (const [, literal] of src.matchAll(NUMERIC)) {
+    if (!ALLOWED_LITERALS.has(literal)) offenders.add(literal);
+  }
+  if (offenders.size) {
+    failures.push(
+      `${relative(ROOT, file)} has bare numbers [${[...offenders].join(', ')}] — ` +
+        `every tunable belongs in src/config/`,
+    );
+  }
+}
+
 // --- Report -------------------------------------------------------------
 if (failures.length) {
   console.error('\n✗ BOUNDARY VIOLATIONS\n');

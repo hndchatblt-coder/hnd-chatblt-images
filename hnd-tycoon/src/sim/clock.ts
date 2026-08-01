@@ -1,13 +1,23 @@
 import { TIME, type TradingCalendar, type DayOfWeek, DAY_NAMES } from '@/config/time';
+import { gameTime, type GameTime } from './types';
 
-/** Game time, in whole simulation ticks since the start of the run. */
-export type GameTime = number & { readonly __brand: 'GameTime' };
+export type { GameTime };
+export const asGameTime = gameTime;
 
-export const asGameTime = (ticks: number): GameTime => ticks as GameTime;
-
-const TICKS_PER_GAME_SECOND = TIME.TICK_HZ * (1 / TIME.REAL_SECONDS_PER_GAME_HOUR) * 3600;
-// = ticks per game hour / 3600. Derived, not hardcoded:
 export const TICKS_PER_GAME_HOUR = TIME.TICK_HZ * TIME.REAL_SECONDS_PER_GAME_HOUR;
+
+/**
+ * How many GAME seconds one tick advances. 12 at the shipped rates.
+ *
+ * This is the number every duration in the simulation is charged against, so
+ * it being right matters more than anything else in this file. Ten ticks per
+ * REAL second, thirty real seconds per game hour — three hundred ticks an hour,
+ * therefore twelve game seconds a tick. Recipe durations are in game seconds.
+ */
+export const GAME_SECONDS_PER_TICK = TIME.SECONDS_PER_HOUR / TICKS_PER_GAME_HOUR;
+
+/** Ticks per game second. The reciprocal, kept for readability at call sites. */
+export const TICKS_PER_GAME_SECOND = 1 / GAME_SECONDS_PER_TICK;
 
 /**
  * The one clock. DESIGN.md §5.
@@ -89,7 +99,7 @@ export class Clock {
 
   format(): string {
     const h = Math.floor(this.hourOfDay);
-    const m = Math.floor((this.hourOfDay - h) * 60);
+    const m = Math.floor((this.hourOfDay - h) * TIME.MINUTES_PER_HOUR);
     const day = DAY_NAMES[this.dayOfWeek] ?? String(this.dayOfWeek);
     return `D${this.dayIndex} ${day} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
@@ -102,5 +112,3 @@ export class Clock {
     this.ticks = ticks;
   }
 }
-
-export { TICKS_PER_GAME_SECOND };

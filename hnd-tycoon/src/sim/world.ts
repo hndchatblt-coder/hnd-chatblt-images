@@ -1,5 +1,6 @@
 import { Clock } from './clock';
 import { Rng } from './rng';
+import { createState, emptyDay, type SimState, type StateOptions } from './state';
 import { CALENDARS, TIME } from '@/config/time';
 
 /**
@@ -34,7 +35,7 @@ export interface DayReport {
   lines: Record<string, number | string>;
 }
 
-export interface WorldOptions {
+export interface WorldOptions extends StateOptions {
   seed: number | string;
   calendarId?: string;
 }
@@ -43,13 +44,18 @@ export class World {
   readonly clock: Clock;
   readonly rng: Rng;
   readonly seed: number | string;
+  readonly state: SimState;
   private readonly systems: System[] = [];
   private readonly reports: DayReport[] = [];
   private current: DayReport | null = null;
 
   constructor(opts: WorldOptions) {
-    const calendar = CALENDARS[opts.calendarId ?? 'sydneyStandard'];
-    if (!calendar) throw new Error(`Unknown calendar: ${opts.calendarId}`);
+    this.state = createState(opts);
+    // The site chooses the calendar. §26 — the trading day is never hardcoded,
+    // and "Sydney standard" is a default, not an assumption.
+    const calendarKey = opts.calendarId ?? this.state.site.calendarId;
+    const calendar = CALENDARS[calendarKey];
+    if (!calendar) throw new Error(`Unknown calendar: ${calendarKey}`);
     this.clock = new Clock(calendar);
     this.seed = opts.seed;
     this.rng = new Rng(opts.seed);
@@ -74,6 +80,10 @@ export class World {
   }
 
   private openDay(): void {
+    // The World resets the day accumulator, not a system — otherwise which
+    // system happens to be registered first would silently decide whether
+    // anyone else sees yesterday's figures.
+    this.state.day = emptyDay();
     this.current = {
       dayIndex: this.clock.dayIndex,
       dayOfWeek: this.clock.dayOfWeek,

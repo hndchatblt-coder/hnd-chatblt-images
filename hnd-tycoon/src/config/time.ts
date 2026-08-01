@@ -7,6 +7,11 @@ export const TIME = {
   TICK_HZ: 10,
   /** Real seconds per game hour at 1x speed. */
   REAL_SECONDS_PER_GAME_HOUR: 30,
+  /** Seconds in an hour. Here rather than inline so §26 stays clean when a
+   *  later act's calendar has an hour that isn't 3600 seconds long. */
+  SECONDS_PER_HOUR: 3600,
+  SECONDS_PER_MINUTE: 60,
+  MINUTES_PER_HOUR: 60,
   /** Available speed multipliers. 4x unlocks at venue 2. */
   SPEEDS: [1, 2, 4] as const,
   /** Offline accrual caps. DESIGN.md §5.2. Never purchasable. */
