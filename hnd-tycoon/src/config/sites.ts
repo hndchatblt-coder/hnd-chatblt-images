@@ -56,7 +56,7 @@ export const SITES: Readonly<Record<string, SiteDefinition>> = {
     weeklyRent: money(2400),
     calendarId: 'sydneyStandard',
     jurisdictionId: 'nsw',
-    baseFootTraffic: 14,
+    baseFootTraffic: 20,
     spendPerHead: 1.0,
     tradingHoursPerDay: 11,
     notes: 'Home venue. Narrow terrace, gas along the back wall only. Tutorial-by-shape. Later the commissary anchor.',

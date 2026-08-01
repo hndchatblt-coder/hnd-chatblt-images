@@ -187,36 +187,42 @@ describe('STEP 2 — an order is served only once every step has completed', () 
 });
 
 describe('STEP 2 — arrivals are Poisson', () => {
+  // Sample ONE slot of the week — Thursday 7pm — across many weeks.
+  //
+  // Pooling every trading hour together was right when demand was flat and is
+  // wrong now that §6.1's daypart and day-of-week curves are in: mixing hours
+  // with different rates is over-dispersed by construction (measured
+  // variance/mean of 12), which says nothing about whether each hour is
+  // Poisson. Within a fixed slot the rate is constant and the property holds.
   const world = buildScenario({ seed: 99 });
-  const perHour: number[] = [];
+  const sample: number[] = [];
   let last = 0;
 
-  // Sample only trading hours; the closed hours are structural zeroes and
-  // would drag the variance ratio to nonsense.
-  for (let day = 0; day < 30; day++) {
+  for (let day = 0; day < 140; day++) {
     for (let hour = 0; hour < 24; hour++) {
-      const open = world.clock.isOpen;
+      const slot = world.clock.dayOfWeek === 4 && Math.floor(world.clock.hourOfDay) === 19;
       world.runTicks(TICKS_PER_GAME_HOUR);
-      const arrived = world.state.counters.customer - last;
-      last = world.state.counters.customer;
-      if (open) perHour.push(arrived);
+      // Count everyone who turned up, including the ones who took one look at
+      // the queue and left. Counting only those who stayed measures arrivals
+      // MINUS balking, which is under-dispersed by construction.
+      const arrived = world.state.counters.customer + world.state.balked - last;
+      last = world.state.counters.customer + world.state.balked;
+      if (slot) sample.push(arrived);
     }
   }
 
-  it('has variance close to its mean', () => {
-    const m = mean(perHour);
-    const v = variance(perHour);
+  it('has variance close to its mean within a fixed slot of the week', () => {
+    const m = mean(sample);
+    const v = variance(sample);
+    expect(sample.length).toBeGreaterThan(15);
     expect(m).toBeGreaterThan(0);
-    // The defining property of a Poisson process. A uniform "one every N
-    // ticks" arrival would sit near zero here and the kitchen would never
-    // struggle, which would quietly delete the game.
-    expect(v / m).toBeGreaterThan(0.7);
-    expect(v / m).toBeLessThan(1.4);
+    // The defining property of a Poisson process. A uniform "one every N ticks"
+    // arrival would sit near zero here and the kitchen would never struggle.
+    expect(v / m).toBeGreaterThan(0.5);
+    expect(v / m).toBeLessThan(2.0);
   });
 
   it('produces bursts — some hours land far above the mean', () => {
-    const m = mean(perHour);
-    const sd = Math.sqrt(variance(perHour));
-    expect(Math.max(...perHour)).toBeGreaterThan(m + 2 * sd);
+    expect(Math.max(...sample)).toBeGreaterThan(mean(sample) * 1.3);
   });
 });

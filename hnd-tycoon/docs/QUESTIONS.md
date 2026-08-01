@@ -200,3 +200,40 @@ a real station rather than as a balance patch.
 
 Answer this and the shop stops being a trap at the rate the game actually ships
 at.
+
+## Q13 — a hire is permanent and paid seven days. Rostering is the missing verb. `OPEN — the last thing between here and a working economy`
+
+With §6.1's curves in, the week finally has a shape:
+
+| | Mon | Tue | Wed | Thu | Fri | Sat |
+|---|---|---|---|---|---|---|
+| covers | 152 | 174 | 189 | 207 | 252 | 258 |
+| walked | 0 | 0 | 6 | 9 | 47 | 75 |
+| readout | demand | demand | hands, 6 | hands, 9 | hands, 47 | hands, 75 |
+
+Saturday needs a second person. Monday does not. **But a hire is permanent and
+costs $452 every single day**, so it recovers about $156/day of walkouts against
+$452/day of wage, and doing nothing still wins over 60 days ($73,959 vs
+$56,982).
+
+That is not a balance problem, it is a missing verb. Every operator solves this
+by rostering: you put someone on Friday and Saturday. §8 already prices the days
+differently and §22.1 already wants staff to be people rather than a headcount —
+a roster is the thing that joins them.
+
+**This is what I would build next**, and I think it is the last structural piece
+before the economy works at the demand the game actually ships at:
+
+- hire someone into the company, then roster them per day (§26 already says
+  staff belong to the company, not the site)
+- wages accrue only for rostered days, at that day's penalty rate
+- the Sunday question from §8 becomes real: 1.5x for your busiest-but-one day
+- the bottleneck readout gains its most useful answer yet:
+  *"short-staffed on Saturdays"* — which §13 names explicitly and which the
+  current readout cannot produce
+
+It also makes the §14.2 ladder land properly. A machine you have bought is paid
+for seven days a week whether you roster anyone or not, which is exactly §14.3's
+"utilities: continuous draw whether busy or not" — automation should be the
+thing you buy when the peak is every day, and staff the thing you buy when it
+is Saturday.

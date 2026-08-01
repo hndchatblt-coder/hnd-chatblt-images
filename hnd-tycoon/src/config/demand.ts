@@ -35,6 +35,58 @@ export interface RushWindow {
   readonly multiplier: number;
 }
 
+/**
+ * §6.1's daypart and day-of-week curves.
+ *
+ * These are not decoration and they should not have waited for step 10. A flat
+ * arrival rate is the reason hiring could not pay for itself: at a constant 14
+ * customers an hour one cook is never stretched, so a second one is pure cost.
+ *
+ * **Hospitality staffs for the peak, not the average.** That is the whole
+ * decision. Twelve to two and six to eight you are underwater; three in the
+ * afternoon you are paying someone to wipe down a bench they already wiped.
+ * Averaging those two states into one flat number deleted both.
+ *
+ * Multipliers are relative and normalised to mean 1.0 across trading hours, so
+ * changing the shape never silently changes total demand.
+ */
+export const DAYPART: Readonly<Record<number, number>> = {
+  11: 0.25,
+  12: 2.3,
+  13: 2.6,
+  14: 0.8,
+  15: 0.25,
+  16: 0.2,
+  17: 0.5,
+  18: 2.4,
+  19: 2.9,
+  20: 1.6,
+  21: 0.5,
+};
+
+/** Friday and Saturday carry a burger shop. Monday is a rumour. */
+export const DAY_OF_WEEK: readonly number[] = [
+  0.95, // Sun
+  0.7, // Mon
+  0.8, // Tue
+  0.85, // Wed
+  1.0, // Thu
+  1.35, // Fri
+  1.5, // Sat
+];
+
+const DAYPART_MEAN =
+  Object.values(DAYPART).reduce((a, b) => a + b, 0) / Object.values(DAYPART).length;
+
+/** The curve at a given hour, normalised so the shape never moves the total. */
+export function daypartMultiplier(hourOfDay: number): number {
+  return (DAYPART[Math.floor(hourOfDay)] ?? 0) / DAYPART_MEAN;
+}
+
+export function dayOfWeekMultiplier(dayOfWeek: number): number {
+  return DAY_OF_WEEK[dayOfWeek] ?? 1;
+}
+
 export const DEMAND = {
   /**
    * Step 2 only: overrides the site's own foot traffic so the baseline run is

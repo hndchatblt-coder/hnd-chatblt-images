@@ -11,7 +11,13 @@
  * resistance and the pinned-at-zero competitor pressure all multiply into
  * `ratePerHour` at step 10, and nothing here changes when they do.
  */
-import { DEMAND, type MenuMixEntry, type RushWindow } from '@/config/demand';
+import {
+  DEMAND,
+  daypartMultiplier,
+  dayOfWeekMultiplier,
+  type MenuMixEntry,
+  type RushWindow,
+} from '@/config/demand';
 import { TIME } from '@/config/time';
 import { TICKS_PER_GAME_HOUR } from '../clock';
 import type { Rng } from '../rng';
@@ -46,7 +52,14 @@ export class ArrivalsSystem implements System {
 
     const base =
       this.ratePerHourOverride ?? DEMAND.FLAT_RATE_OVERRIDE ?? world.state.site.baseFootTraffic;
-    const perHour = base * this.rushMultiplier(world.clock.hourOfDay);
+    // §6.1. Two more terms of the demand formula. Reputation, marketing, price
+    // resistance and the pinned-at-zero competitor pressure multiply in here
+    // too, and nothing else in this file changes when they do.
+    const perHour =
+      base *
+      daypartMultiplier(world.clock.hourOfDay) *
+      dayOfWeekMultiplier(world.clock.dayOfWeek) *
+      this.rushMultiplier(world.clock.hourOfDay);
     const lambda = perHour / TICKS_PER_GAME_HOUR;
     const arrivals = this.stream(world).poisson(lambda);
     for (let i = NONE; i < arrivals; i += ONE) this.walkIn(world);

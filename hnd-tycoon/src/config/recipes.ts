@@ -125,11 +125,18 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
       {
         id: 'plate',
         station: 'pass',
-        duration: 6,
+        duration: 48,
         batchSize: 1,
         dependsOn: ['assemble'],
         output: 'servedBurger' as ItemId,
-        attention: attn(3, 0, 3, false),
+        // The pass is also the register. §7.1 lists one and §12 draws one, and
+        // until it is a placeable station this is where its work lives:
+        // greeting, taking the order, taking payment, bagging, handing over,
+        // wiping down. Nobody in a burger shop only cooks.
+        //
+        // Without it one cook absorbed 55 covers per labour-hour against a
+        // real 6-12, and no amount of demand made a second pair of hands pay.
+        attention: attn(22, 0, 26, false),
       },
     ],
   },
@@ -156,11 +163,11 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
       {
         id: 'plateChips',
         station: 'pass',
-        duration: 5,
+        duration: 44,
         batchSize: 1,
         dependsOn: ['basket'],
         output: 'servedChips' as ItemId,
-        attention: attn(3, 0, 2, false),
+        attention: attn(20, 0, 24, false),
       },
     ],
   },
