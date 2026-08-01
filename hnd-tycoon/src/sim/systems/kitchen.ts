@@ -3,7 +3,7 @@
  *
  * Two things happen every tick, interleaved:
  *
- *   1. Jobs in progress consume each staffer's tick budget of work.
+ *   1. Jobs in progress consume each staffer's tick budget.
  *   2. Free staff and free stations pull the next batch off the requirement
  *      explosion.
  *
@@ -13,12 +13,17 @@
  * way — one job advanced by one whole dt per tick — makes every step cost at
  * least twelve seconds regardless of what the recipe says, which silently
  * flattens the difference between a 6s plate and a 195s fryer basket. That
- * difference is the game.
+ * difference is the game. It also makes walking free, which would delete
+ * design pillar one outright.
+ *
+ * **A job is walk there, work, carry it onward.** The two walking phases are
+ * charged against the same budget as the work, which is what makes the
+ * distance between dependent stations a throughput tax rather than a diagram.
  *
  * **The scheduler pulls, it does not push.** Work nearest the customer starts
  * first (`RecipeGraph.pull`). A scheduler that services the deepest unmet
- * requirement instead makes patties forever while nothing reaches the pass —
- * measured, not theorised.
+ * requirement instead makes patties forever while nothing reaches the pass:
+ * measured at 45 arrivals/hr, pull serves 86% of them and push serves 4%.
  *
  * **A batch is sized to outstanding need**, capped by equipment capacity and
  * by what is actually in the buffer. Cooking more than is needed is
@@ -26,8 +31,10 @@
  * and at a cost. It must never be the default.
  */
 import { KITCHEN } from '@/config/kitchen';
+import { walkSeconds } from '@/config/stations';
 import type { Step } from '@/config/recipes';
 import { GAME_SECONDS_PER_TICK } from '../clock';
+import type { Tile } from '../floor';
 import type { RecipeGraph } from '../recipeGraph';
 import { isStationFree, type Job, type Station } from '../entities/station';
 import { isStaffFree, type Staff } from '../entities/staff';
@@ -66,8 +73,15 @@ export class KitchenSystem implements System {
   }
 
   onClose(world: World): void {
-    world.record('batches', world.state.day.batches);
-    world.record('units', world.state.day.unitsProduced);
+    const day = world.state.day;
+    world.record('batches', day.batches);
+    world.record('units', day.unitsProduced);
+    world.record('walkMin', (day.walkSeconds / KITCHEN.SECONDS_PER_MINUTE).toFixed(ONE));
+    const busy = day.walkSeconds + day.workSeconds;
+    world.record(
+      'walkShare',
+      busy > NONE ? `${((day.walkSeconds / busy) * 100).toFixed(ONE)}%` : '0%',
+    );
   }
 
   // --- Working ----------------------------------------------------------
@@ -77,32 +91,68 @@ export class KitchenSystem implements System {
     const finished: Job[] = [];
 
     for (const job of state.jobs.values()) {
-      const available = budget.get(job.staffId) ?? NONE;
-      if (available <= EPSILON) continue;
-
       const staff = state.staff.find((s) => s.id === job.staffId);
       const station = state.stations.find((s) => s.id === job.stationId);
       if (!staff || !station) continue;
 
-      const rate = station.speedMultiplier * staff.skill;
-      // Seconds of wall time needed to burn down what's left, at this rate.
-      const secondsToFinish = job.remainingSeconds / rate;
-      const spent = Math.min(available, secondsToFinish);
+      let available = budget.get(job.staffId) ?? NONE;
+      if (available <= EPSILON) continue;
 
-      job.remainingSeconds -= spent * rate;
-      budget.set(job.staffId, available - spent);
-      station.runSeconds += spent;
-      staff.shiftSeconds += spent;
-      any = any || spent > EPSILON;
+      // Walking to the station. Charged before a second of work happens.
+      if (job.phase === 'travel') {
+        const spent = Math.min(available, job.travelRemaining);
+        job.travelRemaining -= spent;
+        available -= spent;
+        staff.walkSeconds += spent;
+        staff.shiftSeconds += spent;
+        state.day.walkSeconds += spent;
+        any = any || spent > EPSILON;
+        if (job.travelRemaining <= EPSILON) {
+          staff.tile = job.workTile;
+          job.phase = 'work';
+        }
+      }
 
-      if (job.remainingSeconds <= EPSILON) finished.push(job);
+      if (job.phase === 'work' && available > EPSILON) {
+        const rate = station.speedMultiplier * staff.skill;
+        const spent = Math.min(available, job.remainingSeconds / rate);
+        job.remainingSeconds -= spent * rate;
+        available -= spent;
+        station.runSeconds += spent;
+        staff.shiftSeconds += spent;
+        state.day.workSeconds += spent;
+        any = any || spent > EPSILON;
+        if (job.remainingSeconds <= EPSILON) {
+          // The station is free the moment the food comes off it. The staffer
+          // is not — they are still holding four patties.
+          station.jobId = null;
+          job.phase = 'carry';
+        }
+      }
+
+      if (job.phase === 'carry') {
+        const spent = Math.min(available, job.carryRemaining);
+        job.carryRemaining -= spent;
+        available -= spent;
+        staff.walkSeconds += spent;
+        staff.shiftSeconds += spent;
+        state.day.walkSeconds += spent;
+        any = any || spent > EPSILON;
+        if (job.carryRemaining <= EPSILON) {
+          if (job.deliverTile) staff.tile = job.deliverTile;
+          finished.push(job);
+        }
+      }
+
+      budget.set(job.staffId, available);
     }
 
-    for (const job of finished) this.complete(state, job);
+    for (const job of finished) this.deliver(state, job);
     return any;
   }
 
-  private complete(state: SimState, job: Job): void {
+  /** The output only exists once someone has carried it to where it is used. */
+  private deliver(state: SimState, job: Job): void {
     state.stock.add(job.output, job.batch);
     state.day.batches += ONE;
 
@@ -110,7 +160,7 @@ export class KitchenSystem implements System {
     if (graph && graph.finishedItem === job.output) state.day.unitsProduced += job.batch;
 
     const station = state.stations.find((s) => s.id === job.stationId);
-    if (station) station.jobId = null;
+    if (station && station.jobId === job.id) station.jobId = null;
     const staff = state.staff.find((s) => s.id === job.staffId);
     if (staff) staff.jobId = null;
     state.jobs.delete(job.id);
@@ -161,8 +211,6 @@ export class KitchenSystem implements System {
     // broken by name so the schedule never depends on Map iteration order.
     //
     // The flag exists so the alternative is measurable rather than arguable.
-    // Push (deepest first) makes patties forever and plates nothing; it is
-    // what the gate in tests/step2.test.ts fails against.
     const direction = KITCHEN.PULL_SHALLOWEST_FIRST ? ONE : -ONE;
     candidates.sort(
       (a, b) =>
@@ -174,28 +222,48 @@ export class KitchenSystem implements System {
     let started = false;
     for (const candidate of candidates) {
       while (candidate.net > NONE) {
-        const station = state.stations.find(
-          (s) => s.type === candidate.step.station && isStationFree(s),
-        );
-        if (!station) break;
         const staff = state.staff.find(
           (s) => isStaffFree(s) && (budget.get(s.id) ?? NONE) > EPSILON,
         );
         if (!staff) break;
 
+        // Nearest free station of the right type, measured from where this
+        // person is actually standing — not the first one in the array.
+        const station = this.nearestFreeStation(state, candidate.step.station, staff.tile);
+        if (!station) break;
+
         const batch = this.batchSize(state, candidate);
         if (batch < ONE) break;
+
+        const opened = this.open(state, candidate, station.station, staff, batch, now, station.at);
+        if (!opened) break;
 
         for (const input of candidate.graph.inputsOf(candidate.step.id)) {
           state.stock.take(input, batch);
         }
-        this.open(state, candidate, station, staff, batch, now);
         candidate.net -= batch;
         started = true;
       }
     }
 
     return started;
+  }
+
+  private nearestFreeStation(
+    state: SimState,
+    type: Step['station'],
+    from: Tile,
+  ): { station: Station; at: Tile; tiles: number } | null {
+    let best: { station: Station; at: Tile; tiles: number } | null = null;
+    for (const station of state.stations) {
+      if (station.type !== type || !isStationFree(station)) continue;
+      const access = state.floor.nearestAccess(from, station.id);
+      if (access.at === null || !Number.isFinite(access.tiles)) continue;
+      if (best === null || access.tiles < best.tiles) {
+        best = { station, at: access.at, tiles: access.tiles };
+      }
+    }
+    return best;
   }
 
   /** Capacity, need and what is actually in the buffer — whichever binds first. */
@@ -215,7 +283,19 @@ export class KitchenSystem implements System {
     staff: Staff,
     batch: number,
     now: number,
-  ): void {
+    workTile: Tile,
+  ): boolean {
+    const travelTiles = state.floor.pathTiles(staff.tile, workTile);
+    if (!Number.isFinite(travelTiles)) return false;
+
+    // Where this output goes next: the station that runs the step consuming
+    // it. The finished item goes nowhere — the customer collects it.
+    const consumer = candidate.graph.consumerOf.get(candidate.step.output);
+    const delivery = consumer
+      ? this.nearestFreeOrAnyStation(state, consumer.station, workTile)
+      : null;
+    const carryTiles = delivery ? state.floor.pathTiles(workTile, delivery.at) : NONE;
+
     const jobId = `j${state.counters.job++}`;
     const job: Job = {
       id: jobId,
@@ -226,10 +306,37 @@ export class KitchenSystem implements System {
       batch,
       output: candidate.step.output,
       startedAt: now,
+      phase: 'travel',
+      travelRemaining: walkSeconds(travelTiles),
       remainingSeconds: candidate.step.duration,
+      carryRemaining: Number.isFinite(carryTiles) ? walkSeconds(carryTiles) : NONE,
+      workTile,
+      deliverTile: delivery?.at ?? null,
     };
     state.jobs.set(jobId, job);
     station.jobId = jobId;
     staff.jobId = jobId;
+    return true;
+  }
+
+  /**
+   * The nearest station of a type regardless of whether it is busy — you carry
+   * patties to the assembly bench even if someone is using it.
+   */
+  private nearestFreeOrAnyStation(
+    state: SimState,
+    type: Step['station'],
+    from: Tile,
+  ): { station: Station; at: Tile } | null {
+    let best: { station: Station; at: Tile; tiles: number } | null = null;
+    for (const station of state.stations) {
+      if (station.type !== type) continue;
+      const access = state.floor.nearestAccess(from, station.id);
+      if (access.at === null || !Number.isFinite(access.tiles)) continue;
+      if (best === null || access.tiles < best.tiles) {
+        best = { station, at: access.at, tiles: access.tiles };
+      }
+    }
+    return best;
   }
 }

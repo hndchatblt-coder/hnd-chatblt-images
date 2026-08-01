@@ -34,6 +34,12 @@ export interface RecipeGraph {
   readonly depth: ReadonlyMap<string, number>;
   /** Which step produces a given item. One producer per item, enforced. */
   readonly producerOf: ReadonlyMap<ItemId, Step>;
+  /**
+   * Which step consumes a given item — where a staffer carries it next.
+   * Absent for the finished item, which is carried nowhere: the customer
+   * collects it from the pass. §7.1, "carry output onward".
+   */
+  readonly consumerOf: ReadonlyMap<ItemId, Step>;
   /** The item a customer is handed. The single sink of the graph. */
   readonly finishedItem: ItemId;
   /** Items a step consumes, one per unit produced: its dependencies' outputs. */
@@ -136,11 +142,11 @@ export function buildRecipeGraph(recipe: Recipe): RecipeGraph {
   });
 
   const inputs = new Map<string, ItemId[]>();
+  const consumerOf = new Map<ItemId, Step>();
   for (const step of recipe.steps) {
-    inputs.set(
-      step.id,
-      step.dependsOn.map((dep) => (steps.get(dep) as Step).output),
-    );
+    const items = step.dependsOn.map((dep) => (steps.get(dep) as Step).output);
+    inputs.set(step.id, items);
+    for (const item of items) consumerOf.set(item, step);
   }
 
   return {
@@ -150,6 +156,7 @@ export function buildRecipeGraph(recipe: Recipe): RecipeGraph {
     pull,
     depth,
     producerOf,
+    consumerOf,
     finishedItem: sink.output,
     inputsOf: (stepId) => inputs.get(stepId) ?? [],
   };

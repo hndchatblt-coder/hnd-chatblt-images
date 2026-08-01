@@ -6,7 +6,7 @@
  * "roughly halves" have to mean specific numbers.
  */
 import { describe, expect, it } from 'vitest';
-import { KITCHEN } from '@/config/kitchen';
+import { LAYOUTS } from '@/config/layouts';
 import { RECIPES } from '@/config/recipes';
 import { buildRecipeGraph, RecipeGraphError } from '@/sim/recipeGraph';
 import { buildScenario } from '@/sim/scenario';
@@ -48,7 +48,7 @@ describe('STEP 2 — doubling station speed roughly halves mean wait', () => {
     );
     const fast = mean(
       runSeeds(
-        { days: DAYS, stations: scaledLine(KITCHEN.OPENING_LINE, 2) },
+        { days: DAYS, stations: scaledLine(LAYOUTS['leichhardtTight']!.stations, 2) },
         SEEDS,
       ).map((r) => r.meanWaitMinutes),
     );

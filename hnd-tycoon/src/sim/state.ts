@@ -1,5 +1,5 @@
 /**
- * Everything the simulation holds. DESIGN.md §7, §7.1.
+ * Everything the simulation holds. DESIGN.md §7, §7.1, §12.
  *
  * One mutable state object, owned by the World and passed to systems. Systems
  * own behaviour; this owns data. Keeping them apart is what lets the fast sim
@@ -12,13 +12,18 @@
  */
 import { SITES, type SiteDefinition } from '@/config/sites';
 import { KITCHEN } from '@/config/kitchen';
+import { DEFAULT_LAYOUT_FOR, LAYOUTS, type PlacedStation } from '@/config/layouts';
 import { RECIPES } from '@/config/recipes';
 import { buildAllGraphs, type RecipeGraph } from './recipeGraph';
+import { Floor, type Tile } from './floor';
 import { makeStation, type Job, type Station } from './entities/station';
 import { makeStaff, type Staff } from './entities/staff';
 import { Stock } from './entities/stock';
 import type { Customer, Order } from './entities/order';
 import { id, type OrderId, type RecipeId, type SiteId, type StaffId } from './types';
+
+const NONE = 0;
+const ONE = 1;
 
 export interface DayAccumulator {
   /** Customers who walked in today. */
@@ -27,18 +32,31 @@ export interface DayAccumulator {
   served: number;
   /** Sum of wait, in ticks, over orders served today. */
   waitTicks: number;
-  /** Batches completed. Throughput independent of demand — see step 3. */
+  /** Batches completed. Throughput independent of demand — the step 3 measure. */
   batches: number;
   /** Units of finished goods produced. */
   unitsProduced: number;
+  /** Staff-seconds spent walking. The floorplan's bill, itemised. */
+  walkSeconds: number;
+  /** Staff-seconds spent actually working. */
+  workSeconds: number;
 }
 
 export function emptyDay(): DayAccumulator {
-  return { arrived: 0, served: 0, waitTicks: 0, batches: 0, unitsProduced: 0 };
+  return {
+    arrived: NONE,
+    served: NONE,
+    waitTicks: NONE,
+    batches: NONE,
+    unitsProduced: NONE,
+    walkSeconds: NONE,
+    workSeconds: NONE,
+  };
 }
 
 export interface SimState {
   readonly site: SiteDefinition;
+  readonly floor: Floor;
   readonly graphs: ReadonlyMap<RecipeId, RecipeGraph>;
   readonly stations: Station[];
   readonly staff: Staff[];
@@ -55,8 +73,10 @@ export interface SimState {
 
 export interface StateOptions {
   siteId?: string;
-  /** Overrides the opening line. The harness uses this to vary the kitchen. */
-  stations?: readonly { id: string; type: Station['type']; speedMultiplier: number }[];
+  /** A named layout from `config/layouts.ts`. Defaults to the site's own. */
+  layoutId?: string;
+  /** An explicit layout, for the harness. Overrides `layoutId`. */
+  stations?: readonly PlacedStation[];
   staff?: readonly { id: string; name: string; skill: number }[];
 }
 
@@ -65,20 +85,54 @@ export function createState(opts: StateOptions = {}): SimState {
   const site = SITES[siteKey];
   if (!site) throw new Error(`Unknown site: ${siteKey}`);
 
-  const stationDefs = opts.stations ?? KITCHEN.OPENING_LINE;
+  const layoutKey = opts.layoutId ?? DEFAULT_LAYOUT_FOR[siteKey];
+  const layout = layoutKey === undefined ? undefined : LAYOUTS[layoutKey];
+  const placed = opts.stations ?? layout?.stations;
+  if (!placed) throw new Error(`No layout for site: ${siteKey}`);
+
+  const floor = new Floor(site);
+  const stations: Station[] = [];
+  for (const p of placed) {
+    // Throws with a readable reason. A layout that does not fit is a content
+    // bug and must fail at load, not produce a kitchen with a phantom grill.
+    floor.place(p.id, p.type, { x: p.x, y: p.y, rotated: p.rotated ?? false });
+    stations.push(makeStation(p.id, p.type, p.speedMultiplier ?? ONE));
+  }
+
   const staffDefs = opts.staff ?? KITCHEN.OPENING_STAFF;
+  const start = startingTile(floor, stations);
 
   return {
     site,
+    floor,
     graphs: buildAllGraphs(RECIPES),
-    stations: stationDefs.map((s) => makeStation(s.id, s.type, s.speedMultiplier)),
-    staff: staffDefs.map((s) => makeStaff(id<StaffId>(s.id), s.name, site.id as SiteId, s.skill)),
+    stations,
+    staff: staffDefs.map((s) =>
+      makeStaff(id<StaffId>(s.id), s.name, site.id as SiteId, s.skill, start),
+    ),
     jobs: new Map(),
     stock: new Stock(),
     customers: new Map(),
     orders: new Map(),
     openOrders: [],
     day: emptyDay(),
-    counters: { customer: 0, order: 0, job: 0 },
+    counters: { customer: NONE, order: NONE, job: NONE },
   };
+}
+
+/**
+ * Where people start the day: at the pass, because that is where you stand
+ * when there is nothing to do. Falls back to the first walkable tile so a
+ * kitchen without a pass still runs rather than throwing.
+ */
+function startingTile(floor: Floor, stations: readonly Station[]): Tile {
+  const pass = stations.find((s) => s.type === 'pass');
+  const at = pass ? floor.accessTiles(pass.id)[NONE] : undefined;
+  if (at) return at;
+  for (let y = NONE; y < floor.depth; y += ONE) {
+    for (let x = NONE; x < floor.width; x += ONE) {
+      if (floor.isWalkable(x, y)) return { x, y };
+    }
+  }
+  throw new Error(`${floor.site.name} has nowhere to stand`);
 }

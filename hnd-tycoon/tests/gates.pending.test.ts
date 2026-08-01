@@ -13,17 +13,7 @@ import { describe, it } from 'vitest';
 
 // STEP 2 — LIVE in tests/step2.test.ts. Converted, failed, passed.
 
-describe('STEP 3 — the floor (THE pivotal gate)', () => {
-  /**
-   * If this does not hold, the game does not exist. Space being the binding
-   * constraint is design pillar one. Find out on day three, not month three.
-   */
-  it.todo('moving the grill 6 tiles from the pass measurably drops throughput');
-  it.todo('the throughput delta is reported as a number, not a vibe');
-  it.todo('staff cannot path through obstructed tiles');
-  it.todo('a station cannot be placed without its required service point');
-  it.todo('the Leichhardt column at (4,7) blocks placement and pathing');
-});
+// STEP 3 — LIVE in tests/step3.test.ts. Delta measured at 6.6% of covers.
 
 describe('STEP 4 — attention profiles and buffers', () => {
   it.todo('par-cooking before a rush measurably improves mean wait');
@@ -31,6 +21,17 @@ describe('STEP 4 — attention profiles and buffers', () => {
   it.todo('items below quality 0.35 are binned automatically');
   it.todo('a step with canLapse burns if unattended past its window');
   it.todo('holding cabinets extend freshness windows');
+  /**
+   * Carried forward from step 3. The floor gate measured 6.6%, short of the
+   * >=10% recommended for Q1, because walking is only 4% of staff time while
+   * a staffer stands and watches a 90-second patty. Splitting elapsed time
+   * from attention should cut staff-seconds per cover by roughly two thirds
+   * and make the same six tiles bite three times as hard.
+   *
+   * If it does not, Q1's threshold is wrong or the walk model is too cheap,
+   * and that is a design conversation with Ben rather than a tuning exercise.
+   */
+  it.todo('with attention profiles, the six-tile delta reaches 10% of covers');
 });
 
 describe('STEP 6 — economy', () => {

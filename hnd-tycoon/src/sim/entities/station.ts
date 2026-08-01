@@ -8,6 +8,7 @@
  * cooking patty — which is the entire premise of the automation ladder.
  */
 import type { StationType } from '@/config/recipes';
+import type { Tile } from '../floor';
 import type { ItemId, RecipeId, StaffId } from '../types';
 
 export interface Station {
@@ -21,6 +22,14 @@ export interface Station {
   runSeconds: number;
 }
 
+/**
+ * Walk there, do the work, carry the result onward. §7.1.
+ *
+ * The two walking phases are the whole of design pillar one. A job that
+ * teleported its staffer would make the floorplan decoration.
+ */
+export type JobPhase = 'travel' | 'work' | 'carry';
+
 export interface Job {
   readonly id: string;
   readonly recipeId: RecipeId;
@@ -31,8 +40,17 @@ export interface Job {
   readonly batch: number;
   readonly output: ItemId;
   readonly startedAt: number;
+  phase: JobPhase;
+  /** Seconds of walking left to reach the station. */
+  travelRemaining: number;
   /** Game seconds of work left. */
   remainingSeconds: number;
+  /** Seconds of walking left to deliver the output to whatever consumes it. */
+  carryRemaining: number;
+  /** Where the staffer stands to work. */
+  readonly workTile: Tile;
+  /** Where the output is going, and where the staffer ends up. Null = stays put. */
+  readonly deliverTile: Tile | null;
 }
 
 export function makeStation(id: string, type: StationType, speedMultiplier: number): Station {

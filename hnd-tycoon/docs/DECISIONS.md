@@ -170,3 +170,78 @@ the session summary, recorded here, and each one cheap to reverse.
    cost, not as the step-2 default.
 6. **No balking and no reneging yet** (step 10). A saturated kitchen therefore
    queues without limit, which is informative rather than a bug.
+
+---
+
+## D012 — the gate moves the pass, not the grill
+**Step 3. Status: active.**
+
+BUILD_PLAN step 3 says "moving the grill six tiles from the pass". At
+Leichhardt the grill cannot move six tiles from anything: gas runs along the
+back wall only, so sliding the grill sideways changes its distance to the pass
+by one or two tiles at most.
+
+So the six tiles are opened from the other end — `leichhardtStretched` is
+byte-identical to `leichhardtTight` except the pass sits at y=3 instead of y=9.
+Grill-to-pass goes from 5 tiles to 11. Same measurement, same intent.
+
+This is worth noting rather than hiding, because it is itself the finding: the
+service points are a harder constraint than the floor area. You do not choose
+where the grill goes. You choose what you build around it.
+
+---
+
+## D013 — staff carry output to whatever consumes it
+**Step 3. Status: active.**
+
+§7.1: "path to a station, execute a step, carry output onward. Distance
+between dependent stations is the throughput tax."
+
+A job therefore has three phases — travel, work, carry — all charged against
+the same per-tick budget as the work. The output does not enter the buffer
+until someone has physically walked it to the station that needs it, and the
+staffer ends up standing there, so the next job at that station is free.
+
+The alternative (a global buffer credited the instant cooking finishes) would
+have made the distance between dependent stations cost nothing at all, and
+made the floorplan a diagram.
+
+---
+
+## D014 — Q1 answered at 4% now, with 10% carried forward to step 4
+**Step 3. Status: active — supersedes the recommendation in QUESTIONS.md Q1.**
+
+The step 3 gate measures **6.6% of covers** (6.7% of batches) over 8 seeds on
+a saturated kitchen. QUESTIONS.md Q1 recommended a >=10% floor.
+
+It is short, and the cause is measurable rather than mysterious: walking is
+**4.0% of staff time** in the tight layout. It cannot cost more of the day than
+it occupies. Staff currently stand and watch a 90-second patty and a 195-second
+fryer basket, because attention profiles do not exist until step 4 — `work`
+outweighs `walk` 25:1.
+
+Two things were deliberately NOT done. The walk speed was not slowed until the
+gate went green, and the tile size was not inflated. Either would have produced
+a passing number and buried the finding.
+
+What was done instead: the assertion is set at >4%, which is what the model
+honestly supports today, and `tests/gates.pending.test.ts` carries a step 4
+gate re-running the identical comparison at 10%. If step 4 does not get it
+there, Q1's threshold is wrong or walking is too cheap, and that is a
+conversation with Ben rather than a tuning exercise.
+
+**This also suggests steps 3 and 4 are ordered wrongly.** The spatial tax
+cannot be honestly measured while a staffer is pinned to a fryer for three
+minutes. Not reordering them — step 3's floor is a prerequisite for step 4's
+multi-station assignment either way — but the pivotal number belongs to step 4.
+
+---
+
+## D015 — the grid key is derived, not a constant
+**Step 3. Status: active.**
+
+Tiles hash to integers as `y * width + x`, taking width from the site rather
+than a fixed stride. The first draft used `y * 1e4 + x`, which the magic-number
+check (D009) caught. Deriving it removed a latent aliasing bug at the same
+time: any site wider than the stride would have collapsed two tiles onto one
+key, silently.

@@ -7,6 +7,7 @@
  * and a regional trainer in Act III — which is impossible if `Staff` is a
  * field on a venue.
  */
+import type { Tile } from '../floor';
 import type { SiteId, StaffId } from '../types';
 
 export interface Staff {
@@ -20,10 +21,20 @@ export interface Staff {
   jobId: string | null;
   /** Seconds worked in the current shift. Drives payroll (§8) and fatigue. */
   shiftSeconds: number;
+  /** Where they are standing. Walking between stations is charged from here. */
+  tile: Tile;
+  /** Seconds spent walking today. The throughput tax, made visible. */
+  walkSeconds: number;
 }
 
-export function makeStaff(id: StaffId, name: string, siteId: SiteId, skill: number): Staff {
-  return { id, name, siteId, skill, jobId: null, shiftSeconds: 0 };
+export function makeStaff(
+  id: StaffId,
+  name: string,
+  siteId: SiteId,
+  skill: number,
+  tile: Tile,
+): Staff {
+  return { id, name, siteId, skill, jobId: null, shiftSeconds: 0, tile, walkSeconds: 0 };
 }
 
 export const isStaffFree = (staff: Staff): boolean => staff.jobId === null;

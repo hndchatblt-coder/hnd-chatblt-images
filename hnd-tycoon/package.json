@@ -8,6 +8,7 @@
   },
   "scripts": {
     "sim": "tsx scripts/sim.ts",
+    "floor": "tsx scripts/floor.ts",
     "balance": "tsx scripts/balance.ts",
     "test": "vitest run",
     "test:watch": "vitest",

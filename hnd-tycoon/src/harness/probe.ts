@@ -9,7 +9,7 @@
  */
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import { meanWaitMinutes } from '@/sim/systems/service';
-import type { InstalledStation } from '@/config/kitchen';
+import type { PlacedStation } from '@/config/layouts';
 
 const NONE = 0;
 const ONE = 1;
@@ -77,12 +77,12 @@ export const variance = (xs: readonly number[]): number => {
   return mean(xs.map((x) => (x - m) ** 2));
 };
 
-/** The opening line with every station's speed multiplied. */
+/** A layout with every station's speed multiplied, positions untouched. */
 export function scaledLine(
-  line: readonly InstalledStation[],
+  line: readonly PlacedStation[],
   factor: number,
-): readonly InstalledStation[] {
-  return line.map((s) => ({ ...s, speedMultiplier: s.speedMultiplier * factor }));
+): readonly PlacedStation[] {
+  return line.map((s) => ({ ...s, speedMultiplier: (s.speedMultiplier ?? 1) * factor }));
 }
 
 export const SEEDS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];

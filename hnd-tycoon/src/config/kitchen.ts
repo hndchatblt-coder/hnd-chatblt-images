@@ -5,19 +5,6 @@
  * contains no constants — that is hard rule 5, and the reason is that these
  * values are the ones the balance harness will move a hundred times.
  */
-import type { StationType } from './recipes';
-
-export interface InstalledStation {
-  readonly id: string;
-  readonly type: StationType;
-  /**
-   * Work rate multiplier. 1.0 is the duration as written in the recipe.
-   * Equipment tiers (§14.2) raise this; the step-2 gate doubles it to prove
-   * the number reaches mean wait.
-   */
-  readonly speedMultiplier: number;
-}
-
 export interface StaffSlot {
   readonly id: string;
   readonly name: string;
@@ -27,19 +14,11 @@ export interface StaffSlot {
 
 export const KITCHEN = {
   /**
-   * Step 2's opening line: one of each station the launch menu needs, and one
-   * person to run all of it. Deliberately under-resourced — a single staffer
-   * covering five stations is what makes the first hire legible.
+   * One person to run the whole line. Deliberately under-resourced — a single
+   * staffer covering five stations is what makes the first hire legible.
+   * WHERE the stations go is `config/layouts.ts`, because from step 3 onward
+   * that is a different and much more interesting question.
    */
-  OPENING_LINE: [
-    { id: 'grill-1', type: 'grill', speedMultiplier: 1 },
-    { id: 'fryer-1', type: 'fryer', speedMultiplier: 1 },
-    { id: 'toast-1', type: 'toast', speedMultiplier: 1 },
-    { id: 'prep-1', type: 'prep', speedMultiplier: 1 },
-    { id: 'assembly-1', type: 'assembly', speedMultiplier: 1 },
-    { id: 'pass-1', type: 'pass', speedMultiplier: 1 },
-  ] as readonly InstalledStation[],
-
   OPENING_STAFF: [{ id: 'staff-1', name: 'Dev', skill: 1 }] as readonly StaffSlot[],
 
   /**
@@ -60,6 +39,9 @@ export const KITCHEN = {
 
   /** Floating-point slack when deciding a job has finished. Not a tunable. */
   EPSILON: 1e-9,
+
+  /** For reporting walk time in minutes. */
+  SECONDS_PER_MINUTE: 60,
 
   /**
    * Backstop on the advance/schedule interleave within one tick. Each pass

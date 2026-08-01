@@ -10,17 +10,31 @@ it changes anything structural, log it in `DECISIONS.md`.
 
 ---
 
-## Q1 — How brutal is space? `OPEN — blocks step 3`
+## Q1 — How brutal is space? `MEASURED at step 3 — still needs your number`
 
 Step 3's gate says moving the grill six tiles from the pass "measurably drops
 throughput". No floor was set. If the delta is 2%, layout is decoration and
 design pillar one is dead.
 
-**Recommendation: ≥10% throughput drop for six tiles**, asserted hard in the
-test. Higher makes the spatial puzzle savage and Rosebery (7×22) nearly
-unplayable; lower makes it cosmetic.
+**Original recommendation: ≥10%.**
 
-Ben: pick a number. It propagates into every venue shape.
+**Measured: 6.6% of covers, 6.7% of batches**, 8 seeds, saturated kitchen,
+grill-to-pass 5 tiles vs 11. Run `npm run floor` to see it.
+
+It is real and it is consistent, but it is short of 10%, and the reason is
+worth understanding before you pick a number: **walking is only 4.0% of staff
+time**, so it cannot cost more than that. Staff currently stand and watch a
+90-second patty and a 195-second fryer basket, because attention profiles are
+step 4. Once tend time is separated from elapsed time, staff-seconds per cover
+should fall by roughly two thirds and the same six tiles should bite about
+three times as hard.
+
+So the honest position is: the pillar holds directionally, the magnitude is
+pending step 4, and the assertion is currently set at >4% with a 10% gate
+carried forward. Nothing has been tuned to make either number look better —
+see D014.
+
+Ben: pick a number for after step 4. It propagates into every venue shape.
 
 ---
 
