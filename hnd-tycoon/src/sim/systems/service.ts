@@ -60,6 +60,7 @@ export class ServiceSystem implements System {
       meanWaitMinutes(day.waitTicks, day.served).toFixed(REPORT.MINUTE_DECIMALS),
     );
     world.record('openAtClose', world.state.openOrders.length);
+    world.record('balked', day.balked);
   }
 
   private drawFromPass(state: SimState, order: Order, nowSeconds: number): void {
@@ -87,7 +88,9 @@ export class ServiceSystem implements System {
     // Revenue lands on handover, never on order. A customer who leaves mid-cook
     // has cost you the ingredients and paid you nothing, and that asymmetry is
     // what makes a queue expensive rather than merely untidy. §8
-    let gross = ECONOMY.PACKAGING_PER_ORDER.cents * -ONE;
+    // Revenue is the menu price. Packaging is a COGS line below — netting it
+    // off here as well charged every order for it twice.
+    let gross = NONE;
     for (const line of order.lines) {
       const recipe = RECIPES[line.recipeId as string];
       if (recipe) gross += recipe.sellPrice.cents * line.quantity;

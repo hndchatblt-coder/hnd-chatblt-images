@@ -24,7 +24,7 @@ import { footprintOf } from '@/sim/floor';
 import { attentionSplit } from '@/sim/systems/kitchen';
 import type { SimState } from '@/sim/state';
 import type { Job } from '@/sim/entities/station';
-import { depthSort, toScreen, toScreenCorner } from '../projection';
+import { camera, depthSort, toScreen, toScreenCorner } from '../projection';
 import { ShapeRegistry, SpritePool } from '../shapes/ShapeRegistry';
 import { foodColour } from '../palette';
 
@@ -69,7 +69,6 @@ export class Scene {
   /** The parts that never move: floor, services, stations. Built once. */
   build(state: SimState): void {
     if (this.built) return;
-    this.built = true;
 
     const floor = state.floor;
 
@@ -140,6 +139,10 @@ export class Scene {
 
     this.staffPool = new SpritePool(this.registry, 'staff', this.actorLayer);
     this.customerPool = new SpritePool(this.registry, 'customer', this.actorLayer);
+    // Set LAST: reconcileStations() reads this to decide whether an arriving
+    // station gets an install beat, and it runs in the same frame as build().
+    // Setting it first made the whole opening kitchen drop out of the ceiling.
+    this.built = true;
     this.customerAltPool = new SpritePool(this.registry, 'customerAlt', this.actorLayer);
     this.foodPool = new SpritePool(this.registry, 'food', this.actorLayer);
     this.steamPool = new SpritePool(this.registry, 'steam', this.fxLayer);
@@ -270,7 +273,7 @@ export class Scene {
       const step = state.graphs.get(job.recipeId)?.steps.get(job.stepId);
       if (!step) continue;
 
-      const split = attentionSplit(step);
+      const split = attentionSplit(step, job.batch);
       if (split.cook <= 0 && job.phase !== 'finish') {
         // Nothing visibly cooks at an assembly bench. Draw the item only once
         // it exists, being carried.
@@ -338,7 +341,7 @@ export class Scene {
           RENDER.MOTION.bobPixels
         : Math.sin((this.elapsed + phase) * 0.8) * 0.4;
 
-      sprite.position.set(at.x, at.y + RENDER.TILE_DEPTH * 0.4 - bob);
+      sprite.position.set(at.x, at.y + camera.tileDepth * 0.4 - bob);
       sprite.zIndex = depthSort(staff.y);
     });
   }

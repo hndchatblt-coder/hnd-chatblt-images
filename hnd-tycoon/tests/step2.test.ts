@@ -129,26 +129,40 @@ describe('STEP 2 — the DAG resolves dependencies correctly', () => {
 
 describe('STEP 2 — an order is served only once every step has completed', () => {
   it('completes patty, bun and garnish before assemble, and assemble before plate', () => {
-    // Watch actual execution, not the declared graph: poll the job table each
-    // tick and record which step finished when. A scheduler bug that plated
-    // thin air would pass a graph test and fail this one.
+    // Watch actual execution, not the declared graph: wrap the buffer and
+    // record every unit as it is produced. A scheduler bug that plated thin
+    // air would pass a graph test and fail this one.
+    //
+    // Sampling state once per tick would be wrong in both directions: garnish
+    // takes 1.5s so it can be made between two samples, and a patty is
+    // consumed by assembly the instant it exists so it may never be seen
+    // sitting in stock at all. Only the event is reliable.
     const world = buildScenario({ seed: 7, arrivalsPerHour: 4 });
-    const completedAt = new Map<string, number>();
-    let live = new Map<string, string>();
+    const madeAt = new Map<string, number>();
+    const stock = world.state.stock;
+    const realAdd = stock.add.bind(stock);
+    let now = 0;
+    (stock as { add: typeof stock.add }).add = (item, units, at, fresh, cents) => {
+      if (!madeAt.has(item as string)) madeAt.set(item as string, now);
+      realAdd(item, units, at, fresh, cents);
+    };
 
-    for (let tick = 0; tick < TICKS_PER_GAME_HOUR * 24; tick++) {
-      const before = live;
+    for (now = 0; now < TICKS_PER_GAME_HOUR * 24; now++) {
       world.tick();
-      live = new Map([...world.state.jobs.values()].map((j) => [j.id, j.stepId]));
-      for (const [jobId, stepId] of before) {
-        if (!live.has(jobId) && !completedAt.has(stepId)) completedAt.set(stepId, tick);
-      }
-      if (world.state.day.served > 0 && completedAt.has('plate')) break;
+      if (madeAt.has('servedBurger')) break;
     }
+
+    const completedAt = new Map<string, number>([
+      ['patty', madeAt.get('patty') ?? NaN],
+      ['bun', madeAt.get('toastedBun') ?? NaN],
+      ['garnish', madeAt.get('garnish') ?? NaN],
+      ['assemble', madeAt.get('assembledBurger') ?? NaN],
+      ['plate', madeAt.get('servedBurger') ?? NaN],
+    ]);
 
     const at = (id: string): number => {
       const t = completedAt.get(id);
-      expect(t, `step "${id}" never completed`).toBeDefined();
+      expect(Number.isFinite(t), `step "${id}" never produced anything`).toBe(true);
       return t as number;
     };
 

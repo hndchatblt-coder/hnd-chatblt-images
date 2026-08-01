@@ -26,6 +26,7 @@ interface Readout {
   cashCents: number;
   covers: number;
   waiting: number;
+  balked: number;
   open: boolean;
   bottleneck: string;
   bottleneckKind: string;
@@ -36,6 +37,7 @@ const EMPTY: Readout = {
   cashCents: 0,
   covers: 0,
   waiting: 0,
+  balked: 0,
   open: false,
   bottleneck: 'Opening up',
   bottleneckKind: 'demand',
@@ -46,6 +48,7 @@ export function App(): JSX.Element {
   const [speed, setSpeed] = useState(1);
   const [shopOpen, setShopOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [booted, setBooted] = useState(false);
   const [readout, setReadout] = useState<Readout>(EMPTY);
 
   useEffect(() => {
@@ -54,14 +57,16 @@ export function App(): JSX.Element {
       if (!g) return;
       const state = g.world.state;
       setReadout({
-        clock: g.world.clock.format(),
+        clock: g.world.clock.format().replace(/^D(\d+)\s/, 'D$1 · '),
         cashCents: state.ledger.cash.cents,
         covers: state.day.served,
         waiting: [...state.customers.values()].filter((c) => c.state === 'waiting').length,
+        balked: state.day.balked,
         open: g.world.clock.isOpen,
         bottleneck: state.bottleneck?.line ?? 'Nothing is holding you back',
         bottleneckKind: state.bottleneck?.kind ?? 'demand',
       });
+      setBooted(true);
     }, 1000 / HUD_HZ);
     return () => clearInterval(id);
   }, []);
@@ -88,10 +93,10 @@ export function App(): JSX.Element {
     <div className="frame">
       <header className="topbar">
         <span className="site">LEICHHARDT</span>
-        <Money cents={readout.cashCents} />
-        <span className={readout.open ? 'trading' : 'closed'}>
-          {readout.open ? readout.clock.slice(-5) : 'CLOSED'}
-        </span>
+        {/* Nothing until the first poll: the cash readout used to spend three
+            seconds racing up from $0, which is a lie about your bank balance. */}
+        {booted ? <Money cents={readout.cashCents} /> : <span className="cash mono">&nbsp;</span>}
+        <span className={readout.open ? 'trading' : 'closed'}>{readout.clock}</span>
       </header>
 
       <div className={`bottleneck kind-${readout.bottleneckKind}`}>{readout.bottleneck}</div>
@@ -115,6 +120,14 @@ export function App(): JSX.Element {
           <div className="stat">
             <span className="label">WAITING</span>
             <span className="value mono">{readout.waiting}</span>
+          </div>
+          <div className="stat">
+            {/* §6.3: "Balk rate is a headline HUD stat — it must move before
+                reputation does." */}
+            <span className="label">WALKED</span>
+            <span className={readout.balked > 0 ? 'value mono bad' : 'value mono'}>
+              {readout.balked}
+            </span>
           </div>
           <div className="speeds">
             {[1, 2, 4].map((s) => (

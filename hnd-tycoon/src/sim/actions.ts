@@ -19,11 +19,14 @@ import type { StationType } from '@/config/recipes';
 import { footprintOf, type Placement, type Tile } from './floor';
 import { makeStation } from './entities/station';
 import { makeStaff } from './entities/staff';
-import { id, type SiteId, type StaffId } from './types';
+import { hourlyCost, JURISDICTIONS } from '@/config/economy';
+import { CALENDARS, type DayOfWeek } from '@/config/time';
+import { Cash, id, ZERO, type Money, type SiteId, type StaffId } from './types';
 import type { SimState } from './state';
 
 const NONE = 0;
 const ONE = 1;
+
 
 export interface ActionResult {
   readonly ok: boolean;
@@ -34,7 +37,7 @@ export interface ActionResult {
 }
 
 export function priceOf(state: SimState, item: CatalogueItem): number {
-  if (item.kind === 'hire') return NONE;
+  if (item.kind === 'hire') return hireCost(state).cents;
   // Each additional copy of a station costs a little more: the easy spot is
   // already taken and the second one always needs more work.
   const owned = state.stations.filter((s) => s.type === item.station).length;
@@ -52,11 +55,42 @@ export function buy(state: SimState, itemId: string): ActionResult {
 }
 
 function hire(state: SimState): ActionResult {
+  const cost = hireCost(state);
+  if (state.ledger.cash.cents < cost.cents) {
+    return { ok: false, reason: `A week up front is ${Cash.format(cost)}. Not in the account.` };
+  }
+
   const name = ROSTER[state.staff.length % ROSTER.length] ?? 'New starter';
   const staffId = id<StaffId>(`staff-${state.staff.length + ONE}`);
-  const start = state.staff[NONE]?.tile ?? { x: NONE, y: NONE };
-  state.staff.push(makeStaff(staffId, name, state.site.id as SiteId, ONE, start));
+
+  // Through the front door, as §21.2 says: "staff arrive through the door on
+  // their first shift, walk to their station". Spawning them on top of the
+  // existing cook made eight hires look like one person.
+  const door = state.floor.nearestWalkable(state.site.entryTile) ?? state.site.entryTile;
+  state.staff.push(makeStaff(staffId, name, state.site.id as SiteId, ONE, door));
+  state.ledger.post('wages', cost);
+
   return { ok: true, reason: `${name} starts today.`, installedId: staffId };
+}
+
+/**
+ * A week's wages up front. Hiring was free, unlimited and instantly
+ * unrecoverable — eight taps put a shop $156k down over 60 days with no fire
+ * action to undo it. A real cost at the moment of decision is the cheapest way
+ * to teach that labour is the biggest line in the business.
+ */
+export function hireCost(state: SimState): Money {
+  const jurisdiction = JURISDICTIONS[state.site.jurisdictionId] ?? JURISDICTIONS['nsw'];
+  if (!jurisdiction) return ZERO();
+  let week = ZERO();
+  const daysPerWeek = CALENDARS[state.site.calendarId]?.daysPerWeek ?? NONE;
+  for (let day = NONE; day < daysPerWeek; day += ONE) {
+    week = Cash.add(
+      week,
+      Cash.scale(hourlyCost(jurisdiction, day as DayOfWeek), state.site.tradingHoursPerDay),
+    );
+  }
+  return week;
 }
 
 function install(state: SimState, type: StationType, item: CatalogueItem): ActionResult {
@@ -96,13 +130,15 @@ function install(state: SimState, type: StationType, item: CatalogueItem): Actio
 export function bestSpotFor(state: SimState, type: StationType): Placement | null {
   const floor = state.floor;
   const anchors = anchorsFor(state, type);
+  // Nobody gets built over. See Floor.canPlace.
+  const standing = state.staff.map((s) => s.tile);
   let best: { at: Placement; score: number } | null = null;
 
   for (let y = NONE; y < floor.depth; y += ONE) {
     for (let x = NONE; x < floor.width; x += ONE) {
       for (const rotated of [false, true]) {
         const at: Placement = { x, y, rotated };
-        if (!floor.canPlace(type, at).ok) continue;
+        if (!floor.canPlace(type, at, undefined, standing).ok) continue;
 
         const tiles = footprintOf(type, at);
         const centre = tiles[Math.floor(tiles.length / 2)] as Tile;

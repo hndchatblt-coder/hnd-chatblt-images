@@ -93,7 +93,10 @@ export function attribute(state: SimState, hoursElapsed: number): Constraint {
   // extrapolate from. Twenty minutes in, three people in the queue becomes
   // "costing 89 covers a day" — nonsense, stated with total confidence, in the
   // one line the player is meant to trust.
-  const unserved = Math.max(NONE, day.arrived - day.served);
+  // Balkers never became arrivals, so they are invisible to `arrived - served`.
+  // They are also exactly the covers the player is losing, which makes them
+  // the most important half of this number.
+  const unserved = Math.max(NONE, day.arrived - day.served) + day.balked;
   const coversLost =
     hoursElapsed >= BOTTLENECK.MIN_HOURS_TO_EXTRAPOLATE
       ? Math.round(unserved * (state.site.tradingHoursPerDay / hoursElapsed))
@@ -176,7 +179,8 @@ export function attribute(state: SimState, hoursElapsed: number): Constraint {
   // watching sixty people wait is worse than saying nothing at all. A real
   // queue overrides, and the readout falls through to whoever is most pressed.
   const pressed = claimants.filter((c) => c.pressure >= BOTTLENECK.PRESSURE_FLOOR);
-  const queueing = state.openOrders.length > BOTTLENECK.QUEUE_IS_REAL;
+  const queueing =
+    state.openOrders.length > BOTTLENECK.QUEUE_IS_REAL || day.balked > BOTTLENECK.UNSERVED_FLOOR;
   if (pressed.length === NONE && !queueing) {
     const spare = Math.round((ONE - Math.max(staffPressure, NONE)) * 100);
     return {

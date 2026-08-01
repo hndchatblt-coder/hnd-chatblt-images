@@ -14,8 +14,10 @@
  */
 export const RENDER = {
   /** Portrait dev frame. §12 — this is the target, not a preview size. */
-  FRAME_WIDTH: 390,
-  FRAME_HEIGHT: 844,
+  FRAME_WIDTH: 430,
+  FRAME_HEIGHT: 1000,
+  /** Below this the room stops shrinking and the player scrolls instead. */
+  MIN_FRAME_HEIGHT: 480,
 
   /**
    * A floor tile: wider than it is deep. The foreshortening IS the lean.
@@ -60,8 +62,22 @@ export const RENDER = {
     skirting: 5,
   },
 
-  /** Where the grid sits in the frame. Leaves the top bar and thumb zone free. */
+  /** Fallback grid origin, before the camera has measured the viewport. */
   ORIGIN_X: 15,
+  SIDE_MARGIN: 12,
+  /** Depth as a fraction of width. Below 1 is the whole oblique lean. */
+  DEPTH_RATIO: 0.78,
+  MIN_TILE_DEPTH: 16,
+
+  /**
+   * Screen space the HUD owns and the floor must not be drawn under. The
+   * street and the queue were being rendered beneath the bottom bar, which
+   * hid 100% of the street and all but eight pixels of the first customer.
+   */
+  CHROME: {
+    top: 96,
+    bottom: 150,
+  },
   /**
    * Screen y of grid row 0 — the door end. The street and the queue live
    * below it, which is why it is not at the bottom of the frame.

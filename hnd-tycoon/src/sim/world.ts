@@ -25,6 +25,8 @@ export interface System {
   onClose?(world: World): void;
   /** Called on the tick payroll lands. */
   onPayroll?(world: World): void;
+  /** Called once per cycle, trading or not. Standing costs live here. */
+  onDayEnd?(world: World): void;
 }
 
 export interface DayReport {
@@ -111,6 +113,7 @@ export class World {
     if (this.clock.isOpeningTick()) this.openDay();
     for (const s of this.systems) s.tick?.(this);
     if (this.clock.isPayrollTick()) for (const s of this.systems) s.onPayroll?.(this);
+    if (this.clock.isCycleEndTick()) for (const s of this.systems) s.onDayEnd?.(this);
     if (this.clock.isClosingTick()) this.closeDay();
     this.clock.advance();
   }

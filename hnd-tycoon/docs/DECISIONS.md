@@ -447,3 +447,121 @@ The more useful half is the refusal. When there is nowhere legal:
 Leichhardt has five tiles in the entire building with both. That message is the
 building explaining its own constraint, and it teaches §7.1 better than any
 tutorial would.
+
+---
+
+## D026 — the audit, and what it found
+**Post-step-8. Status: active.**
+
+Ben played the step 6–8 build and said "it doesn't feel right". Five independent
+audits (design, simulation, spec fidelity, player experience, economy) were run
+against the build. The findings converge on one thing:
+
+**Nothing the player does changed revenue.** Not approximately — *byte-identically*.
+Total revenue over 28 days was the same to the cent with one staffer or three,
+and all six catalogue items produced a revenue delta of exactly $0. Doing nothing
+was the dominant strategy by 2.4x over hiring.
+
+Root cause: **no balking, and a kitchen that ran 24 hours**. 100% of arrivals
+converted at any load below ~150/hr, because anyone who queued was eventually
+served — overnight if necessary, on unpaid labour. So serving faster had no
+economic meaning, which made every purchase a pure cash burn.
+
+This is also why the audit protocol exists and why skipping it cost so much:
+`docs/AUDIT.md` Q1 is "name a decision where both options are defensible". It
+was answered in prose at step 4 and never re-measured once money existed.
+
+---
+
+## D027 — §6.3 balking, and why the queue estimate divides by headcount
+**Post-audit. Status: active.**
+
+`pBalk = clamp((estWait - patience) / patienceWindow, 0, 0.95)`, with the
+estimate a customer can actually make from the footpath: how many people are
+ahead of them, times how fast the queue is moving.
+
+**The queue moves faster with more hands**, so the per-person estimate is
+divided by staff count. That division is the entire causal chain the economy
+hangs off — more staff, faster queue, fewer walkouts, more revenue. Without it
+hiring cannot pay for itself at any demand rate, which is exactly what the
+audit measured.
+
+Result at 85 arrivals/hr over 60 days: hiring one person now returns $450,878
+against $386,753 for doing nothing, because balks fall from 10,078 to 232.
+**The first genuine decision in the game.**
+
+At the shipped 14 arrivals/hr nothing still dominates — see Q12.
+
+---
+
+## D028 — attention is per ITEM, not per batch
+**Post-audit. Status: active. Answers the question Ben told me to read the spec for.**
+
+§14.1: *"A grill patty is 90 seconds of cooking but only ~22 seconds of human
+attention."* Singular patty, on a grill whose batch size is four. Four patties
+cook together in ninety seconds and each one is still pressed, flipped and
+pulled.
+
+Charging a batch of four the same hands as a batch of one is what let a single
+cook absorb 600+ covers a day at 25% occupancy.
+
+This required a second distinction the spec implies but never states: **a batch
+is simultaneous on a grill, fryer or toaster and sequential everywhere else.**
+Four patties share one window; four garnishes are chopped one after another.
+`SIMULTANEOUS_BATCH` in `config/stations.ts`. With both in place §7's stated
+numbers reproduce exactly — garnish 12s for a batch of eight, bun 25s for six,
+patty 90s for four.
+
+---
+
+## D029 — bugs the audit found that the gates did not
+**Post-audit. Status: fixed.**
+
+1. **Buying could permanently strand a staffer.** `canPlace` never checked
+   whether a person was standing on the tile, and `pathTiles` returns Infinity
+   from an unwalkable origin. 17 of 300 real purchases stranded someone, 5
+   permanently — covers went 322 to 0 with no recovery. Now: placement refuses,
+   and pathing falls back to the nearest walkable tile so nobody can be
+   geometrically deleted.
+2. **The staff tick budget was refunded whenever a job started cooking.** The
+   `setup -> cooking` transition `continue`d past the budget write-back, making
+   travel and setup free — up to 26% of a shift at high load. Same shape as the
+   "walking was free" bug fixed at step 4, one branch over.
+3. **Packaging was charged twice**, netted off revenue and posted to COGS.
+4. **Rent, insurance and the POS were only charged on trading days**, so a shut
+   Sunday refunded a seventh of the lease. Moved to a per-cycle hook.
+5. **The install beat fired on the opening kitchen**, because `build()` set its
+   own flag before `reconcileStations()` read it. The comment directly above it
+   said the kitchen you start with did not fall out of the sky. It did.
+6. **The whole HUD was off-screen on any viewport under 844px** — a fixed
+   canvas with no resize listener. Most phones, once a browser toolbar shows.
+   The camera now fits the room to the device.
+7. **The street and the entire customer queue rendered under the opaque bottom
+   bar.** 100% of the street; all but eight pixels of the first customer.
+8. **Toasts rendered behind the shop sheet**, so no purchase feedback was ever
+   visible. **Unaffordable buttons were `disabled`**, so the browser swallowed
+   the tap and the best refusal message in the game was unreachable.
+9. **Hiring was free, unlimited and unrecoverable.** Now costs a week up front,
+   and staff arrive through the front door rather than on top of each other.
+10. **Balkers were invisible to the bottleneck's covers-lost figure**, which is
+    exactly the number they are.
+
+---
+
+## D030 — `reconcile()` was a tautology and D023's mutation claim was false
+**Post-audit. Status: OPEN — not yet fixed.**
+
+`Ledger.reconcile()` re-derives cash from the same account lists `post()`
+maintains, so it is algebraically zero for every input. An auditor proved it
+against four bug classes it claims to catch — a cost never posted, an expense
+posted twice, revenue with the wrong sign, an expense posted as revenue — all
+return zero.
+
+D023 claimed "mutation-tested — making waste a real expense fails the
+reconciliation gate". **That is false.** The mutation I ran moved `waste` out of
+both lists, which broke a different invariant; moving it into `EXPENSES` — the
+actual double-charge — passes. The packaging double-charge (D029.3) sat inside a
+30-day run reconciling to exactly zero.
+
+The fix is to reconcile against figures re-derived from sim state rather than
+from the ledger's own postings. Not done yet. Logged so it is not forgotten.

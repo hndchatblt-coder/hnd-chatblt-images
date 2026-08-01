@@ -16,6 +16,7 @@ import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
 import { Scene } from './scene/Scene';
 import { ShapeRegistry } from './shapes/ShapeRegistry';
+import { camera, fitCamera } from './projection';
 
 const TICK_SECONDS = 1 / TIME.TICK_HZ;
 
@@ -24,6 +25,8 @@ export class Game {
   world: World;
   private scene!: Scene;
   private registry!: ShapeRegistry;
+  private host: HTMLElement | null = null;
+  private onResize: (() => void) | null = null;
   private accumulator = 0;
   private speed = 1;
   private running = true;
@@ -33,9 +36,13 @@ export class Game {
   }
 
   async start(canvasHost: HTMLElement): Promise<void> {
+    this.host = canvasHost;
+    const size = this.measure();
+    Object.assign(camera, fitCamera(size.width, size.height, this.floorWidth, this.floorDepth));
+
     await this.app.init({
-      width: RENDER.FRAME_WIDTH,
-      height: RENDER.FRAME_HEIGHT,
+      width: size.width,
+      height: size.height,
       background: BRAND.street.night,
       antialias: true,
       autoDensity: true,
@@ -47,6 +54,12 @@ export class Game {
     this.registry.bake();
     this.scene = new Scene(this.registry);
     this.app.stage.addChild(this.scene.root);
+
+    // The room has to fit the phone, and phones change size when the browser
+    // toolbar slides away or the device rotates.
+    this.onResize = () => this.resize();
+    globalThis.addEventListener?.('resize', this.onResize);
+    globalThis.addEventListener?.('orientationchange', this.onResize);
 
     // Open on a day that is worth watching. Day 0 is a Sunday and trade starts
     // at 11:00; dropping the player into an empty room at 3am would be an
@@ -87,6 +100,40 @@ export class Game {
     return buy(this.world.state, itemId);
   }
 
+  private get floorWidth(): number {
+    return this.world.state.floor.width;
+  }
+
+  private get floorDepth(): number {
+    return this.world.state.floor.depth;
+  }
+
+  private measure(): { width: number; height: number } {
+    const width = Math.min(
+      this.host?.clientWidth || RENDER.FRAME_WIDTH,
+      RENDER.FRAME_WIDTH,
+    );
+    const height = Math.max(
+      RENDER.MIN_FRAME_HEIGHT,
+      Math.min(globalThis.innerHeight || RENDER.FRAME_HEIGHT, RENDER.FRAME_HEIGHT),
+    );
+    return { width: Math.round(width), height: Math.round(height) };
+  }
+
+  /** Re-fit and re-bake. Textures are sized to the tile, so both must change. */
+  private resize(): void {
+    const size = this.measure();
+    if (size.width === this.app.renderer.width && size.height === this.app.renderer.height) return;
+    Object.assign(camera, fitCamera(size.width, size.height, this.floorWidth, this.floorDepth));
+    this.app.renderer.resize(size.width, size.height);
+    this.scene.destroy();
+    this.registry.destroy();
+    this.registry = new ShapeRegistry(this.app.renderer);
+    this.registry.bake();
+    this.scene = new Scene(this.registry);
+    this.app.stage.addChild(this.scene.root);
+  }
+
   setSpeed(speed: number): void {
     this.speed = speed;
   }
@@ -96,6 +143,10 @@ export class Game {
   }
 
   destroy(): void {
+    if (this.onResize) {
+      globalThis.removeEventListener?.('resize', this.onResize);
+      globalThis.removeEventListener?.('orientationchange', this.onResize);
+    }
     this.app.ticker.stop();
     this.scene?.destroy();
     this.registry?.destroy();

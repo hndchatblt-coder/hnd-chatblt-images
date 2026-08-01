@@ -93,18 +93,23 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         output: 'toastedBun' as ItemId,
         freshnessWindow: 180,
         consumes: { bun: 1 },
-        attention: attn(5, 2, 3, true),
+        // Per bun, not per tray: dropping one in and taking one out. The
+        // conveyor toaster (§14.2) removes the step entirely.
+        attention: attn(1.5, 0.5, 1, true),
       },
       {
         id: 'garnish',
         station: 'prep',
-        duration: 12,
+        duration: 1.5,
         batchSize: 8,
         dependsOn: [],
         output: 'garnish' as ItemId,
         freshnessWindow: 1200,
         consumes: { salad: 0.05 },
-        attention: attn(4, 6, 2, false),
+        // Prep is entirely hands-on and sequential: §7's "12s, batch 8" is
+        // 1.5 seconds per serve, done one after another, with nothing to walk
+        // away from.
+        attention: attn(0.5, 0.75, 0.25, false),
       },
       {
         id: 'assemble',

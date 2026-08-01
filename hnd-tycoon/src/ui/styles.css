@@ -79,7 +79,7 @@ html, body {
 }
 
 .stat { display: flex; flex-direction: column; gap: 2px; }
-.label { font-size: 9px; letter-spacing: 0.16em; color: var(--ink-muted); }
+.label { font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-muted); }
 .value { font-size: 26px; line-height: 1; font-weight: 600; }
 
 .speeds { margin-left: auto; display: flex; gap: 6px; }
@@ -207,7 +207,9 @@ html, body {
   border-radius: 12px;
   background: #232a31;
 }
-.shop-row.broke { opacity: 0.45; }
+.shop-row.broke { opacity: 0.72; }
+/* Dim the row, never the reason you want it. */
+.shop-row.broke .shop-blurb, .shop-row.broke .shop-costs { opacity: 0.8; }
 .shop-text { flex: 1; min-width: 0; }
 .shop-title { font-size: 14.5px; font-weight: 650; display: flex; align-items: baseline; gap: 8px; }
 .owned {
@@ -219,10 +221,10 @@ html, body {
 .shop-blurb { margin-top: 3px; font-size: 12px; line-height: 1.4; color: #b9b4aa; }
 .shop-costs {
   margin-top: 5px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #8a8580;
+  color: #a49e97;
 }
 .buy {
   min-width: 78px;
@@ -236,15 +238,21 @@ html, body {
   transition: transform 90ms ease;
 }
 .buy:active { transform: scale(0.95); }
-.buy:disabled { background: #2f3841; color: var(--ink-muted); }
+/* Not `disabled` — the browser swallows taps on disabled buttons before any
+   code runs, which made the best refusal messages in the game unreachable. */
+.buy.cant { background: #2f3841; color: #cfc9c1; }
 
 /* --- Toast: every tap gets an answer, including the refusals. ----------- */
 .toast {
-  position: absolute;
+  position: fixed;
   left: 14px;
   right: 14px;
-  bottom: 132px;
-  z-index: 5;
+  bottom: 24px;
+  /* Above the shop sheet (z 10). Every purchase message used to render behind
+     it, so the only feedback a player got was a price number changing. */
+  z-index: 30;
+  max-width: 402px;
+  margin: 0 auto;
   padding: 11px 14px;
   border-radius: 10px;
   background: rgba(30, 37, 44, 0.96);
@@ -258,3 +266,5 @@ html, body {
   .sheet, .toast { animation: none; }
   .shop-open, .buy, .speed { transition: none; }
 }
+
+.value.bad { color: #d6453a; }

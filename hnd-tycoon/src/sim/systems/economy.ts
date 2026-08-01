@@ -77,13 +77,6 @@ export class EconomySystem implements System {
       ledger.post('utilities', Cash.scale(ECONOMY.UTILITIES_PER_RUN_HOUR[kind], hours));
     }
 
-    // Rent, insurance and the POS subscription, spread daily so a week's
-    // trading is legible against a week's fixed costs.
-    const perDay = (weekly: Money): Money => Cash.scale(weekly, 1 / world.clock.daysPerWeek);
-    ledger.post('rent', perDay(state.site.weeklyRent));
-    ledger.post('overheads', perDay(ECONOMY.INSURANCE_PER_WEEK));
-    ledger.post('overheads', perDay(ECONOMY.POS_PER_WEEK));
-
     // The bank, if you are under. §8 — cash can go negative.
     if (Cash.isNegative(ledger.cash)) {
       const daily = ECONOMY.OVERDRAFT_ANNUAL_RATE / ECONOMY.DAYS_PER_YEAR;
@@ -94,6 +87,20 @@ export class EconomySystem implements System {
     world.record('revenue', Cash.major(ledger.today('revenue')).toFixed(0));
     world.record('cogs%', percent(ledger.today('cogs'), ledger.today('revenue')));
     world.record('waste%', percent(ledger.today('waste'), ledger.today('revenue')));
+  }
+
+  /**
+   * Standing costs arrive whether you trade or not — that is what makes them
+   * standing costs. Posting them at close meant a shut Sunday refunded a
+   * seventh of the lease, which handed the "is Sunday worth opening" question
+   * $1,459 of phantom savings per four weeks.
+   */
+  onDayEnd(world: World): void {
+    const ledger = world.state.ledger;
+    const perDay = (weekly: Money): Money => Cash.scale(weekly, 1 / world.clock.daysPerWeek);
+    ledger.post('rent', perDay(world.state.site.weeklyRent));
+    ledger.post('overheads', perDay(ECONOMY.INSURANCE_PER_WEEK));
+    ledger.post('overheads', perDay(ECONOMY.POS_PER_WEEK));
   }
 
   /** §8: wages are paid Sunday 23:00 as a lump. */

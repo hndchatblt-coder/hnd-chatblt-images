@@ -166,3 +166,37 @@ changing tile size would break every footprint at once.
 
 A rough width and depth in metres for each of the three shops is all that is
 needed. Part of Q3.
+
+## Q12 — one cook is ~5x too productive, and that is now the only thing left `OPEN — blocks the whole economy`
+
+After the audit fixes, hiring pays for itself at 85 arrivals/hour and does not
+at the shipped 14. Break-even sits somewhere around 70.
+
+The shipped rate is not the problem — raising it to 70 would mean 770 covers a
+day out of one small room, which is absurd. **The problem is that one modelled
+cook absorbs 152 covers a day at roughly 20% occupancy.** That is about 55
+covers per labour-hour; a real quick-service kitchen runs 6–12.
+
+The gap is that the sim models the cook line and nothing else. Real hospitality
+labour is mostly *not* cooking: taking orders, packing, restocking, prep before
+service, cleaning after it, and simply being there through the quiet hours.
+
+Three ways out, and this one is genuinely yours because it decides what the game
+is about:
+
+1. **Build the register (§7.1, §12).** It is in the spec, it is not built, and
+   it adds unavoidable per-customer labour at the front of house. Most faithful,
+   most work, and it makes the front half of the shop — currently empty floor —
+   mean something.
+2. **Add a fixed daily labour requirement.** Open, prep, clean, close. Models
+   the real shape (labour that does not scale with covers) in one config value.
+   Cheapest, and it is honest about why a quiet Monday still costs you a wage.
+3. **Just scale up per-cover attention.** Fastest, least honest, and it makes
+   every §7 prep time disagree with the spec.
+
+My recommendation is 2 then 1: the fixed daily requirement immediately makes 150
+covers a day need two or three people, and the register then earns its place as
+a real station rather than as a balance patch.
+
+Answer this and the shop stops being a trap at the rate the game actually ships
+at.

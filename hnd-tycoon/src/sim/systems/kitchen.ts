@@ -44,7 +44,7 @@
  */
 import { KITCHEN } from '@/config/kitchen';
 import { chargeIngredients } from './economy';
-import { walkSeconds } from '@/config/stations';
+import { SIMULTANEOUS_BATCH, walkSeconds } from '@/config/stations';
 import type { Step } from '@/config/recipes';
 import { GAME_SECONDS_PER_TICK } from '../clock';
 import type { Tile } from '../floor';
@@ -73,7 +73,7 @@ interface Candidate {
  * you flip it while it is cooking — so the three parts still sum to `duration`
  * and no time is invented.
  */
-export function attentionSplit(step: Step): {
+export function attentionSplit(step: Step, batch = ONE): {
   setup: number;
   cook: number;
   finish: number;
@@ -82,9 +82,23 @@ export function attentionSplit(step: Step): {
   if (!KITCHEN.UNATTENDED_COOKING) {
     return { setup: step.duration, cook: NONE, finish: NONE };
   }
-  const finish = tendSeconds + teardownSeconds;
-  const cook = Math.max(NONE, step.duration - setupSeconds - finish);
-  return { setup: setupSeconds, cook, finish };
+
+  // **Attention is per ITEM, elapsed time is per BATCH.** §14.1: "a grill patty
+  // is 90 seconds of cooking but only ~22 seconds of human attention" —
+  // singular patty, on a grill whose batch size is four. Four patties cook
+  // together in 90 seconds and each one still has to be pressed, flipped and
+  // pulled. Treating attention as per-batch made a batch of four cost the same
+  // hands as a batch of one, which is what let a single cook absorb 600+
+  // covers a day at 25% occupancy and made every hire negative-EV.
+  const units = Math.max(ONE, batch);
+  const setup = setupSeconds * units;
+  const finish = (tendSeconds + teardownSeconds) * units;
+
+  // Elapsed time scales with the batch only where the work is sequential.
+  // A grill's ninety seconds covers the whole tray; a prep bench's does not.
+  const perBatch = SIMULTANEOUS_BATCH[step.station] ? step.duration : step.duration * units;
+  const cook = Math.max(NONE, perBatch - setup - finish);
+  return { setup, cook, finish };
 }
 
 /**
@@ -120,6 +134,12 @@ export class KitchenSystem implements System {
 
   tick(world: World): void {
     const state = world.state;
+    // Nothing NEW starts after the shutters come down, but whatever is already
+    // on means the last orders get finished. Running the kitchen around the
+    // clock made after-hours labour free — wages stop accruing at close — and
+    // let a hopeless backlog quietly clear itself overnight, which is why
+    // serving faster had no economic value at any demand rate.
+    state.tradingOpen = world.clock.isOpen;
     const budget = new Map<StaffId, number>();
     for (const staff of state.staff) budget.set(staff.id, GAME_SECONDS_PER_TICK);
 
@@ -253,6 +273,11 @@ export class KitchenSystem implements System {
             job.phase = 'cooking';
             staff.jobId = null;
             job.staffId = null;
+            // Write the budget back BEFORE leaving the loop body, or the
+            // travel and setup this staffer just spent are refunded to them.
+            // Same shape as the "walking was free" bug, one branch over: it
+            // was handing back up to 26% of a shift at high load.
+            budget.set(staff.id, available);
             continue;
           }
           job.phase = 'finish';
@@ -415,6 +440,8 @@ export class KitchenSystem implements System {
         a.step.id.localeCompare(b.step.id),
     );
 
+    if (!state.tradingOpen) return false;
+
     let started = false;
     for (const candidate of candidates) {
       while (candidate.net > NONE) {
@@ -498,7 +525,7 @@ export class KitchenSystem implements System {
       ? this.nearestStation(state, consumer.station, workTile, false)
       : null;
     const carryTiles = delivery ? state.floor.pathTiles(workTile, delivery.at) : NONE;
-    const split = attentionSplit(candidate.step);
+    const split = attentionSplit(candidate.step, batch);
     // Holding cabinets extend how long the output stays good. §14.2 tier 1 —
     // they buy nothing on their own, only in combination with a decision to
     // cook ahead.

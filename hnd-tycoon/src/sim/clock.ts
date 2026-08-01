@@ -87,6 +87,11 @@ export class Clock {
     return this.ticks % this.ticksPerCycle === Math.round(openHours.close * TICKS_PER_GAME_HOUR);
   }
 
+  /** The last tick of a cycle, whether or not the shop opened that day. */
+  isCycleEndTick(): boolean {
+    return this.ticks % this.ticksPerCycle === this.ticksPerCycle - 1;
+  }
+
   /** True on the single tick payroll lands. DESIGN.md §8. */
   isPayrollTick(): boolean {
     return (

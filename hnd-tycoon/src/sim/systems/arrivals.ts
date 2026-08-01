@@ -12,6 +12,7 @@
  * `ratePerHour` at step 10, and nothing here changes when they do.
  */
 import { DEMAND, type MenuMixEntry, type RushWindow } from '@/config/demand';
+import { TIME } from '@/config/time';
 import { TICKS_PER_GAME_HOUR } from '../clock';
 import type { Rng } from '../rng';
 import type { System, World } from '../world';
@@ -58,8 +59,32 @@ export class ArrivalsSystem implements System {
     return inWindow ? this.rush.multiplier : ONE;
   }
 
+  /**
+   * §6.3. A customer looks at the queue and decides. The estimate is the one
+   * they can actually make from the footpath — how many people are ahead of
+   * them — not anything the kitchen knows.
+   */
+  private balks(world: World): boolean {
+    const queue = world.state.openOrders.length;
+    const hands = Math.max(ONE, world.state.staff.length);
+    const estWaitMinutes =
+      (queue * (DEMAND.BALK.secondsPerQueuedPersonPerStaff / hands)) / TIME.SECONDS_PER_MINUTE;
+    const over = estWaitMinutes - DEMAND.BALK.patienceMinutes;
+    if (over <= NONE) return false;
+    const p = Math.min(
+      DEMAND.BALK.maxProbability,
+      over / DEMAND.BALK.patienceWindowMinutes,
+    );
+    return this.stream(world).bool(p);
+  }
+
   private walkIn(world: World): void {
     const state = world.state;
+    if (this.balks(world)) {
+      state.day.balked += ONE;
+      state.balked += ONE;
+      return;
+    }
     const choice = pickFromMix(this.stream(world), DEMAND.MENU_MIX);
     const graph = state.graphs.get(id<RecipeId>(choice.recipeId));
     if (!graph) throw new Error(`Menu mix references unknown recipe: ${choice.recipeId}`);

@@ -20,6 +20,7 @@ import { Container, Graphics, Sprite, Texture, type Renderer } from 'pixi.js';
 import { BRAND } from '@/config/brand';
 import { RENDER } from '@/config/render';
 import type { StationType } from '@/config/recipes';
+import { camera } from '../projection';
 
 export type ShapeKey = string;
 
@@ -41,8 +42,8 @@ export class ShapeRegistry {
 
   /** Everything the shop needs, baked at boot. */
   bake(): void {
-    const tw = RENDER.TILE_WIDTH;
-    const td = RENDER.TILE_DEPTH;
+    const tw = camera.tileWidth;
+    const td = camera.tileDepth;
 
     this.bakeGraphics('floor', (g) => {
       g.rect(0, 0, tw, td).fill(BRAND.interior.floor);
@@ -166,7 +167,7 @@ export class ShapeRegistry {
   }
 
   private bakeWall(): void {
-    const tw = RENDER.TILE_WIDTH;
+    const tw = camera.tileWidth;
     const kit = BRAND.equipment;
 
     // Tiled splashback. Grubby, not clinical. It has to read as a WALL and not
@@ -205,8 +206,8 @@ export class ShapeRegistry {
 
     // A soft radial wash, baked once. A hard-edged ellipse reads as a bug.
     this.bakeGraphics('glow', (g) => {
-      const rx = RENDER.GLOW.radiusTiles * RENDER.TILE_WIDTH;
-      const ry = RENDER.GLOW.radiusTiles * RENDER.TILE_DEPTH * 1.6;
+      const rx = RENDER.GLOW.radiusTiles * camera.tileWidth;
+      const ry = RENDER.GLOW.radiusTiles * camera.tileDepth * 1.6;
       for (let i = RENDER.GLOW.rings; i > 0; i--) {
         const t = i / RENDER.GLOW.rings;
         g.ellipse(rx, ry, rx * t, ry * t).fill({
@@ -234,15 +235,15 @@ export class ShapeRegistry {
     // Service points, drawn into the floor so the constraint is visible before
     // the player hits it.
     this.bakeGraphics('service', (g) => {
-      g.rect(0, 0, RENDER.TILE_WIDTH, 3).fill({ color: BRAND.equipment.pilot, alpha: 0.28 });
+      g.rect(0, 0, camera.tileWidth, 3).fill({ color: BRAND.equipment.pilot, alpha: 0.28 });
     });
   }
 
   // --- Baking -----------------------------------------------------------
 
   private bakeBox(key: ShapeKey, spec: BoxSpec): void {
-    const w = spec.widthTiles * RENDER.TILE_WIDTH;
-    const d = spec.depthTiles * RENDER.TILE_DEPTH;
+    const w = spec.widthTiles * camera.tileWidth;
+    const d = spec.depthTiles * camera.tileDepth;
     this.bakeGraphics(key, (g) => {
       // Front face first, so the top face overlaps it cleanly.
       g.rect(0, d, w, spec.height).fill(spec.front);

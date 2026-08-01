@@ -45,6 +45,8 @@ export interface DayAccumulator {
   workSeconds: number;
   /** Units binned for going past saving. §7.3. */
   wasteUnits: number;
+  /** Customers who looked at the queue and walked. §6.3 — a headline stat. */
+  balked: number;
 }
 
 export function emptyDay(): DayAccumulator {
@@ -57,6 +59,7 @@ export function emptyDay(): DayAccumulator {
     walkSeconds: NONE,
     workSeconds: NONE,
     wasteUnits: NONE,
+    balked: NONE,
   };
 }
 
@@ -89,6 +92,10 @@ export interface SimState {
   ingredientTier: keyof typeof ECONOMY.INGREDIENT_TIERS;
   /** The current answer to "what is holding me back". §13 */
   bottleneck: Constraint | null;
+  /** Whether the shutters are up. The kitchen starts no new work when false. */
+  tradingOpen: boolean;
+  /** Customers who took one look at the queue and kept walking. §6.3 */
+  balked: number;
   day: DayAccumulator;
   counters: { customer: number; order: number; job: number };
 }
@@ -149,6 +156,8 @@ export function createState(opts: StateOptions = {}): SimState {
     lastPayroll: ZERO(),
     ingredientTier: opts.ingredientTier ?? 'standard',
     bottleneck: null,
+    tradingOpen: false,
+    balked: NONE,
     day: emptyDay(),
     counters: { customer: NONE, order: NONE, job: NONE },
   };

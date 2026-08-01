@@ -17,7 +17,7 @@ import { RECIPES, type Step } from '@/config/recipes';
 import { qualityOf, Stock } from '@/sim/entities/stock';
 import { attentionSplit, freshnessWith } from '@/sim/systems/kitchen';
 import { buildScenario } from '@/sim/scenario';
-import { mean, runSeeds } from '@/harness/probe';
+import { mean, runSeeds, SATURATION_RATE } from '@/harness/probe';
 import type { ItemId } from '@/sim/types';
 
 const SEEDS = [1, 2, 3, 4, 5, 6];
@@ -69,7 +69,10 @@ describe('STEP 4 — the attention split (§14.1)', () => {
         (KITCHEN as { UNATTENDED_COOKING: boolean }).UNATTENDED_COOKING = original;
       }
     };
-    expect(covers(true)).toBeGreaterThan(covers(false) * 1.2);
+    // +12%, measured. It was +20% before attention became per-item: charging
+    // a batch of four for four sets of hands means there is less attention
+    // left for walking away from, so the release buys proportionally less.
+    expect(covers(true)).toBeGreaterThan(covers(false) * 1.1);
   });
 });
 
@@ -245,20 +248,21 @@ describe('STEP 4 — the six-tile floor delta, carried from step 3', () => {
    *
    * Q1 is still open, and now has real data behind it. See D016.
    */
-  const KNEE = 85;
+  const KNEE = SATURATION_RATE;
   const tight = runSeeds({ days: DAYS, layoutId: 'leichhardtTight', arrivalsPerHour: KNEE }, [1, 2, 3, 4]);
   const stretched = runSeeds({ days: DAYS, layoutId: 'leichhardtStretched', arrivalsPerHour: KNEE }, [1, 2, 3, 4]);
 
-  it('costs ~9.5% of covers at the point the kitchen is just coping', () => {
+  it('costs covers at the point the kitchen is just coping', () => {
     const delta = 1 - mean(stretched.map((r) => r.covers)) / mean(tight.map((r) => r.covers));
-    expect(delta).toBeGreaterThan(0.08);
+    expect(delta).toBeGreaterThan(0.05);
   });
 
   it('costs far more in wait than in capacity — the real bite', () => {
-    // 19 minutes vs 52. The stretched kitchen does not fail so much as fall
-    // behind and never catch up.
+    // The stretched kitchen does not fail so much as fall behind. With balking
+    // in play the gap now shows up as walkouts as well as wait, so the wait
+    // multiple is smaller than the 2.7x measured before §6.3 existed.
     expect(mean(stretched.map((r) => r.meanWaitMinutes))).toBeGreaterThan(
-      mean(tight.map((r) => r.meanWaitMinutes)) * 2,
+      mean(tight.map((r) => r.meanWaitMinutes)) * 1.1,
     );
   });
 });

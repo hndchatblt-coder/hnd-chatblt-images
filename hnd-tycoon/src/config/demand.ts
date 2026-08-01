@@ -54,4 +54,39 @@ export const DEMAND = {
 
   /** The rush the step 4 gate cooks ahead of. Two hours at triple rate. */
   TEST_RUSH: { fromHour: 18, toHour: 20, multiplier: 3 } as RushWindow,
+
+  /**
+   * §6.3. Balking is what makes speed worth money.
+   *
+   *   estWait = queueLength * currentAvgServiceTime
+   *   pBalk   = clamp((estWait - patience) / patienceWindow, 0, 0.95)
+   *
+   * Without it 100% of arrivals convert at any load below ~150/hr — measured —
+   * so revenue was byte-identical with one staffer or three, and every item in
+   * the shop was negative expected value. This is the single term that makes
+   * the rest of the game mean anything.
+   *
+   * "Balk rate is a headline HUD stat — it must move before reputation does."
+   */
+  BALK: {
+    /** Minutes a customer will wait without minding. */
+    patienceMinutes: 6,
+    /** Minutes beyond patience over which the odds run from 0 to the cap. */
+    patienceWindowMinutes: 14,
+    /** Never certain. Somebody always chances it. */
+    maxProbability: 0.95,
+    /**
+     * Seconds of service per person already queueing, PER STAFF MEMBER on the
+     * floor — a customer judges the queue by how fast it is moving, and it
+     * moves faster with more hands.
+     *
+     * This division is the causal chain the whole economy hangs off: more
+     * staff -> the queue moves faster -> fewer people balk -> more revenue.
+     * Without it, hiring cannot pay for itself at any demand rate, which is
+     * precisely what the audit measured.
+     *
+     * 60s is the shop's own measured labour cost per cover.
+     */
+    secondsPerQueuedPersonPerStaff: 60,
+  },
 } as const;

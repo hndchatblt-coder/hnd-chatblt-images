@@ -44,7 +44,7 @@ export function Shop({ open, onClose, rows, onBuy }: ShopProps): JSX.Element | n
     if (!open) return;
     const refresh = (): void => setItems(rows());
     refresh();
-    const id = setInterval(refresh, 400);
+    const id = setInterval(refresh, 150);
     return () => clearInterval(id);
   }, [open, rows]);
 
@@ -75,8 +75,7 @@ export function Shop({ open, onClose, rows, onBuy }: ShopProps): JSX.Element | n
               </div>
               <button
                 type="button"
-                className="buy mono"
-                disabled={!affordable}
+                className={affordable ? 'buy mono' : 'buy mono cant'}
                 onClick={() => onBuy(item.id)}
               >
                 {cents === 0 ? 'Hire' : `$${Math.round(cents / 100).toLocaleString('en-AU')}`}

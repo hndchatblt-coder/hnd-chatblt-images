@@ -100,7 +100,8 @@ export const SEEDS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
  * reads as zero; far above it the stretched kitchen collapses and the delta
  * reads as whatever you like.
  *
- * It moved from 45 to 85 at step 4, when unattended cooking roughly doubled
- * what one person can get through.
+ * It moved 45 -> 85 at step 4 when unattended cooking arrived, and 85 -> 95
+ * after the audit, when attention became per-item (§14.1) and balking (§6.3)
+ * started turning people away instead of queueing them indefinitely.
  */
-export const SATURATION_RATE = 85;
+export const SATURATION_RATE = 95;

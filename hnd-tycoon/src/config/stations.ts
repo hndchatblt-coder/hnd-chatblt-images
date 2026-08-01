@@ -41,6 +41,27 @@ export const STATION_SPECS: Readonly<Record<StationType, StationSpec>> = {
   drinks: { width: 1, depth: 1, requires: [], label: 'Drinks fridge' },
 };
 
+/**
+ * Does a batch happen all at once, or one after another?
+ *
+ * A grill, a fryer and a toaster process the whole batch in one window — four
+ * patties cook in the same ninety seconds as one. A prep bench, an assembly
+ * bench and the pass are hands: four of anything takes four times as long.
+ *
+ * Getting this wrong in either direction breaks §14.1. Treat hand work as
+ * simultaneous and a batch of eight garnishes costs the same as one; treat
+ * cooking as sequential and four patties take six minutes.
+ */
+export const SIMULTANEOUS_BATCH: Readonly<Record<StationType, boolean>> = {
+  grill: true,
+  fryer: true,
+  toast: true,
+  prep: false,
+  assembly: false,
+  pass: false,
+  drinks: false,
+};
+
 export const FLOOR = {
   /** Metres per tile. §7.1. A 2×1 grill is therefore 80cm of bench. */
   TILE_METRES: 0.4,
