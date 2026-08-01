@@ -129,7 +129,6 @@ export const RENDER = {
 
   /** Customers queue outside the door, up-screen from it. */
   QUEUE: {
-    spacingPixels: 17,
     /**
      * People abreast, and how many rows of them the street can hold.
      *

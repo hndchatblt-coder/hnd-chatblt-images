@@ -815,3 +815,27 @@ from a customer being served, which is the opposite message.
 
 Capped at eight because nothing drains it in a headless run and a 70-day harness
 pass would otherwise accumulate thousands.
+
+---
+
+## D041 — the step 10 gates were mutation-tested, and here is the output
+**Step 10. Status: active.**
+
+D023 recorded a claim that a gate had been "mutation-tested" which was false —
+the gate could not fail for any input. D032 was the second occurrence of the
+same pattern. Three gates were rewritten this step and one was written from
+scratch, which is the highest-risk thing this process does, so each was broken
+on purpose to confirm it fails:
+
+| gate | mutation | result |
+|---|---|---|
+| step 4 quiet-day waste | `HOLDING_CABINET_FRESHNESS_MULTIPLIER` 2.5 -> 1.0 | FAILS |
+| step 7b roster curve | `baseHourly` $26.50 -> $0.01 | FAILS (both assertions) |
+| step 10 queue-fits-street | `QUEUE.rows` 2 -> 4 | FAILS |
+| `npm run balance` | naive stops marketing | FAILS — "bottomed at 3.17 stars, not below 3" |
+
+The balance gate needed this most: its FIRST version asserted a trend in
+walkouts and passed on 49.3/day against 49.8/day, which is noise. That was
+caught by reading the numbers it printed rather than trusting its exit code,
+and it is the reason the criterion is now §25.2's own — naive below 3.0 stars
+by day 30, with idle as the control.
