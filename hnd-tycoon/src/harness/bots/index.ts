@@ -1,10 +1,10 @@
 /**
  * The bot registry and the runner. DESIGN.md §25.2.
  *
- * SCOPE: `naive` and `idle` exist because step 10 gates on them. The other
- * three — balanced, tightarse, roboboss — need verbs the game does not have
- * yet (automation is step 12), and a bot that pretends to automate would make
- * step 12's "neither strategy may dominate" gate unfalsifiable.
+ * SCOPE: `naive`, `balanced` and `idle`. `tightarse` and `roboboss` need verbs
+ * the game does not have yet (automation is step 12), and a bot that pretended
+ * to automate would make step 12's "neither strategy may dominate" gate
+ * unfalsifiable.
  *
  * The §25.2 session model (three 8-minute sessions a day, offline accrual at
  * 75% behind the §5.2 caps) is NOT applied here yet either. It lands with
@@ -15,10 +15,11 @@
  */
 import { buildScenario } from '@/sim/scenario';
 import type { Bot } from '../bot';
+import { balanced } from './balanced';
 import { idle } from './idle';
 import { naive } from './naive';
 
-export const BOTS: readonly Bot[] = [naive, idle];
+export const BOTS: readonly Bot[] = [naive, balanced, idle];
 
 export interface BotDay {
   readonly day: number;
@@ -53,6 +54,39 @@ export function runBot(bot: Bot, seed: number, days: number): BotRun {
     });
   }
   return { bot: bot.name, days: samples };
+}
+
+/**
+ * Play as one bot, then hand the same shop to another. §10, and step 11's exit
+ * criterion: *"`bot:naive` recovers when switched to balanced by ~day 55."*
+ *
+ * One World throughout — the whole point is that the second bot inherits the
+ * first one's wreckage, its reviews, its overdraft and its broken fryer. A
+ * fresh start would prove nothing at all.
+ */
+export function runHandover(
+  first: Bot,
+  second: Bot,
+  seed: number,
+  switchOnDay: number,
+  days: number,
+): BotRun {
+  const world = buildScenario({ seed });
+  const samples: BotDay[] = [];
+  world.runDays(1);
+  for (let day = 1; day < days; day++) {
+    (day < switchOnDay ? first : second).onSession(world);
+    world.runDays(1);
+    samples.push({
+      day,
+      cashCents: world.state.ledger.cash.cents,
+      stars: world.state.stars,
+      covers: world.state.day.served,
+      balked: world.state.day.balked,
+      marketingCents: world.state.ledger.total('marketing').cents,
+    });
+  }
+  return { bot: `${first.name}->${second.name}`, days: samples };
 }
 
 /** Mean of a metric over the last `n` days of a run. */

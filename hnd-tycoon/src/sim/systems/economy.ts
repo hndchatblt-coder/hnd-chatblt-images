@@ -21,6 +21,8 @@ import { GAME_SECONDS_PER_TICK } from '../clock';
 import { Cash, money, ZERO, type Money } from '../types';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
+import { AMBIENCE } from '@/config/ambience';
+import { ambiencePoints } from './incidents';
 
 const NONE = 0;
 
@@ -101,6 +103,18 @@ export class EconomySystem implements System {
     ledger.post('rent', perDay(world.state.site.weeklyRent));
     ledger.post('overheads', perDay(ECONOMY.INSURANCE_PER_WEEK));
     ledger.post('overheads', perDay(ECONOMY.POS_PER_WEEK));
+
+    // §6.4. A room costs money to keep, every day, whether anyone sat in it or
+    // not. Without this, ambience at Leichhardt is a pure stat upgrade — the
+    // floor it is supposed to compete for is not scarce in a 9x15 room. See the
+    // long note on UPKEEP_PER_POINT_PER_DAY.
+    const points = ambiencePoints(world.state);
+    if (points > 0) {
+      ledger.post(
+        'overheads',
+        money(points * AMBIENCE.UPKEEP_PER_POINT_PER_DAY, ledger.cash.currency),
+      );
+    }
   }
 
   /** §8: wages are paid Sunday 23:00 as a lump. */

@@ -793,3 +793,80 @@ ending cash           $67,640   $70,483   <- worked harder, finished poorer
   `.gitkeep`.
 
 **Next: step 11 — incidents, ambience, recovery.**
+
+---
+
+## Step 11 — incidents, ambience, recovery. SHIPPED.
+
+**What is now playable:** things break and you decide when to deal with them;
+you can spend money on a room worth sitting in and find out it only pays if
+you are busy; and if you wreck the place there is a way back that takes about a
+week of running the shop properly.
+
+### On screen
+- **"The state of things"** — a panel that appears only when something IS wrong.
+  Each fault with what it is doing to you and what it costs to sort. **No
+  countdown anywhere on it**, and there is a gate asserting the absence.
+- **The bank**, quoted verbatim, getting colder as the overdraft deepens. Cash
+  turns red before the bank says anything.
+- **The Recovery Plan's next objective** takes the always-visible line when it
+  is open. A shop under 2.5 stars has a more urgent question than "what is my
+  constraint".
+- **Tables and fit-out** in the shop, taking real floor tiles.
+
+### Measured
+
+The roster curve is not the only curve any more. Ambience, 56 days, six seeds:
+
+```
+seats    0        2        4        8       16
+cash  $38,772  $44,147  $44,404  $40,661  $38,001
+```
+
+Three bots, 70 days, four seeds:
+
+```
+                        naive     balanced      idle
+stars bottom by d30      2.34         3.19      2.80
+covers over 70d          9185        17039      6917
+marketing paid         $5,400            —         $0
+ending cash           $48,784      $51,879   $46,330
+```
+
+The dig-out, `bot:naive` handing a 2.26-star shop to `bot:balanced` on day 35:
+**6,5,5,5,5,7 days — mean 5.5**, against §10's budget of ≈8. Faster than
+budgeted, which is what killed the acceleration multiplier (D044).
+
+### Surprises
+- The Recovery Plan's repair multiplier was solving a problem that did not
+  exist. The shop already digs out faster than §10 budgets without it. D044.
+- Incidents made `bot:idle` decay below 3.0 stars, which broke step 10's
+  balance gate — the naive-vs-idle signature stopped discriminating. The
+  control moved to `bot:balanced`, which is a stronger claim and the first
+  falsifiable test of §13's actionability. D046.
+- Ambience was a pure stat upgrade until it got a standing cost, because §6.4's
+  floor-competition justification is simply false in a 9x15 room. D045.
+- The Poisson gate had to move. Hourly arrival counts are now a MIXED Poisson —
+  reputation, marketing, price and the recovery penalty all move the rate day
+  to day (measured cv 0.18 across twenty Thursdays), and a mixed Poisson is
+  over-dispersed by construction. The exact property moved onto `rng.poisson`
+  where the rate is held still; the shop-level gate asserts burstiness.
+- Step 4's "covers barely move" gate was measuring the wrong quantity. Its
+  arms differ by whether the Recovery Plan fired, not by capacity —
+  `served/arrived` is 1.000 in both.
+
+### Debt carried
+- **D030** (`reconcile()` is a tautology) — still unfixed. Oldest open debt.
+- **DEBT-1** — no inter-tick interpolation, so walking still teleports.
+- `bot:tightarse` and `bot:roboboss` do not exist. They need automation, step 12.
+- The §25.2 session model is still not applied to bots; needs offline accrual,
+  step 20.
+- **New:** the test suite is now 103 seconds. The handover runs are 110 game
+  days x 6 seeds x 2 tests. If it gets slower, share the runs between them.
+- **New:** a shop with no seating can ignore `roomTired` for free — room
+  condition only matters when there are ambience points to spoil. It soaks a
+  `MAX_OPEN` slot and helps you. Harmless today, wrong in principle.
+- Financing and resale still dropped from step 7. `src/save/` is still a
+  `.gitkeep`.
+
+**Next: step 12 — the equipment ladder.**

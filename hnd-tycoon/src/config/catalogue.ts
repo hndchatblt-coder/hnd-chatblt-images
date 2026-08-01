@@ -151,6 +151,43 @@ export const CATALOGUE: readonly CatalogueItem[] = [
       working: 'Trays going in and out. Fuller when you have over-committed.',
     },
   },
+  /**
+   * §6.4. Neither of these cooks anything, and that is the point — they are
+   * ambience bidding for the same floor the kitchen wants. Every seat is a tile
+   * the fryer cannot have, which is what makes "should I put a table there" a
+   * question about the shop rather than a question about money.
+   *
+   * Both list `floorSpace` first in `costs` because for these it is not one
+   * cost among several, it is the whole cost.
+   */
+  {
+    kind: 'equipment',
+    id: 'seating',
+    label: 'Table and chairs',
+    blurb: 'Somewhere to sit. People wait longer and spend more when they can.',
+    price: money(620),
+    station: 'seating',
+    costs: ['floorSpace', 'capital'],
+    signature: {
+      install: 'Carried in, legs set down, chairs pushed under one at a time.',
+      idle: 'Empty and square to the wall, catching the light from the pass.',
+      working: 'Somebody sitting at it, which is the only equipment in the shop that can be said of.',
+    },
+  },
+  {
+    kind: 'equipment',
+    id: 'decor',
+    label: 'Fit-out',
+    blurb: 'Lighting, a bit of tile, something on the wall. Cheap, and it shows.',
+    price: money(340),
+    station: 'decor',
+    costs: ['floorSpace', 'capital'],
+    signature: {
+      install: 'Goes up on the wall, gets straightened twice.',
+      idle: 'Warm, and it makes the light in the room look deliberate.',
+      working: 'Nothing. It never does anything, and it is still worth having.',
+    },
+  },
 ];
 
 export const CATALOGUE_BY_ID: Readonly<Record<string, CatalogueItem>> = Object.fromEntries(

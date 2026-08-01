@@ -23,8 +23,6 @@ import { Cash, type Money } from '@/sim/types';
 
 const DAYS = 70;
 const SEEDS = [1, 2, 3, 4];
-/** Days at each end of the run used to judge a trend. Two full weeks. */
-const WINDOW = 14;
 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 const aud = (cents: number): Money => ({ cents: Math.round(cents), currency: 'AUD' });
@@ -95,6 +93,7 @@ for (const bot of BOTS) {
 
 // --- The gate -------------------------------------------------------------
 const naiveRuns = runs.get('naive') as BotRun[];
+const balancedRuns = runs.get('balanced') as BotRun[];
 const idleRuns = runs.get('idle') as BotRun[];
 
 /** §25.2, verbatim: "bot:naive bottoms below 3.0 stars by day 30." */
@@ -109,10 +108,13 @@ const total = (rs: BotRun[], pick: (d: BotDay) => number): number =>
   mean(rs.map((r) => r.days.reduce((a, d) => a + pick(d), 0)));
 
 const naiveBottom = bottom(naiveRuns);
+const balancedBottom = bottom(balancedRuns);
 const idleBottom = bottom(idleRuns);
 const naiveCovers = total(naiveRuns, (d) => d.covers);
+const balancedCovers = total(balancedRuns, (d) => d.covers);
 const idleCovers = total(idleRuns, (d) => d.covers);
 const naiveCash = mean(naiveRuns.map((r) => tail(r, 1, (d) => d.cashCents)));
+const balancedCash = mean(balancedRuns.map((r) => tail(r, 1, (d) => d.cashCents)));
 const idleCash = mean(idleRuns.map((r) => tail(r, 1, (d) => d.cashCents)));
 const naiveSpend = mean(naiveRuns.map((r) => tail(r, 1, (d) => d.marketingCents)));
 
@@ -127,18 +129,28 @@ const naiveSpend = mean(naiveRuns.map((r) => tail(r, 1, (d) => d.marketingCents)
  * of working much harder the bank balance is no better than the shop that did
  * nothing at all.
  */
-console.log('  §25.2 gate — naive spirals, idle is the control:');
-console.log(
-  `    stars bottom by day ${BOTTOM_BY_DAY}   naive ${naiveBottom.toFixed(2)}   idle ${idleBottom.toFixed(2)}`,
+console.log('  §25.2 gate — naive spirals, balanced is the control, idle is the floor:');
+const row = (label: string, a: string, b: string, c: string): void =>
+  console.log(`    ${label.padEnd(20)}${a.padStart(14)}${b.padStart(14)}${c.padStart(14)}`);
+row('', 'naive', 'balanced', 'idle');
+row(
+  `stars bottom by d${BOTTOM_BY_DAY}`,
+  naiveBottom.toFixed(2),
+  balancedBottom.toFixed(2),
+  idleBottom.toFixed(2),
 );
-console.log(
-  `    covers over ${DAYS} days       naive ${naiveCovers.toFixed(0)}   idle ${idleCovers.toFixed(0)}  (+${(100 * (naiveCovers / idleCovers - 1)).toFixed(0)}%)`,
+row(
+  `covers over ${DAYS}d`,
+  naiveCovers.toFixed(0),
+  balancedCovers.toFixed(0),
+  idleCovers.toFixed(0),
 );
-console.log(
-  `    marketing paid          naive ${Cash.format(aud(naiveSpend))}   idle ${Cash.format(aud(0))}`,
-);
-console.log(
-  `    ending cash             naive ${Cash.format(aud(naiveCash))}   idle ${Cash.format(aud(idleCash))}`,
+row('marketing paid', Cash.format(aud(naiveSpend)), '', Cash.format(aud(0)));
+row(
+  'ending cash',
+  Cash.format(aud(naiveCash)),
+  Cash.format(aud(balancedCash)),
+  Cash.format(aud(idleCash)),
 );
 console.log('');
 
@@ -148,10 +160,39 @@ if (naiveBottom >= BOTTOM_STARS) {
       '§25.2 requires it. Marketing into an understaffed kitchen has to cost you the room.',
   );
 }
-if (idleBottom < BOTTOM_STARS) {
+/**
+ * The control is BALANCED, not idle — and that changed at step 11 for a reason
+ * worth writing down.
+ *
+ * Before incidents existed, a shop left completely alone held its rating, so
+ * idle was a fair "this is what the shop does on its own" baseline. §9 changed
+ * that: a fault nobody fixes degrades to its ceiling and stays there, so idle
+ * now drifts to 2.74 stars and BOTH bots end up under 3. Keeping idle as the
+ * control would have meant either a gate that always fails or pretending an
+ * untended shop does not decay.
+ *
+ * `balanced` is the stronger control anyway, because it makes the comparison a
+ * statement about STRATEGY rather than about neglect: same shop, same weather,
+ * one bot reads the bottleneck line and fixes what breaks and the other buys
+ * advertising. That is also the first real test of §13's claim that the
+ * readout is actionable, which has been unfalsified since step 8.
+ */
+if (balancedBottom < BOTTOM_STARS) {
   failures.push(
-    `bot:idle also bottomed below ${BOTTOM_STARS} (${idleBottom.toFixed(2)}). ` +
-      'Then the drop is the shop, not the strategy, and naive proves nothing.',
+    `bot:balanced bottomed below ${BOTTOM_STARS} (${balancedBottom.toFixed(2)}). ` +
+      'A bot that fixes what breaks and staffs to the readout should not be in recovery.',
+  );
+}
+if (balancedCovers <= naiveCovers) {
+  failures.push(
+    `bot:balanced served ${balancedCovers.toFixed(0)} covers against naive's ${naiveCovers.toFixed(0)}. ` +
+      '§13 says the bottleneck readout is ACTIONABLE. If following it does not out-serve ignoring it, it is decoration.',
+  );
+}
+if (balancedCash <= naiveCash) {
+  failures.push(
+    `bot:balanced finished on ${Cash.format(aud(balancedCash))} against naive's ${Cash.format(aud(naiveCash))}. ` +
+      'Playing well has to pay, or none of the readouts mean anything.',
   );
 }
 if (naiveCovers <= idleCovers) {
@@ -160,18 +201,12 @@ if (naiveCovers <= idleCovers) {
       'The trap only works if the marketing visibly WORKS — a spend that does nothing is a bug, not a trap.',
   );
 }
-if (naiveCash > idleCash) {
+// §10, the floor: idle must SURVIVE. Not thrive, not hold its rating — survive.
+// A shop nobody touches for ten weeks accumulates faults it never fixes and
+// ends up rated badly, and that is correct. What it may never do is die.
+if (idleCash <= 0) {
   failures.push(
-    `bot:naive ended richer than idle (${Cash.format(aud(naiveCash))} vs ${Cash.format(aud(idleCash))}). ` +
-      '§8.3 says marketing a badly-rated shop is bad money after bad; here it paid.',
-  );
-}
-
-// And the floor: idle must SURVIVE. §10 — the player can never lose.
-const idleCashLate = mean(idleRuns.map((r) => tail(r, WINDOW, (d) => d.cashCents)));
-if (idleCashLate <= 0) {
-  failures.push(
-    `bot:idle ran out of money (${Cash.format(aud(idleCashLate))}). ` +
+    `bot:idle went backwards to ${Cash.format(aud(idleCash))}. ` +
       'A shop left alone must plateau, never die. There is no fail state in this game.',
   );
 }
@@ -183,4 +218,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('✓ balance — naive spirals, idle survives\n');
+console.log('✓ balance — naive spirals, balanced pays, idle survives\n');

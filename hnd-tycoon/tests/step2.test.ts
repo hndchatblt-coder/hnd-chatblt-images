@@ -187,42 +187,81 @@ describe('STEP 2 — an order is served only once every step has completed', () 
 });
 
 describe('STEP 2 — arrivals are Poisson', () => {
-  // Sample ONE slot of the week — Thursday 7pm — across many weeks.
-  //
-  // Pooling every trading hour together was right when demand was flat and is
-  // wrong now that §6.1's daypart and day-of-week curves are in: mixing hours
-  // with different rates is over-dispersed by construction (measured
-  // variance/mean of 12), which says nothing about whether each hour is
-  // Poisson. Within a fixed slot the rate is constant and the property holds.
-  const world = buildScenario({ seed: 99 });
-  const sample: number[] = [];
-  let last = 0;
+  /**
+   * The property is gated in TWO places, because by step 11 it is only exactly
+   * true in one of them.
+   *
+   * **The generator.** `rng.poisson(lambda)` at a fixed rate must have variance
+   * equal to its mean. That is the definition, it is the mechanism arrivals
+   * actually use, and it is testable to two decimal places.
+   *
+   * **The shop.** Hourly arrival counts are NOT expected to have variance equal
+   * to their mean any more, and asserting that they do would be asserting
+   * something false. The rate itself now moves: reputation feeds demand (§6.1),
+   * marketing awareness decays daily (§8.3), the price lands a day late (§8.2)
+   * and the Recovery Plan knocks 12% off the floor while it is open (§10).
+   * Measured over twenty Thursdays at 7pm on one seed, the demand multiplier
+   * ranged 0.573 to 1.095 — a coefficient of variation of 0.18.
+   *
+   * Counts drawn from a Poisson whose rate is itself random are a MIXED Poisson,
+   * and a mixed Poisson is over-dispersed by construction: var/mean climbs to
+   * roughly `1 + mean * cv^2`. Measured 3.51 against a mean of 22.
+   *
+   * That is the economy working, not the arrivals breaking. So the shop-level
+   * gate asserts what is actually being claimed — that arrivals are bursty
+   * rather than metronomic — and the exact property lives on the generator,
+   * where the rate is held still.
+   */
+  it('draws from a real Poisson distribution at a fixed rate', () => {
+    const world = buildScenario({ seed: 99 });
+    const rng = world.rngFor('poisson-gate');
+    const LAMBDA = 3.7;
+    const DRAWS = 20000;
+    const sample = Array.from({ length: DRAWS }, () => rng.poisson(LAMBDA));
 
-  for (let day = 0; day < 140; day++) {
-    for (let hour = 0; hour < 24; hour++) {
-      const slot = world.clock.dayOfWeek === 4 && Math.floor(world.clock.hourOfDay) === 19;
-      world.runTicks(TICKS_PER_GAME_HOUR);
-      // Count everyone who turned up, including the ones who took one look at
-      // the queue and left. Counting only those who stayed measures arrivals
-      // MINUS balking, which is under-dispersed by construction.
-      const arrived = world.state.counters.customer + world.state.balked - last;
-      last = world.state.counters.customer + world.state.balked;
-      if (slot) sample.push(arrived);
-    }
-  }
-
-  it('has variance close to its mean within a fixed slot of the week', () => {
     const m = mean(sample);
     const v = variance(sample);
-    expect(sample.length).toBeGreaterThan(15);
-    expect(m).toBeGreaterThan(0);
-    // The defining property of a Poisson process. A uniform "one every N ticks"
-    // arrival would sit near zero here and the kitchen would never struggle.
-    expect(v / m).toBeGreaterThan(0.5);
-    expect(v / m).toBeLessThan(2.0);
+    expect(m).toBeCloseTo(LAMBDA, 1);
+    // The defining property, held to within 15% on twenty thousand draws.
+    expect(v / m).toBeGreaterThan(0.85);
+    expect(v / m).toBeLessThan(1.15);
+    // And it is genuinely discrete and occasionally silent — a rounded
+    // continuous distribution would never return zero at this rate.
+    expect(sample.some((x) => x === 0)).toBe(true);
   });
 
-  it('produces bursts — some hours land far above the mean', () => {
-    expect(Math.max(...sample)).toBeGreaterThan(mean(sample) * 1.15);
+  describe('and the shop that draws from it is bursty, not metronomic', () => {
+    const world = buildScenario({ seed: 99 });
+    const sample: number[] = [];
+    let last = 0;
+
+    for (let day = 0; day < 140; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const slot = world.clock.dayOfWeek === 4 && Math.floor(world.clock.hourOfDay) === 19;
+        world.runTicks(TICKS_PER_GAME_HOUR);
+        // Count everyone who turned up, including the ones who took one look at
+        // the queue and left. Counting only those who stayed measures arrivals
+        // MINUS balking, which is under-dispersed by construction.
+        const arrived = world.state.counters.customer + world.state.balked - last;
+        last = world.state.counters.customer + world.state.balked;
+        if (slot) sample.push(arrived);
+      }
+    }
+
+    it('is over-dispersed relative to a metronome', () => {
+      const m = mean(sample);
+      const v = variance(sample);
+      expect(sample.length).toBeGreaterThan(15);
+      expect(m).toBeGreaterThan(0);
+      // A uniform "one every N ticks" arrival sits near zero here and the
+      // kitchen never struggles. The upper bound is deliberately absent — see
+      // the note above; over-dispersion is what a moving rate produces, and
+      // clamping it would be a gate on the economy holding still.
+      expect(v / m).toBeGreaterThan(0.5);
+    });
+
+    it('produces bursts — some hours land far above the mean', () => {
+      expect(Math.max(...sample)).toBeGreaterThan(mean(sample) * 1.15);
+    });
   });
 });

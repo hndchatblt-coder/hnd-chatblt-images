@@ -19,6 +19,7 @@
 import { MARKETING, MARKETING_CHANNELS, PRICING } from '@/config/marketing';
 import { REPUTATION } from '@/config/reputation';
 import { REPORT } from '@/config/report';
+import { RECOVERY } from '@/config/recovery';
 import { daypartMultiplier, dayOfWeekMultiplier, REPUTATION_DEMAND } from '@/config/demand';
 import { Cash, money, ZERO, type Money } from '../types';
 import type { SimState } from '../state';
@@ -78,7 +79,13 @@ export function marketingEfficiency(stars: number): number {
 
 /** Everything except the clock. Multiplied onto the base rate by arrivals. */
 export function demandMultiplier(state: SimState, stars: number): number {
+  // §10: a shop under the Recovery Plan has been review-bombed and its demand
+  // floor drops. It multiplies a term that already has a floor of 0.35, so the
+  // worst case is a quiet shop rather than an empty one — there is no state
+  // from which trade stops entirely.
+  const bombed = state.recovery === null ? ONE : ONE - RECOVERY.DEMAND_PENALTY;
   return (
+    bombed *
     reputationMultiplier(stars) *
     (ONE + state.marketingAwareness) *
     (ONE + state.specialUplift) *

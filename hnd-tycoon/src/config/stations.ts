@@ -39,6 +39,10 @@ export const STATION_SPECS: Readonly<Record<StationType, StationSpec>> = {
   assembly: { width: 3, depth: 1, requires: [], label: 'Assembly bench' },
   pass: { width: 1, depth: 2, requires: [], label: 'The pass' },
   drinks: { width: 1, depth: 1, requires: [], label: 'Drinks fridge' },
+  // §6.4. A two-top against a wall. Cooks nothing, needs nothing, and is
+  // competing with the fryer for the only tiles that exist.
+  seating: { width: 1, depth: 2, requires: [], label: 'Table and chairs' },
+  decor: { width: 1, depth: 1, requires: [], label: 'Fit-out' },
 };
 
 /**
@@ -60,6 +64,11 @@ export const SIMULTANEOUS_BATCH: Readonly<Record<StationType, boolean>> = {
   assembly: false,
   pass: false,
   drinks: false,
+  // Neither is ever worked, so the answer is arbitrary — but it has to BE an
+  // answer, because §14.1 reads this per station type and a missing key is a
+  // batch of eight costing the same as a batch of one.
+  seating: false,
+  decor: false,
 };
 
 export const FLOOR = {

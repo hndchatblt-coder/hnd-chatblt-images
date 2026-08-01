@@ -14,6 +14,7 @@ import {
   buy,
   canAfford,
   fire,
+  fixIncident,
   priceOf,
   setMarketing,
   setPrice,
@@ -22,6 +23,8 @@ import {
 } from '@/sim/actions';
 import { MARKETING_CHANNELS, PRICING, type MarketingChannel } from '@/config/marketing';
 import { costPerCover, fairPriceBand, marketingEfficiency } from '@/sim/systems/demand';
+import { fixCostDollars, specOf } from '@/sim/systems/incidents';
+import { bankMessage, recoveryLine } from '@/sim/systems/recovery';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { starsOf } from '@/sim/systems/reputation';
 import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
@@ -180,6 +183,53 @@ export class Game {
       min: PRICING.MIN_MULTIPLIER,
       max: PRICING.MAX_MULTIPLIER,
       stars,
+    };
+  }
+
+  /**
+   * Everything currently wrong, with what it costs to put right. §9.
+   *
+   * No countdown in this shape and there must never be one — the panel says
+   * what is broken and what it costs, and the player deals with it when they
+   * are ready. See `IncidentSystem`.
+   */
+  troubles(): {
+    id: string;
+    label: string;
+    blurb: string;
+    fixCents: number;
+    /** 0..1 of its own ceiling. Drives how loud the row looks. */
+    severity: number;
+    fixable: boolean;
+  }[] {
+    return this.world.state.incidents.map((incident) => {
+      const spec = specOf(incident);
+      return {
+        id: incident.id,
+        label: spec.label,
+        blurb: spec.blurb,
+        fixCents: Math.round(fixCostDollars(incident) * 100),
+        severity: spec.maxSeverity > 0 ? incident.severity / spec.maxSeverity : 0,
+        fixable: spec.baseFixCost > 0,
+      };
+    });
+  }
+
+  fixIncident(incidentId: string): ActionResult {
+    return fixIncident(this.world.state, incidentId);
+  }
+
+  /**
+   * §10, for the HUD. The bank's tone and the Recovery Plan's next objective
+   * are both mechanics rather than decoration: a tone is how the game says how
+   * much trouble you are in without a screen that says you lost, and the
+   * objective is §15's "the player can always see the next objective".
+   */
+  trouble(): { bank: string | null; recovery: string | null; inPlan: boolean } {
+    return {
+      bank: bankMessage(this.world.state),
+      recovery: recoveryLine(this.world.state),
+      inPlan: this.world.state.recovery !== null,
     };
   }
 

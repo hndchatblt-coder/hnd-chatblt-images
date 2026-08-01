@@ -20,6 +20,7 @@ import { Roster } from './Roster';
 import { Money } from './Money';
 import { Stars } from './Stars';
 import { Trade } from './Trade';
+import { TroublePanel } from './Trouble';
 import type { Game } from '@/render/Game';
 
 const HUD_HZ = 4;
@@ -34,6 +35,9 @@ interface Readout {
   open: boolean;
   bottleneck: string;
   bottleneckKind: string;
+  faults: number;
+  bank: string | null;
+  recovery: string | null;
 }
 
 const EMPTY: Readout = {
@@ -46,6 +50,9 @@ const EMPTY: Readout = {
   open: false,
   bottleneck: 'Opening up',
   bottleneckKind: 'demand',
+  faults: 0,
+  bank: null,
+  recovery: null,
 };
 
 export function App(): JSX.Element {
@@ -54,6 +61,7 @@ export function App(): JSX.Element {
   const [shopOpen, setShopOpen] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [troubleOpen, setTroubleOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const [readout, setReadout] = useState<Readout>(EMPTY);
@@ -73,6 +81,8 @@ export function App(): JSX.Element {
         open: g.world.clock.isOpen,
         bottleneck: state.bottleneck?.line ?? 'Nothing is holding you back',
         bottleneckKind: state.bottleneck?.kind ?? 'demand',
+        faults: state.incidents.length,
+        ...g.trouble(),
       });
       setBooted(true);
     }, 1000 / HUD_HZ);
@@ -103,13 +113,31 @@ export function App(): JSX.Element {
         <span className="site">LEICHHARDT</span>
         {/* Nothing until the first poll: the cash readout used to spend three
             seconds racing up from $0, which is a lie about your bank balance. */}
-        {booted ? <Money cents={readout.cashCents} /> : <span className="cash mono">&nbsp;</span>}
+        {booted ? (
+          <span className={readout.cashCents < 0 ? 'overdrawn' : undefined}>
+            <Money cents={readout.cashCents} />
+          </span>
+        ) : (
+          <span className="cash mono">&nbsp;</span>
+        )}
         <span className={readout.open ? 'trading' : 'closed'}>{readout.clock}</span>
       </header>
 
       {booted && <Stars value={readout.stars} />}
 
-      <div className={`bottleneck kind-${readout.bottleneckKind}`}>{readout.bottleneck}</div>
+      {/* §15: one line, always visible, always the most useful thing to be
+          told right now. The Recovery Plan outranks the bottleneck readout when
+          it is open — a shop under 2.5 stars has a more urgent question than
+          "what is my constraint", and §10 says the objective must be visible. */}
+      <div
+        className={
+          readout.recovery
+            ? 'bottleneck kind-recovery'
+            : `bottleneck kind-${readout.bottleneckKind}`
+        }
+      >
+        {readout.recovery ?? readout.bottleneck}
+      </div>
 
       <GameCanvas
         seed={42}
@@ -162,12 +190,31 @@ export function App(): JSX.Element {
           <button type="button" className="trade-open" onClick={() => setTradeOpen(true)}>
             Prices
           </button>
+          {/* Only there when there IS something wrong. A permanently visible
+              "problems" button on a shop with no problems trains the player to
+              ignore it, which is the one thing this button cannot afford. */}
+          {(readout.faults > 0 || readout.bank !== null || readout.recovery !== null) && (
+            <button
+              type="button"
+              className="trouble-open"
+              onClick={() => setTroubleOpen(true)}
+            >
+              {readout.faults > 0 ? `Fix (${readout.faults})` : 'Bank'}
+            </button>
+          )}
         </div>
       </footer>
 
       <Roster
         open={rosterOpen}
         onClose={() => setRosterOpen(false)}
+        game={() => game.current}
+        onMessage={setToast}
+      />
+
+      <TroublePanel
+        open={troubleOpen}
+        onClose={() => setTroubleOpen(false)}
         game={() => game.current}
         onMessage={setToast}
       />

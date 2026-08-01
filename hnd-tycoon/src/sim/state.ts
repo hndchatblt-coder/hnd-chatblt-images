@@ -22,6 +22,8 @@ import { Stock } from './entities/stock';
 import { Ledger } from './ledger';
 import { Rng } from './rng';
 import type { Review } from './systems/reputation';
+import type { Incident } from './systems/incidents';
+import type { RecoveryPlan } from './systems/recovery';
 import { ECONOMY } from '@/config/economy';
 import { REPUTATION } from '@/config/reputation';
 import { PRICING } from '@/config/marketing';
@@ -147,6 +149,14 @@ export interface SimState {
   readonly reviews: Review[];
   /** A named RNG stream, so reviews cannot shift any other system's sequence. */
   readonly rng: Rng;
+
+  // --- §9, §10 ------------------------------------------------------------
+  /** Everything currently wrong. Degrades, never expires. §9 */
+  readonly incidents: Incident[];
+  /** The Recovery Plan, or null when the shop is not in trouble. §10 */
+  recovery: RecoveryPlan | null;
+  /** Which overdraft tier the bank is at, or null in the black. §10 */
+  bankTier: string | null;
   /**
    * Walkouts that have not been drawn yet. §6.3, and the step 10 exit criterion:
    * **a walkout must be legible on screen BEFORE the stat moves.**
@@ -176,7 +186,7 @@ export interface SimState {
   /** §6.1, pinned at zero until Act III. Present so it never needs adding. */
   readonly competitorPressure: number;
   day: DayAccumulator;
-  counters: { customer: number; order: number; job: number };
+  counters: { customer: number; order: number; job: number; incident: number };
 }
 
 export interface StateOptions {
@@ -250,6 +260,9 @@ export function createState(opts: StateOptions = {}): SimState {
     dayIndex: NONE,
     balked: NONE,
     walkouts: [],
+    incidents: [],
+    recovery: null,
+    bankTier: null,
     reviews: [],
     // The prior, not a guess: a shop with no reviews IS its prior, and starting
     // arrivals from a different number than reputation reports would make day
@@ -268,7 +281,7 @@ export function createState(opts: StateOptions = {}): SimState {
     // worked and did nothing.
     rng: new Rng(`reviews:${opts.siteId ?? 'leichhardt'}:${String(opts.seed ?? 0)}`),
     day: emptyDay(),
-    counters: { customer: NONE, order: NONE, job: NONE },
+    counters: { customer: NONE, order: NONE, job: NONE, incident: NONE },
   };
 }
 

@@ -9,7 +9,25 @@
  */
 import { money, type ItemId, type RecipeId } from '@/sim/types';
 
-export type StationType = 'grill' | 'fryer' | 'prep' | 'toast' | 'assembly' | 'pass' | 'drinks';
+/**
+ * Everything that can occupy floor tiles.
+ *
+ * `seating` and `decor` cook nothing and appear in no recipe. They are here
+ * because §6.4 makes ambience the THIRD claimant on the floor, alongside
+ * kitchen and storage, and the only honest way to express "a seat is a tile the
+ * grill does not get" is to make a seat a thing that takes a tile. Placement,
+ * pricing, the install beat and the renderer all already work off this type.
+ */
+export type StationType =
+  | 'grill'
+  | 'fryer'
+  | 'prep'
+  | 'toast'
+  | 'assembly'
+  | 'pass'
+  | 'drinks'
+  | 'seating'
+  | 'decor';
 
 /**
  * How much of a staff member's time a step actually occupies, versus how much

@@ -839,3 +839,132 @@ walkouts and passed on 49.3/day against 49.8/day, which is noise. That was
 caught by reading the numbers it printed rather than trusting its exit code,
 and it is the reason the criterion is now §25.2's own — naive below 3.0 stars
 by day 30, with idle as the control.
+
+---
+
+## D042 — incidents have no timer, and the type system says so
+**Step 11. Status: active.**
+
+§9 says incidents "never require a response inside a time window" and §5.3
+makes "attention is rewarded, never required" a pillar. The field that would
+break both is `expiresAt`, and it is exactly the field someone adds later to
+make an incident "feel urgent".
+
+So `IncidentSpec` has no expiry, no deadline and no timeout, and there is a
+gate that asserts the absence of all three by name. What it has instead is
+`severityPerDay`: the fryer that has limped for a week limps worse than the one
+that broke this morning, and costs more to fix because of what it did in
+between — a price, not a punishment.
+
+`maxSeverity` bounds it, because §10 requires that walking away for a fortnight
+stays recoverable. Nothing in this game degrades to zero.
+
+---
+
+## D043 — a staff absence written at day end is a write nobody reads
+**Step 11. Status: fixed.**
+
+`staffAbsent` removed the person from `workingToday` at the moment the incident
+was created, in `onDayEnd`. `World.openDay()` rebuilds `workingToday` from the
+roster every single morning, so the write was discarded before anything read
+it: the incident existed, cost nothing, and cleared itself the next night.
+
+Found by reading the tick order, not by a failing test — every visible symptom
+of it was "no symptom at all", which is the class of bug this project keeps
+producing (D023, D032, D041). Absences are now rolled overnight against
+tomorrow's roster and applied in `onOpen`, and they clear only once they have
+actually had their day.
+
+---
+
+## D044 — the Recovery Plan's acceleration multiplier was deleted after measuring it
+**Step 11. Status: active.**
+
+`RECOVERY.REPAIR_WEIGHT: 2.6` multiplied the weight of good reviews while the
+plan's objectives were being met. Its justification, written confidently in a
+doc comment: a review-bombed shop "cannot arithmetically climb out inside the
+eight days §10 budgets — the bad reviews are simply still in the window."
+
+Measured — six seeds, `bot:naive` wrecking the shop to 2.26 stars by day 35,
+then handing it to `bot:balanced`:
+
+```
+multiplier   dig-out days              mean
+1.0 (none)   6,5,5,5,5,7               5.5
+1.6          3,3,3,4,3,6               3.7
+2.0          2,2,3,4,2,4               2.8
+2.6          1,2,3,2,2,2               2.0
+```
+
+The shop already digs out in 5.5 days with no help at all — **faster** than the
+eight §10 budgets, not slower. The mechanic solved a problem that did not
+exist, and at 2.6 it turned a designed week of graft into a formality.
+
+Deleted. §10's "objectives visibly accelerate repair" is satisfied honestly:
+the plan names what to fix, and fixing it is what produces the good reviews.
+A hidden multiplier is what makes a recovery feel unearned.
+
+This is the fourth time an unmeasured claim in a comment has turned out to be
+false (D023, D032, D041, D044). The pattern is not carelessness about testing —
+every one of these had tests. It is confident prose written before the
+measurement, and the measurement is always cheap.
+
+---
+
+## D045 — ambience was a stat upgrade in a costume until it got a standing cost
+**Step 11. Status: active.**
+
+§6.4 justifies ambience as the third claimant on floor tiles. Found by
+attacking the step as an exploiter: at Leichhardt that cost is imaginary. The
+room is 9x15 — about 135 tiles — and the opening kitchen occupies eleven. Eight
+tables saturates the patience curve with a hundred tiles to spare, so seating
+was pure upside, which CLAUDE.md bans by name.
+
+"It competes for floor" is true at Rosebery's 7x22 and false at Leichhardt, and
+a trade-off that only exists on one of three sites is not a trade-off.
+
+`AMBIENCE.UPKEEP_PER_POINT_PER_DAY` ($4.20, PROVISIONAL) makes it a bet instead
+of a purchase: a standing daily cost against a benefit that only pays when
+people are actually queueing. Measured, 56 days, six seeds:
+
+```
+seats    0        2        4        8       16
+cash  $38,772  $44,147  $44,404  $40,661  $38,001
+```
+
+Both directions lose, and sixteen tables is worse than none.
+
+---
+
+## D046 — the balance control moved from idle to balanced
+**Step 11. Status: active.**
+
+Step 10's gate used `bot:idle` as the control for `bot:naive`'s spiral: if the
+do-nothing shop also fell below 3.0 stars, the drop was the shop rather than
+the strategy.
+
+§9 broke that, correctly. A fault nobody fixes degrades to its ceiling and stays
+there, so an untended shop now drifts to 2.74 stars and BOTH bots end under 3.
+Keeping idle as the control would have meant a gate that always fails, or
+pretending an untended shop does not decay.
+
+`bot:balanced` is the better control anyway, because it makes the comparison a
+statement about strategy rather than about neglect — same shop, same weather,
+one bot reads the bottleneck line and fixes what breaks, the other buys
+advertising:
+
+```
+                        naive     balanced      idle
+stars bottom by d30      2.34         3.19      2.80
+covers over 70d          9185        17039      6917
+ending cash           $48,784      $51,879   $46,330
+```
+
+It is also the first falsifiable test of §13's claim that the bottleneck
+readout is ACTIONABLE. That claim has been unfalsified since step 8 because
+nothing in the project ever read the line. `bot:balanced` reads it, and the
+gate now fails if following it does not out-serve ignoring it.
+
+Idle keeps one job, the one §10 gives it: survive. Not thrive, not hold its
+rating — a shop nobody touches for ten weeks ends up badly rated, and that is
+correct. What it may never do is die.

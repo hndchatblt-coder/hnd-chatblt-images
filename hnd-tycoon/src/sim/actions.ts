@@ -22,7 +22,8 @@ import { makeStation } from './entities/station';
 import { makeStaff } from './entities/staff';
 import { ECONOMY, hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { CALENDARS, DAY_NAMES, type DayOfWeek } from '@/config/time';
-import { Cash, id, ZERO, type Money, type SiteId, type StaffId } from './types';
+import { Cash, id, money, ZERO, type Money, type SiteId, type StaffId } from './types';
+import { fixCostDollars, specOf } from './systems/incidents';
 import type { SimState } from './state';
 
 const NONE = 0;
@@ -131,6 +132,34 @@ export function fire(state: SimState, staffId: string): ActionResult {
     ok: true,
     reason: `${staff.name} finishes up in a fortnight. ${Cash.format(notice)} in notice.`,
   };
+}
+
+/**
+ * Put something right. §9.
+ *
+ * There is no deadline on this and there never will be. The player fixes it
+ * when they next open the app, and the only thing the delay costs them is what
+ * the fault did in the meantime — which is a price, not a punishment.
+ *
+ * It is allowed to overdraw the account. §10 puts the bank at the end of a
+ * chain of consequences, not in front of a button: refusing the repair because
+ * the balance is low would leave a shop that cannot fix its own fryer, which is
+ * a fail state with a polite message.
+ */
+export function fixIncident(state: SimState, incidentId: string): ActionResult {
+  const index = state.incidents.findIndex((i) => i.id === incidentId);
+  const incident = state.incidents[index];
+  if (!incident) return { ok: false, reason: 'Nothing by that name is broken.' };
+
+  const spec = specOf(incident);
+  if (spec.baseFixCost <= NONE) {
+    return { ok: false, reason: `${spec.label}. Nothing to fix — it passes.` };
+  }
+
+  const cost = money(fixCostDollars(incident), state.ledger.cash.currency);
+  state.ledger.post('overheads', cost);
+  state.incidents.splice(index, ONE);
+  return { ok: true, reason: `Sorted. ${Cash.format(cost)}.` };
 }
 
 /**

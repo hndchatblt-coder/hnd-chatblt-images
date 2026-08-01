@@ -23,6 +23,7 @@ import { isOrderComplete, type Order } from '../entities/order';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
 import { reviewServedOrder } from './reputation';
+import { spendBonus } from './incidents';
 
 const NONE = 0;
 const ONE = 1;
@@ -98,6 +99,7 @@ export class ServiceSystem implements System {
     // `priceResistance` — lands tomorrow and gradually. That asymmetry is
     // exactly why §8.2 calls pricing "the lever the player forgets they have".
     // `spend` is §6.2: a passer-by adds a drink, a Regular knows what they want.
+    // `spendBonus` is §6.4: people spend more in a room worth sitting in.
     const archetype = archetypeOf(order.archetypeId);
     let gross = NONE;
     for (const line of order.lines) {
@@ -105,7 +107,7 @@ export class ServiceSystem implements System {
       if (recipe) gross += recipe.sellPrice.cents * line.quantity;
     }
     state.ledger.post('revenue', {
-      cents: Math.round(gross * state.priceMultiplier * archetype.spend),
+      cents: Math.round(gross * state.priceMultiplier * archetype.spend * spendBonus(state)),
       currency: state.ledger.cash.currency,
     });
     state.ledger.post('cogs', ECONOMY.PACKAGING_PER_ORDER);

@@ -24,6 +24,7 @@ import { TICKS_PER_GAME_HOUR } from '../clock';
 import type { Rng } from '../rng';
 import type { System, World } from '../world';
 import { reviewBalk } from './reputation';
+import { patienceBonus } from './incidents';
 import { demandMultiplier } from './demand';
 import { id, type ItemId, type OrderId, type RecipeId } from '../types';
 
@@ -95,11 +96,15 @@ export class ArrivalsSystem implements System {
     const hands = Math.max(ONE, world.state.onToday);
     const estWaitMinutes =
       (queue * (DEMAND.BALK.secondsPerQueuedPersonPerStaff / hands)) / TIME.SECONDS_PER_MINUTE;
-    const over = estWaitMinutes - DEMAND.BALK.patienceMinutes * archetype.patience;
+    // §6.3, exactly as written: `(estWait - patience * ambienceBonus) / window`.
+    // Somewhere to sit and something to look at buys you real minutes of
+    // goodwill, and it costs floor tiles the kitchen wanted. §6.4
+    const patience = archetype.patience * patienceBonus(world.state);
+    const over = estWaitMinutes - DEMAND.BALK.patienceMinutes * patience;
     if (over <= NONE) return false;
     const p = Math.min(
       DEMAND.BALK.maxProbability,
-      over / (DEMAND.BALK.patienceWindowMinutes * archetype.patience),
+      over / (DEMAND.BALK.patienceWindowMinutes * patience),
     );
     return this.stream(world).bool(p);
   }

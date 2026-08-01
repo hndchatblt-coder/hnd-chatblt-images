@@ -114,13 +114,45 @@ describe('STEP 4 — par-cooking improves wait AND increases waste', () => {
     expect(par12).toBeGreaterThan(par8 * 1.5);
   });
 
-  it('is a trade, not a free win — covers barely move', () => {
-    // Par-cooking buys the customer's time, not the shop's capacity. If it
-    // also raised throughput it would just be an upgrade, and there would be
-    // no decision to make.
-    const base = mean(noPar.map((r) => r.covers));
-    const par12 = mean(lotsOfPar.map((r) => r.covers));
-    expect(Math.abs(par12 / base - 1)).toBeLessThan(0.05);
+  it('is a trade, not a free win — it buys time, never capacity', () => {
+    /**
+     * Par-cooking buys the customer's time, not the shop's capacity. If it also
+     * raised throughput it would just be an upgrade, and there would be no
+     * decision to make.
+     *
+     * This asserted "covers move less than 5%" and drifted to 5.9% at step 11.
+     * Two hypotheses, both measured, and the obvious one was wrong:
+     *
+     *   balking       noPar 281.5 walkouts, par12 292.7 — par-cooking turned
+     *                 away slightly MORE people, so this is not it
+     *   recovery      noPar spent 0.8 days of 5 under the §10 Recovery Plan,
+     *                 par12 spent none — and the plan takes 12% off demand
+     *
+     * So the extra covers are arrivals the no-par shop never got, because it
+     * dipped under 2.5 stars and the review-bomb penalty bit. That is three
+     * systems interacting correctly and a gate measuring the wrong quantity:
+     * `covers` was never a throughput measure here, because `served/arrived` is
+     * 1.000 in BOTH arms — this kitchen clears its board either way.
+     *
+     * The capacity claim is now asserted where it actually lives.
+     */
+    const ratio = (rs: typeof noPar): number =>
+      mean(rs.map((r) => r.covers)) / mean(rs.map((r) => r.arrived));
+    // Neither arm is capacity-bound. This is what "covers barely move" was
+    // reaching for and never actually said.
+    expect(ratio(noPar)).toBeCloseTo(1, 2);
+    expect(ratio(lotsOfPar)).toBeCloseTo(1, 2);
+
+    // Units made per customer served: the shop's real output per head, which
+    // par-cooking must not change. It cooks the same food, earlier.
+    const perHead = (rs: typeof noPar): number =>
+      mean(rs.map((r) => r.unitsProduced)) / mean(rs.map((r) => r.covers));
+    expect(perHead(lotsOfPar) / perHead(noPar)).toBeCloseTo(1, 1);
+
+    // And it does not turn the kitchen into a bigger kitchen: the covers gap
+    // stays small enough to be an economy effect rather than a capacity one.
+    const covers = (rs: typeof noPar): number => mean(rs.map((r) => r.covers));
+    expect(Math.abs(covers(lotsOfPar) / covers(noPar) - 1)).toBeLessThan(0.1);
   });
 
   it('shows both effects in the day report', () => {

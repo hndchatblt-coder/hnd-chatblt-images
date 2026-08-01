@@ -53,6 +53,7 @@ import { isStationFree, type Job, type Station } from '../entities/station';
 import { isStaffFree, type Staff } from '../entities/staff';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
+import { freshnessPenalty, stationPenalty } from './incidents';
 import type { ItemId, StaffId } from '../types';
 
 const NONE = 0;
@@ -109,10 +110,17 @@ export function attentionSplit(step: Step, batch = ONE): {
 export function freshnessWith(
   base: number | undefined,
   holdingCabinets: number,
+  incidentPenalty = ONE,
 ): number | undefined {
   if (base === undefined) return undefined;
-  if (holdingCabinets <= NONE) return base;
-  return base * KITCHEN.HOLDING_CABINET_FRESHNESS_MULTIPLIER ** holdingCabinets;
+  const stored =
+    holdingCabinets <= NONE
+      ? base
+      : base * KITCHEN.HOLDING_CABINET_FRESHNESS_MULTIPLIER ** holdingCabinets;
+  // §9: a cool room that drifted overnight makes everything in it a day older
+  // than it should be. It shortens the window rather than binning stock
+  // outright — incidents degrade, they never destroy.
+  return stored * incidentPenalty;
 }
 
 /** Where someone is, partway through a walking leg. */
@@ -196,7 +204,8 @@ export class KitchenSystem implements System {
       if (job.phase === 'cooking') {
         const station = state.stations.find((s) => s.id === job.stationId);
         if (!station) continue;
-        const rate = station.speedMultiplier;
+        // §9: whatever is currently wrong with this station slows it down.
+        const rate = station.speedMultiplier * stationPenalty(state, station.id);
         // Charge the station only for the cooking it actually did, so a
         // basket with four seconds left does not bill a whole tick.
         const spent = Math.min(GAME_SECONDS_PER_TICK, job.cookRemaining / rate);
@@ -262,7 +271,7 @@ export class KitchenSystem implements System {
         }
       }
 
-      const rate = station.speedMultiplier * staff.skill;
+      const rate = station.speedMultiplier * staff.skill * stationPenalty(state, station.id);
 
       if (job.phase === 'setup' && available > EPSILON) {
         const spent = Math.min(available, job.setupRemaining / rate);
@@ -533,7 +542,11 @@ export class KitchenSystem implements System {
     // Holding cabinets extend how long the output stays good. §14.2 tier 1 —
     // they buy nothing on their own, only in combination with a decision to
     // cook ahead.
-    const freshFor = freshnessWith(candidate.step.freshnessWindow, state.holdingCabinets);
+    const freshFor = freshnessWith(
+      candidate.step.freshnessWindow,
+      state.holdingCabinets,
+      freshnessPenalty(state),
+    );
 
     // The mince leaves the cool room now, not when the burger is sold.
     const unitCost = chargeIngredients(state, candidate.step, batch);
