@@ -12,6 +12,7 @@ import { KitchenSystem } from './systems/kitchen';
 import { ServiceSystem } from './systems/service';
 import { EconomySystem } from './systems/economy';
 import { BottleneckSystem } from './systems/bottleneck';
+import { ReputationSystem } from './systems/reputation';
 import { World, type WorldOptions } from './world';
 
 export interface ScenarioOptions extends WorldOptions {
@@ -41,6 +42,7 @@ export function buildScenario(opts: ScenarioOptions): World {
     .register(new KitchenSystem())
     .register(new ServiceSystem())
     .register(new EconomySystem())
+    .register(new ReputationSystem())
     .register(new BottleneckSystem());
   return world;
 }

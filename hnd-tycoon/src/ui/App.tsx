@@ -18,6 +18,7 @@ import { GameCanvas } from './GameCanvas';
 import { Shop } from './Shop';
 import { Roster } from './Roster';
 import { Money } from './Money';
+import { Stars } from './Stars';
 import type { Game } from '@/render/Game';
 
 const HUD_HZ = 4;
@@ -28,6 +29,7 @@ interface Readout {
   covers: number;
   waiting: number;
   balked: number;
+  stars: number;
   open: boolean;
   bottleneck: string;
   bottleneckKind: string;
@@ -39,6 +41,7 @@ const EMPTY: Readout = {
   covers: 0,
   waiting: 0,
   balked: 0,
+  stars: 0,
   open: false,
   bottleneck: 'Opening up',
   bottleneckKind: 'demand',
@@ -64,6 +67,7 @@ export function App(): JSX.Element {
         covers: state.day.served,
         waiting: [...state.customers.values()].filter((c) => c.state === 'waiting').length,
         balked: state.day.balked,
+        stars: g.stars(),
         open: g.world.clock.isOpen,
         bottleneck: state.bottleneck?.line ?? 'Nothing is holding you back',
         bottleneckKind: state.bottleneck?.kind ?? 'demand',
@@ -100,6 +104,8 @@ export function App(): JSX.Element {
         {booted ? <Money cents={readout.cashCents} /> : <span className="cash mono">&nbsp;</span>}
         <span className={readout.open ? 'trading' : 'closed'}>{readout.clock}</span>
       </header>
+
+      {booted && <Stars value={readout.stars} />}
 
       <div className={`bottleneck kind-${readout.bottleneckKind}`}>{readout.bottleneck}</div>
 

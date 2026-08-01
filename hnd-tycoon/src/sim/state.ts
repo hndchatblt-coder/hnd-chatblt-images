@@ -20,6 +20,8 @@ import { makeStation, type Job, type Station } from './entities/station';
 import { makeStaff, type Staff } from './entities/staff';
 import { Stock } from './entities/stock';
 import { Ledger } from './ledger';
+import { Rng } from './rng';
+import type { Review } from './systems/reputation';
 import { ECONOMY } from '@/config/economy';
 import type { Constraint } from './systems/bottleneck';
 import type { Customer, Order } from './entities/order';
@@ -47,6 +49,10 @@ export interface DayAccumulator {
   wasteUnits: number;
   /** Customers who looked at the queue and walked. §6.3 — a headline stat. */
   balked: number;
+  /** Reviews left today. */
+  reviews: number;
+  satisfactionSum: number;
+  satisfactionCount: number;
 }
 
 export function emptyDay(): DayAccumulator {
@@ -60,6 +66,9 @@ export function emptyDay(): DayAccumulator {
     workSeconds: NONE,
     wasteUnits: NONE,
     balked: NONE,
+    reviews: NONE,
+    satisfactionSum: NONE,
+    satisfactionCount: NONE,
   };
 }
 
@@ -109,11 +118,20 @@ export interface SimState {
   dayIndex: number;
   /** Customers who took one look at the queue and kept walking. §6.3 */
   balked: number;
+  /**
+   * Every review ever left. §6.5 — each carries its channel, so `delivery` is
+   * a config line rather than a second array.
+   */
+  readonly reviews: Review[];
+  /** A named RNG stream, so reviews cannot shift any other system's sequence. */
+  readonly rng: Rng;
   day: DayAccumulator;
   counters: { customer: number; order: number; job: number };
 }
 
 export interface StateOptions {
+  /** The run's seed. Named streams derive from it — see `rng` below. */
+  seed?: number | string;
   siteId?: string;
   /** A named layout from `config/layouts.ts`. Defaults to the site's own. */
   layoutId?: string;
@@ -181,6 +199,11 @@ export function createState(opts: StateOptions = {}): SimState {
     workingToday: new Set(),
     dayIndex: NONE,
     balked: NONE,
+    reviews: [],
+    // Seeded from the RUN, not the site: seeding from the site alone gave
+    // every seed an identical review stream, so seed variation looked like it
+    // worked and did nothing.
+    rng: new Rng(`reviews:${opts.siteId ?? 'leichhardt'}:${String(opts.seed ?? 0)}`),
     day: emptyDay(),
     counters: { customer: NONE, order: NONE, job: NONE },
   };

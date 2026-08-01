@@ -22,6 +22,7 @@ import { TIME } from '@/config/time';
 import { TICKS_PER_GAME_HOUR } from '../clock';
 import type { Rng } from '../rng';
 import type { System, World } from '../world';
+import { reviewBalk } from './reputation';
 import { id, type ItemId, type OrderId, type RecipeId } from '../types';
 
 const NONE = 0;
@@ -96,6 +97,9 @@ export class ArrivalsSystem implements System {
     if (this.balks(world)) {
       state.day.balked += ONE;
       state.balked += ONE;
+      // §6.3: a walkout leaves a two-star mark 6% of the time. The earliest
+      // warning the player gets that the queue is costing them.
+      reviewBalk(state);
       return;
     }
     const choice = pickFromMix(this.stream(world), DEMAND.MENU_MIX);

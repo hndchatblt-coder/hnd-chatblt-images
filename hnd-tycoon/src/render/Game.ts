@@ -19,6 +19,7 @@ import {
   type ActionResult,
 } from '@/sim/actions';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
+import { starsOf } from '@/sim/systems/reputation';
 import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
@@ -106,6 +107,11 @@ export class Game {
 
   buy(itemId: string): ActionResult {
     return buy(this.world.state, itemId);
+  }
+
+  /** Live star rating per channel. §22.5 puts it in the top bar. */
+  stars(channel = 'dineIn'): number {
+    return starsOf(this.world.state.reviews, this.world.clock.dayIndex, channel);
   }
 
   roster(): { id: string; name: string; roster: boolean[]; leaving: boolean; onToday: boolean }[] {

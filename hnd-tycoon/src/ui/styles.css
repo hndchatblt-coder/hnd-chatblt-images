@@ -115,7 +115,7 @@ html, body {
 /* --- The bottleneck line. §13: always visible, always quantified. -------- */
 .bottleneck {
   position: absolute;
-  top: 44px;
+  top: 62px;
   left: 0;
   right: 0;
   z-index: 2;
@@ -341,3 +341,20 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .rcell, .roster-open { transition: none; }
 }
+
+/* --- Star rating. §22.5 top bar, §22.4 legible muted. ------------------- */
+.stars {
+  position: absolute;
+  top: 40px;
+  right: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.glyphs { letter-spacing: 1px; }
+.star { color: #3b4048; }
+.star.on { color: var(--warm); }
+.stars.sliding .star.on { color: #d6453a; }
+.rating { color: var(--ink-muted); font-size: 11px; }

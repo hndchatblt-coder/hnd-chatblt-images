@@ -641,3 +641,54 @@ spec calls the single distinction doing the most visual work.
 Not fixable inside this step. It is the design audit's finding 6 — 120x
 compression makes the render layer's best work unobservable — and it needs
 either a slower clock or render-side interpolation decoupled from sim time.
+
+---
+
+## D033 — reputation, and why it is a keyed map on day one
+**Step 9. Status: active.**
+
+§7.4's formulas transcribed rather than re-derived: satisfaction is
+`waitScore x quality x accuracy`, **multiplied not averaged**, so a shop that is
+instant but serving stale food scores 0.4 rather than "mostly fine" at 0.7.
+Stars are `clamp(round(1 + satisfaction * 4), 1, 5)`, against a 3.8-star prior
+at the weight of fifteen reviews and a ten-day half-life over the last 250.
+
+**Reviews are angry-skewed**: 7% of happy customers leave one, 30% of unhappy
+ones. Measured on a struggling shop: 67% of its reviews are one or two stars.
+That asymmetry is why a bad week hurts for longer than it lasted.
+
+Measured recovery, seed 3, 70 arrivals/hr with one cook then three hires:
+trough **1.97 stars on day 5**, back up 0.5 by day 11. Six days of digging.
+Spec says 8–10; the gate asserts trough-to-recovery between 2 and 20 days
+rather than a fixed day, because when the trough lands is Poisson's business.
+
+§6.5: every review carries its channel from the first line of code. `delivery`
+is a config entry, not a refactor.
+
+---
+
+## D034 — three findings from attacking step 9 as a future-architecture reviewer
+**Step 9. Status: fixed.**
+
+1. **`starsOf` ignored the channel** while `ReputationSystem` looped over
+   channels reporting one number for all of them. Right by accident with one
+   channel, silently wrong the day delivery lands. Now scoped, and gated with a
+   test that proves an unscoped score is the wrong answer for BOTH channels.
+2. **`state.reviews` grew without bound** — 3,613 in forty days, of which 250
+   are ever read. Trimmed to twice the window; the rest was save-file weight
+   forever.
+3. **The review RNG was seeded from the site id alone**, so every seed shared
+   an identical review stream. Determinism held and seed variation quietly did
+   nothing. Now derived from the run seed, gated both ways.
+
+---
+
+## D035 — the star rating goes on screen the same step it exists
+**Step 9. Status: active.**
+
+§22.5 puts the rating in the top bar and it would have been easy to defer.
+Five glyphs plus a number, tweened (§22.3 — a rating that snapped from 3.8 to
+2.1 reads as a bug rather than as the week you just had), and it turns red
+below three stars so the state is legible muted and at a glance (§22.4).
+
+The fill is the signal; the number is the detail.

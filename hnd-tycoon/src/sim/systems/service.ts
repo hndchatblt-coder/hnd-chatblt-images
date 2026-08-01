@@ -21,6 +21,7 @@ import { GAME_SECONDS_PER_TICK } from '../clock';
 import { isOrderComplete, type Order } from '../entities/order';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
+import { reviewServedOrder } from './reputation';
 
 const NONE = 0;
 const ONE = 1;
@@ -107,6 +108,7 @@ export class ServiceSystem implements System {
       customer.servedAt = now;
     }
 
+    reviewServedOrder(state, order, now);
     state.day.served += ONE;
     state.day.waitTicks += now - order.placedAt;
   }

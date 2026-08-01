@@ -7,6 +7,31 @@ half-done, say half-done. Future sessions depend on this being true.
 
 ## Current position
 
+### ✅ Step 9 — Satisfaction, reviews, reputation
+
+The shop has a reputation and it can be wrecked. Satisfaction multiplies wait,
+quality and accuracy so no good dimension covers for a bad one; reviews are
+angry-skewed 30% against 7%, which is why a struggling shop's review pool is
+**67% one-and-two-star**; and stars are recency-weighted over the last 250 with
+a ten-day half-life against a 3.8 prior.
+
+Measured bad week: trough **1.97 stars on day 5**, +0.5 recovered by day 11.
+
+Reputation is a keyed map from the first line (§6.5) — every review carries its
+channel, and a second channel is a config entry.
+
+**On screen the same step it exists** (§22.5): five glyphs and a tweened number
+in the top bar, red below three stars.
+
+Attacked as a future-architecture reviewer; found three: `starsOf` ignored the
+channel it was asked for, the review array grew forever, and the review RNG
+was seeded from the site rather than the run so every seed shared one stream.
+All fixed and gated. See D034.
+
+**Gate: 151 passing, 23 todo, boundaries clean.**
+
+---
+
 ### ✅ Step 7b — Rostering and firing (post-audit)
 
 **Labour is a decision now.** Staff carry a seven-day roster; wages accrue only
