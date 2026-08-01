@@ -14,12 +14,32 @@ import type { ItemId, RecipeId, StaffId } from '../types';
 export interface Station {
   readonly id: string;
   readonly type: StationType;
-  /** 1.0 runs recipe durations as written. Equipment tiers raise it (§14.2). */
+  /**
+   * 1.0 runs recipe durations as written.
+   *
+   * Equipment does NOT raise this, and the comment here used to say it did.
+   * §14.2's whole thesis is that automation buys back ATTENTION, not time — a
+   * patty is ninety seconds on a clamshell exactly as it is on a flat-top; what
+   * changes is that nobody has to stand there for it. Machines live in
+   * `machines` below and act on the attention split. This field is for the
+   * harness, which uses it to scale a whole line and prove a wait-time gate.
+   */
   speedMultiplier: number;
   /** The job currently on this station, or null. */
   jobId: string | null;
   /** Cumulative seconds this station has spent working. Drives §8 utilities. */
   runSeconds: number;
+  /**
+   * Machine ids fitted here. §14.2. One per kind — see MACHINE_RULES.
+   *
+   * Fitted TO a station rather than owned by the shop, because "which grill has
+   * the clamshell" is a real question the moment there are two grills, and
+   * because §14.4's reliability is per unit: it is this machine's run-hours
+   * that break this machine.
+   */
+  readonly machines: string[];
+  /** Run-hours since installation, per machine. §14.4 drives failures off it. */
+  readonly machineHours: Record<string, number>;
 }
 
 /**
@@ -86,7 +106,7 @@ export interface Job {
 }
 
 export function makeStation(id: string, type: StationType, speedMultiplier: number): Station {
-  return { id, type, speedMultiplier, jobId: null, runSeconds: 0 };
+  return { id, type, speedMultiplier, jobId: null, runSeconds: 0, machines: [], machineHours: {} };
 }
 
 export const isStationFree = (station: Station): boolean => station.jobId === null;

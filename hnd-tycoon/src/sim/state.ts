@@ -158,6 +158,15 @@ export interface SimState {
   /** Which overdraft tier the bank is at, or null in the black. §10 */
   bankTier: string | null;
   /**
+   * Whether preventive maintenance is being paid. §14.4.
+   *
+   * One shop-wide toggle rather than a schedule per machine, because the spec
+   * calls it "a small recurring cost the player can skip" and describes exactly
+   * one decision: *"skipping is correct in a cash crunch and expensive later.
+   * Good decision."* A per-machine schedule is admin, not a decision.
+   */
+  maintaining: boolean;
+  /**
    * Walkouts that have not been drawn yet. §6.3, and the step 10 exit criterion:
    * **a walkout must be legible on screen BEFORE the stat moves.**
    *
@@ -263,6 +272,7 @@ export function createState(opts: StateOptions = {}): SimState {
     incidents: [],
     recovery: null,
     bankTier: null,
+    maintaining: true,
     reviews: [],
     // The prior, not a guess: a shop with no reviews IS its prior, and starting
     // arrivals from a different number than reputation reports would make day

@@ -54,6 +54,8 @@ import { isStaffFree, type Staff } from '../entities/staff';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
 import { freshnessPenalty, stationPenalty } from './incidents';
+import { MACHINE_BY_ID } from '@/config/machines';
+import type { AttentionProfile } from '@/config/recipes';
 import type { ItemId, StaffId } from '../types';
 
 const NONE = 0;
@@ -74,12 +76,19 @@ interface Candidate {
  * you flip it while it is cooking — so the three parts still sum to `duration`
  * and no time is invented.
  */
-export function attentionSplit(step: Step, batch = ONE): {
+export function attentionSplit(
+  step: Step,
+  batch = ONE,
+  station?: Station,
+): {
   setup: number;
   cook: number;
   finish: number;
 } {
-  const { setupSeconds, tendSeconds, teardownSeconds } = step.attention;
+  // §14.2. Machines act HERE and nowhere else: they change what a person has to
+  // do, never how long the food takes. A clamshell cooks a patty in the same
+  // ninety seconds a flat-top does — it just does not need anybody watching it.
+  const { setupSeconds, tendSeconds, teardownSeconds } = machinedAttention(step, station);
   if (!KITCHEN.UNATTENDED_COOKING) {
     return { setup: step.duration, cook: NONE, finish: NONE };
   }
@@ -100,6 +109,30 @@ export function attentionSplit(step: Step, batch = ONE): {
   const perBatch = SIMULTANEOUS_BATCH[step.station] ? step.duration : step.duration * units;
   const cook = Math.max(NONE, perBatch - setup - finish);
   return { setup, cook, finish };
+}
+
+/**
+ * A step's attention profile with whatever is bolted to the station applied.
+ *
+ * Multiplicative and order-independent, so two machines on one station compose
+ * without either needing to know about the other — which matters because §14.2
+ * puts an auto-lift fryer and a robotic fry station on the same station type.
+ */
+export function machinedAttention(step: Step, station?: Station): AttentionProfile {
+  if (!station || station.machines.length === NONE) return step.attention;
+  let setup = step.attention.setupSeconds;
+  let tend = step.attention.tendSeconds;
+  let teardown = step.attention.teardownSeconds;
+  let canLapse = step.attention.canLapse;
+  for (const id of station.machines) {
+    const spec = MACHINE_BY_ID[id];
+    if (!spec) continue;
+    setup *= spec.attention.setup ?? ONE;
+    tend *= spec.attention.tend ?? ONE;
+    teardown *= spec.attention.teardown ?? ONE;
+    if (spec.attention.canLapse !== undefined) canLapse = spec.attention.canLapse;
+  }
+  return { setupSeconds: setup, tendSeconds: tend, teardownSeconds: teardown, canLapse };
 }
 
 /**
@@ -538,7 +571,7 @@ export class KitchenSystem implements System {
       ? this.nearestStation(state, consumer.station, workTile, false)
       : null;
     const carryTiles = delivery ? state.floor.pathTiles(workTile, delivery.at) : NONE;
-    const split = attentionSplit(candidate.step, batch);
+    const split = attentionSplit(candidate.step, batch, station);
     // Holding cabinets extend how long the output stays good. §14.2 tier 1 —
     // they buy nothing on their own, only in combination with a decision to
     // cook ahead.

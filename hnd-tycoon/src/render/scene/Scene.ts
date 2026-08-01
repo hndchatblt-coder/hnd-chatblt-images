@@ -325,7 +325,7 @@ export class Scene {
       const step = state.graphs.get(job.recipeId)?.steps.get(job.stepId);
       if (!step) continue;
 
-      const split = attentionSplit(step, job.batch);
+      const split = attentionSplit(step, job.batch, state.stations.find((s) => s.id === job.stationId));
       if (split.cook <= 0 && job.phase !== 'finish') {
         // Nothing visibly cooks at an assembly bench. Draw the item only once
         // it exists, being carried.

@@ -13,6 +13,8 @@
  */
 import { INCIDENTS, INCIDENT_RULES, type IncidentSpec } from '@/config/incidents';
 import { AMBIENCE_POINTS, ambienceBonus, ambienceSpendBonus } from '@/config/ambience';
+import { MACHINE_BY_ID, MACHINE_RULES } from '@/config/machines';
+import { TIME } from '@/config/time';
 import type { Rng } from '../rng';
 import type { SimState } from '../state';
 import type { System, World } from '../world';
@@ -29,6 +31,8 @@ export interface Incident {
   readonly stationId: string | null;
   /** Which staffer is off, when the spec is an absence. */
   readonly staffId: string | null;
+  /** Which machine packed it in, when this is a §14.4 breakdown. */
+  readonly machineId?: string;
   /** 0..maxSeverity. Grows every day it is left alone. */
   severity: number;
 }
@@ -47,7 +51,11 @@ export function specOf(incident: Incident): IncidentSpec {
 export function fixCostDollars(incident: Incident): number {
   const spec = specOf(incident);
   const above = Math.max(NONE, incident.severity - spec.severity);
-  return spec.baseFixCost * (ONE + above * INCIDENT_RULES.COST_PER_SEVERITY);
+  // A machine sets its own callout. §14.4 — a robotic fry station and a sauce
+  // rail are not the same phone call.
+  const machine = incident.machineId === undefined ? undefined : MACHINE_BY_ID[incident.machineId];
+  const base = machine ? machine.calloutCost : spec.baseFixCost;
+  return base * (ONE + above * INCIDENT_RULES.COST_PER_SEVERITY);
 }
 
 /** Multiplier on a station's speed, given everything currently wrong with it. */
@@ -139,6 +147,11 @@ export class IncidentSystem implements System {
       if (incident.openedOn < world.clock.dayIndex) state.incidents.splice(i, ONE);
     }
 
+    // Machine wear is its own process and is NOT covered by the opening grace:
+    // a machine you chose to buy on day three has earned its own risk, and the
+    // grace exists to stop the world happening to a shop that has done nothing.
+    this.wear(world);
+
     if (world.clock.dayIndex < INCIDENT_RULES.GRACE_DAYS) return;
     if (state.incidents.length >= INCIDENT_RULES.MAX_OPEN) return;
     if (!this.stream(world).bool(INCIDENT_RULES.CHANCE_PER_DAY)) return;
@@ -226,6 +239,53 @@ export class IncidentSystem implements System {
       state.workingToday.delete(incident.staffId);
     }
     state.onToday = state.workingToday.size;
+  }
+
+  /**
+   * §14.4: *"failure rate proportional to run-hours, inverse to maintenance
+   * spend."*
+   *
+   * Rolled per machine per day off the hours IT worked, not off the calendar.
+   * A clamshell in a shop that trades four hours a day lasts twice as long as
+   * one in a shop that trades eight, which is the correct relationship and the
+   * reason `machineHours` is per fitting rather than a single number.
+   */
+  private wear(world: World): void {
+    const state = world.state;
+    const rng = this.stream(world);
+    for (const station of state.stations) {
+      const hours = station.runSeconds / TIME.SECONDS_PER_HOUR;
+      if (hours <= NONE) continue;
+      for (const machineId of station.machines) {
+        const spec = MACHINE_BY_ID[machineId];
+        if (!spec) continue;
+        const lifetime = (station.machineHours[machineId] ?? NONE) + hours;
+        station.machineHours[machineId] = lifetime;
+        // A new machine does not break in its first week. Not a kindness — a
+        // purchase that fails on day one reads as the purchase being broken.
+        if (lifetime < MACHINE_RULES.BEDDING_IN_HOURS) continue;
+        // Already down. It cannot get more down; it gets worse, which the
+        // severity ramp handles.
+        if (state.incidents.some((i) => i.stationId === station.id && i.specId === 'machineDown')) {
+          continue;
+        }
+        const maintained = state.maintaining
+          ? MACHINE_RULES.MAINTAINED_FAILURE_MULTIPLIER
+          : ONE;
+        const chance =
+          (spec.failuresPerKiloHour / MACHINE_RULES.HOURS_PER_RATED_UNIT) * hours * maintained;
+        if (!rng.bool(Math.min(ONE, chance))) continue;
+        state.incidents.push({
+          id: `inc-${state.counters.incident++}`,
+          specId: 'machineDown',
+          openedOn: world.clock.dayIndex,
+          stationId: station.id,
+          staffId: null,
+          severity: spec.failureSeverity,
+          machineId,
+        });
+      }
+    }
   }
 
   onClose(world: World): void {

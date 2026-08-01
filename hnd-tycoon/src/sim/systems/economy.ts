@@ -23,6 +23,7 @@ import type { SimState } from '../state';
 import type { System, World } from '../world';
 import { AMBIENCE } from '@/config/ambience';
 import { ambiencePoints } from './incidents';
+import { MACHINE_BY_ID } from '@/config/machines';
 
 const NONE = 0;
 
@@ -108,6 +109,29 @@ export class EconomySystem implements System {
     // not. Without this, ambience at Leichhardt is a pure stat upgrade — the
     // floor it is supposed to compete for is not scarce in a 9x15 room. See the
     // long note on UPKEEP_PER_POINT_PER_DAY.
+    /**
+     * §14.3: machines draw *"continuous draw whether busy or not, so automation
+     * is WORSE than staff on a dead Monday."*
+     *
+     * Charged on TRADING HOURS, not run-hours, and that distinction is the
+     * whole cost. A staffer you did not roster costs nothing on a quiet
+     * Tuesday; a clamshell holding temperature costs the same on a quiet
+     * Tuesday as on a slammed Saturday. It is the single line item that stops
+     * `bot:roboboss` dominating.
+     */
+    let draw = 0;
+    for (const station of world.state.stations) {
+      for (const machineId of station.machines) {
+        draw += MACHINE_BY_ID[machineId]?.utilitiesPerHour ?? 0;
+      }
+    }
+    if (draw > 0) {
+      ledger.post(
+        'utilities',
+        money(draw * world.state.site.tradingHoursPerDay, ledger.cash.currency),
+      );
+    }
+
     const points = ambiencePoints(world.state);
     if (points > 0) {
       ledger.post(
@@ -120,6 +144,19 @@ export class EconomySystem implements System {
   /** §8: wages are paid Sunday 23:00 as a lump. */
   onPayroll(world: World): void {
     const state = world.state;
+    // §14.4's preventive maintenance, on the same Sunday bill as everything
+    // else. Skippable, and skipping is a real move in a cash crunch.
+    if (state.maintaining) {
+      let weekly = 0;
+      for (const station of state.stations) {
+        for (const machineId of station.machines) {
+          weekly += MACHINE_BY_ID[machineId]?.maintenancePerWeek ?? 0;
+        }
+      }
+      if (weekly > 0) {
+        state.ledger.post('overheads', money(weekly, state.ledger.cash.currency));
+      }
+    }
     state.ledger.post('wages', state.accruedWages);
     state.lastPayroll = state.accruedWages;
     state.accruedWages = ZERO();

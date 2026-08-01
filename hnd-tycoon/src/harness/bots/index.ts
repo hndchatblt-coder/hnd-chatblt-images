@@ -1,10 +1,9 @@
 /**
  * The bot registry and the runner. DESIGN.md §25.2.
  *
- * SCOPE: `naive`, `balanced` and `idle`. `tightarse` and `roboboss` need verbs
- * the game does not have yet (automation is step 12), and a bot that pretended
- * to automate would make step 12's "neither strategy may dominate" gate
- * unfalsifiable.
+ * All five of §25.2's bots exist as of step 12. The important property is that
+ * NONE of them dominates — `tightarse` and `roboboss` must both land within 25%
+ * of `balanced`, or the equipment ladder is either mandatory or decorative.
  *
  * The §25.2 session model (three 8-minute sessions a day, offline accrual at
  * 75% behind the §5.2 caps) is NOT applied here yet either. It lands with
@@ -16,10 +15,12 @@
 import { buildScenario } from '@/sim/scenario';
 import type { Bot } from '../bot';
 import { balanced } from './balanced';
+import { roboboss } from './roboboss';
+import { tightarse } from './tightarse';
 import { idle } from './idle';
 import { naive } from './naive';
 
-export const BOTS: readonly Bot[] = [naive, balanced, idle];
+export const BOTS: readonly Bot[] = [naive, balanced, tightarse, roboboss, idle];
 
 export interface BotDay {
   readonly day: number;

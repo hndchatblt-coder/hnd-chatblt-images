@@ -53,6 +53,7 @@ export class Floor {
   private readonly occupant = new Map<number, string>();
   private readonly placements = new Map<string, { type: StationType; at: Placement }>();
   private readonly services = new Map<ServicePoint, Set<number>>();
+  private readonly reservations = new Map<string, { at: Tile; width: number; depth: number }>();
   private readonly distanceCache = new Map<string, number>();
 
   constructor(readonly site: SiteDefinition) {
@@ -164,6 +165,58 @@ export class Floor {
     for (const t of footprintOf(type, at)) this.occupant.set(this.key(t.x, t.y), stationId);
     this.placements.set(stationId, { type, at });
     this.distanceCache.clear();
+  }
+
+  /**
+   * Reserve a bare rectangle. §14.2's machines need this because they are not
+   * stations: a clamshell is 2x1 of floor that belongs to a grill, and calling
+   * `place` with the grill's type would reserve the grill's footprint instead
+   * of the machine's.
+   *
+   * No service requirement and no access tile — a machine is worked from
+   * wherever its host station is worked from, and giving it its own access
+   * requirement would let a legal purchase produce an unreachable machine.
+   */
+  fits(at: Tile, width: number, depth: number, occupied: readonly Tile[] = []): boolean {
+    for (let dx = NONE; dx < width; dx += ONE) {
+      for (let dy = NONE; dy < depth; dy += ONE) {
+        const x = at.x + dx;
+        const y = at.y + dy;
+        if (!this.inBounds(x, y)) return false;
+        if (this.isObstructed(x, y)) return false;
+        if (this.occupant.has(this.key(x, y))) return false;
+        if (occupied.some((o) => o.x === x && o.y === y)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Take those tiles. Reversible through `release`. */
+  reserve(id: string, at: Tile, width: number, depth: number): void {
+    for (let dx = NONE; dx < width; dx += ONE) {
+      for (let dy = NONE; dy < depth; dy += ONE) {
+        this.occupant.set(this.key(at.x + dx, at.y + dy), id);
+      }
+    }
+    this.reservations.set(id, { at, width, depth });
+    this.distanceCache.clear();
+  }
+
+  release(id: string): void {
+    const held = this.reservations.get(id);
+    if (!held) return;
+    for (let dx = NONE; dx < held.width; dx += ONE) {
+      for (let dy = NONE; dy < held.depth; dy += ONE) {
+        this.occupant.delete(this.key(held.at.x + dx, held.at.y + dy));
+      }
+    }
+    this.reservations.delete(id);
+    this.distanceCache.clear();
+  }
+
+  /** Bare rectangles taken by things that are not stations. For the renderer. */
+  get reservedFootprints(): ReadonlyMap<string, { at: Tile; width: number; depth: number }> {
+    return this.reservations;
   }
 
   remove(stationId: string): void {

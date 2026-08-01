@@ -870,3 +870,67 @@ budgeted, which is what killed the acceleration multiplier (D044).
   `.gitkeep`.
 
 **Next: step 12 — the equipment ladder.**
+
+---
+
+## Step 12 — the equipment ladder. **NOT DONE. The exit criterion fails.**
+
+Committed because the machinery is real and tested, not because the step is
+finished. **Do not treat this as shipped.**
+
+### What is built and green
+- `config/machines.ts` — six rungs of §14.2, each expressed as a change to the
+  §14.1 attention split and **never** to the clock. Automation buys back
+  attention, not time; nothing here has a `speedMultiplier`.
+- Machines fit to a station, take their own floor tiles, draw utilities every
+  trading hour whether busy or not (§14.3), and break at a rate proportional to
+  their own run-hours and inverse to maintenance spend (§14.4).
+- Preventive maintenance as one skippable weekly cost.
+- All five §25.2 bots now exist.
+
+### Why it is not done — measured, 90 days, four seeds
+
+```
+bot         cash      covers   stars
+tightarse  $104,473   10,874   3.88     <- +85% over balanced
+balanced    $56,465   21,993   3.32
+roboboss   -$91,540   15,801   3.89     <- bankrupt
+naive       $46,363   11,051   2.49
+idle        $46,547    8,220   2.78
+```
+
+The exit criterion is that `tightarse` and `roboboss` both land within **25%**
+of `balanced`. They land at +85% and −262%.
+
+**The cause is the ladder, not the bots.** Every machine that can be afforded
+loses money (2 staff, all week, 90 days, against $41,657 with none):
+
+```
+sauceRail         $41,264    -$393
+conveyorToaster   $36,792  -$4,865
+kiosk             $30,357 -$11,299
+clamshell / autoLiftFryer / roboFry — never affordable in 90 days at all
+```
+
+Pricing is NOT the problem and was checked first: the price curve peaks at
+100% ($46,547) and falls away both sides — 90% $40,380, 110% $44,463, 118%
+$38,145, 150% $4,897. That dial is behaving.
+
+I costed every machine against §14.3's "at least two of capital / floor /
+utilities / flexibility / reliability" and never measured what the attention it
+saves is actually worth. The costs are real and the benefit was assumed. Same
+failure as D044, third occurrence of the pattern.
+
+### What the next session should do
+1. Measure the labour-seconds each machine actually removes per trading day at
+   a realistic load, and price the rung against that, rather than against how
+   impressive it sounds.
+2. §14.5 gives the target the tuning must hit: labour **22–26%** of revenue
+   heavily automated against **30–34%** without, "alongside a much larger capex
+   and utilities line. Cheaper, not free, and far more brittle." Nothing
+   currently measures labour share — build that readout first, then tune to it.
+3. Re-check `tightarse` afterwards. Its +85% may be partly a knock-on: with no
+   machine worth buying, the lean strategy has nothing to lose to.
+4. Only then write `tests/step12.test.ts` with the ±25% gate.
+
+**Step 12 is IN PROGRESS. Step 11 is the last completed step.**

@@ -27,7 +27,7 @@ import { fixCostDollars, specOf } from '@/sim/systems/incidents';
 import { bankMessage, recoveryLine } from '@/sim/systems/recovery';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { starsOf } from '@/sim/systems/reputation';
-import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
+import { SHOPFRONT, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
 import { Scene } from './scene/Scene';
@@ -101,14 +101,16 @@ export class Game {
   /** Everything the shop sells, with live prices and whether you can have it. */
   shopfront(): { item: CatalogueItem; cents: number; affordable: boolean; owned: number }[] {
     const state = this.world.state;
-    return CATALOGUE.map((item) => ({
+    return SHOPFRONT.map((item) => ({
       item,
       cents: priceOf(state, item),
       affordable: canAfford(state, item),
       owned:
         item.kind === 'hire'
           ? state.staff.length
-          : state.stations.filter((s) => s.type === item.station).length,
+          : item.kind === 'machine'
+            ? state.stations.filter((s) => s.machines.includes(item.machine)).length
+            : state.stations.filter((s) => s.type === item.station).length,
     }));
   }
 

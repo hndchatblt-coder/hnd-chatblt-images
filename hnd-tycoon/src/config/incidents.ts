@@ -105,6 +105,28 @@ export const INCIDENTS: readonly IncidentSpec[] = [
     maxSeverity: 0.6,
     baseFixCost: 210,
   },
+  /**
+   * §14.4's automation failure class. ONE spec covering every machine, with the
+   * machine's own `failureSeverity` and `calloutCost` overriding the defaults —
+   * a separate spec per machine would be five near-identical blocks that drift
+   * apart, and the thing that varies is the numbers, not the behaviour.
+   *
+   * Its weight is zero because it is never rolled from the general table: the
+   * machine reliability model opens it directly, off run-hours. §9's weather and
+   * §14.4's wear are different processes and mixing them would mean buying a
+   * clamshell made your cool room more likely to drift.
+   */
+  {
+    id: 'machineDown',
+    label: 'Something has packed it in',
+    blurb: 'It still runs. It runs badly, and it will not fix itself.',
+    effect: 'stationSpeed',
+    weight: 0,
+    severity: 0.4,
+    severityPerDay: 0.05,
+    maxSeverity: 0.7,
+    baseFixCost: 400,
+  },
   {
     id: 'roomTired',
     label: 'The room is looking tired',

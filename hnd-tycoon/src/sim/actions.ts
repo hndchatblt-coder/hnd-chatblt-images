@@ -24,6 +24,7 @@ import { ECONOMY, hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { CALENDARS, DAY_NAMES, type DayOfWeek } from '@/config/time';
 import { Cash, id, money, ZERO, type Money, type SiteId, type StaffId } from './types';
 import { fixCostDollars, specOf } from './systems/incidents';
+import { MACHINE_BY_ID, MACHINE_RULES } from '@/config/machines';
 import type { SimState } from './state';
 
 const NONE = 0;
@@ -40,6 +41,9 @@ export interface ActionResult {
 
 export function priceOf(state: SimState, item: CatalogueItem): number {
   if (item.kind === 'hire') return hireCost(state).cents;
+  // Machines are priced by their spec and do not get the duplicate step: §14.5
+  // allows one per station, so there is no second one to charge more for.
+  if (item.kind === 'machine') return item.price.cents;
   // Each additional copy of a station costs a little more: the easy spot is
   // already taken and the second one always needs more work.
   const owned = state.stations.filter((s) => s.type === item.station).length;
@@ -53,7 +57,9 @@ export function canAfford(state: SimState, item: CatalogueItem): boolean {
 export function buy(state: SimState, itemId: string): ActionResult {
   const item = CATALOGUE_BY_ID[itemId];
   if (!item) return { ok: false, reason: `No such thing as a ${itemId}` };
-  return item.kind === 'hire' ? hire(state) : install(state, item.station, item);
+  if (item.kind === 'hire') return hire(state);
+  if (item.kind === 'machine') return buyMachine(state, item.machine);
+  return install(state, item.station, item);
 }
 
 function hire(state: SimState): ActionResult {
@@ -160,6 +166,92 @@ export function fixIncident(state: SimState, incidentId: string): ActionResult {
   state.ledger.post('overheads', cost);
   state.incidents.splice(index, ONE);
   return { ok: true, reason: `Sorted. ${Cash.format(cost)}.` };
+}
+
+/**
+ * Fit a machine to a station. §14.2.
+ *
+ * It needs a station of the right type to bolt onto AND floor of its own, which
+ * is §14.3's floor-space cost made real rather than asserted. The refusal
+ * messages are the interesting part: "you have no fryer" and "there is nowhere
+ * to put it" are two different problems and the player has to be told which.
+ */
+export function buyMachine(state: SimState, machineId: string): ActionResult {
+  const spec = MACHINE_BY_ID[machineId];
+  if (!spec) return { ok: false, reason: `No such thing as a ${machineId}` };
+
+  const hosts = state.stations.filter((s) => s.type === spec.station);
+  if (hosts.length === NONE) {
+    const label = STATION_SPECS[spec.station].label.toLowerCase();
+    return { ok: false, reason: `${spec.label} bolts onto a ${label}. You have not got one.` };
+  }
+  // §14.5: never remove the last decision at a station. One of each per host.
+  const host = MACHINE_RULES.ONE_PER_STATION
+    ? hosts.find((s) => !s.machines.includes(machineId))
+    : hosts[NONE];
+  if (!host) {
+    return { ok: false, reason: `Every ${STATION_SPECS[spec.station].label.toLowerCase()} already has one.` };
+  }
+  if (state.ledger.cash.cents < spec.price.cents) {
+    return { ok: false, reason: `${Cash.format(spec.price)}. Not in the account.` };
+  }
+
+  const spot = bestSpotForFootprint(state, spec.width, spec.depth);
+  if (!spot) {
+    return {
+      ok: false,
+      reason: `Nowhere to put it — ${spec.label.toLowerCase()} needs ${spec.width}x${spec.depth} tiles clear.`,
+    };
+  }
+
+  const fittingId = `${machineId}@${host.id}`;
+  // Reserved as its own occupant so the tiles are genuinely gone. Under the
+  // machine's own id, not the host's, or removing the host later would leave
+  // the floor thinking the tiles are still taken.
+  // Rotation has to be applied HERE as well as in the search, or a machine
+  // found a legal spot at 1x2 and then reserved 2x1 tiles somewhere it does
+  // not fit — silently taking the wrong squares.
+  const w = spot.rotated === true ? spec.depth : spec.width;
+  const d = spot.rotated === true ? spec.width : spec.depth;
+  state.floor.reserve(fittingId, spot, w, d);
+  host.machines.push(machineId);
+  host.machineHours[machineId] = NONE;
+  state.ledger.post('capex', spec.price);
+
+  return { ok: true, reason: `${spec.label} is in.`, installedId: fittingId };
+}
+
+/**
+ * §14.4. Stop paying for maintenance, or start again.
+ *
+ * Skipping is a legitimate move in a cash crunch and the game should not scold
+ * anyone for it — it is expensive later, which is the whole of the decision.
+ */
+export function setMaintenance(state: SimState, on: boolean): ActionResult {
+  state.maintaining = on;
+  return {
+    ok: true,
+    reason: on
+      ? 'Servicing back on. Things will break less.'
+      : 'Servicing paused. It will save money now and cost more later.',
+  };
+}
+
+/** Any legal placement for a bare w x d footprint. Used by machines. */
+function bestSpotForFootprint(state: SimState, width: number, depth: number): Placement | null {
+  const floor = state.floor;
+  const standing = state.staff.map((s) => s.tile);
+  for (let y = NONE; y < floor.depth; y += ONE) {
+    for (let x = NONE; x < floor.width; x += ONE) {
+      for (const rotated of [false, true]) {
+        const w = rotated ? depth : width;
+        const d = rotated ? width : depth;
+        if (floor.fits({ x, y }, w, d, standing)) return { x, y, rotated };
+
+      }
+    }
+  }
+  return null;
 }
 
 /**

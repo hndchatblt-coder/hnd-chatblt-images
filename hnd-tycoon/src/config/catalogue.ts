@@ -14,6 +14,7 @@
  * install beat, its idle signature and its working signature, and a test
  * asserts those too. If you cannot describe one, the item should not exist.
  */
+import { MACHINES } from './machines';
 import { money, type Money } from '@/sim/types';
 import type { StationType } from './recipes';
 
@@ -49,7 +50,13 @@ export interface HireEntry extends CatalogueEntry {
   readonly skill: number;
 }
 
-export type CatalogueItem = EquipmentEntry | HireEntry;
+/** §14.2. A machine bolts onto a station rather than being one. */
+export interface MachineEntry extends CatalogueEntry {
+  readonly kind: 'machine';
+  readonly machine: string;
+}
+
+export type CatalogueItem = EquipmentEntry | HireEntry | MachineEntry;
 
 /**
  * The fictional roster. Real staff names are blocked on Q5/Q6 — do not ship a
@@ -190,6 +197,25 @@ export const CATALOGUE: readonly CatalogueItem[] = [
   },
 ];
 
+/**
+ * §14.2's ladder, folded into the shop. Machines carry their own spec — this
+ * is the shop-front view of it, so the panel does not need to know the
+ * difference between a fryer and the robot that replaces one.
+ */
+export const MACHINE_ITEMS: readonly CatalogueItem[] = MACHINES.map((m) => ({
+  kind: 'machine' as const,
+  id: m.id,
+  label: m.label,
+  blurb: m.blurb,
+  price: m.price,
+  machine: m.id,
+  costs: m.costs,
+  signature: m.signature,
+}));
+
 export const CATALOGUE_BY_ID: Readonly<Record<string, CatalogueItem>> = Object.fromEntries(
-  CATALOGUE.map((item) => [item.id, item]),
+  [...CATALOGUE, ...MACHINE_ITEMS].map((item) => [item.id, item]),
 );
+
+/** Everything buyable, in the order the shop lists it. */
+export const SHOPFRONT: readonly CatalogueItem[] = [...CATALOGUE, ...MACHINE_ITEMS];
