@@ -317,3 +317,54 @@ rather than on a consumed budget must live outside that loop.
 files and `npm run floor`. It moved from 45 to 85 at step 4 and three separate
 copies would have drifted silently, which is precisely how a layout comparison
 comes to be measured at the wrong load and report the wrong sign.
+
+---
+
+## D019 — the density stage 0 gate is NOT claimed
+**Step 5. Status: open — needs Ben.**
+
+BUILD_PLAN step 5's exit criterion: *"Someone unfamiliar watches for 30 seconds
+and correctly describes what's happening, unprompted. You want to keep watching
+it. If you don't, stop and fix it before proceeding."*
+
+That is a human gate. Nothing here claims it and no test asserts it. What has
+been done instead: everything the human gate depends on is tested (§12's
+cross-section orientation, the continuity of the food ramp, the reserved-hue
+rule, the sim/render boundary), and a playable single-file build ships with
+this commit so Ben can close it himself.
+
+Reporting a human gate as passed on the strength of a passing typecheck is the
+exact failure `CLAUDE.md` describes as "essentially met". It is not met until
+someone has watched it.
+
+---
+
+## D020 — the back wall and the extraction hood
+**Step 5. Status: active.**
+
+Neither is in the spec. Both were added because the first render was
+illegible without them.
+
+The floor alone read as a rectangle floating in a void, and worse, the top rows
+of floor and the empty frame above them were indistinguishable. A tiled wall
+with a hard skirting line fixes that in one move.
+
+The extraction hood is the better of the two. It hangs over the gas run and
+nowhere else, so the screen now *states* the constraint that §7.1 encodes:
+the grill lives at the back because that is where the extraction is. That is a
+rule the player would otherwise have to be told.
+
+---
+
+## D021 — single-file build, `play/index.html`
+**Step 5. Status: active.**
+
+Ben plays on an iPhone. Two delivery paths do not work and are not worth
+retrying: the in-chat file preview (renders markup, does not execute
+JavaScript, so the game looks frozen) and asking him to download an `.html`
+and open it from Files.
+
+`vite-plugin-singlefile` produces one self-contained 648 kB file, committed to
+the repo and served through `raw.githack.com`. Verified with Playwright **touch**
+emulation (`isMobile`, `hasTouch`, no mouse) before sending — a desktop
+`click()` passing is not evidence that a tap works.

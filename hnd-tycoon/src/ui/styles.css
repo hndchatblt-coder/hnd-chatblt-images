@@ -1,0 +1,113 @@
+/*
+ * §22.2: heavy condensed for headline numbers, geometric grotesque for body,
+ * MONOSPACE TABULAR for all money and metrics. §21.4: thumb zone — primary
+ * actions in the bottom third, nothing critical in the top corners.
+ */
+:root {
+  --street-night: #161c22;
+  --street-cold: #2c3a47;
+  --ink: #f4f1ea;
+  --ink-muted: #8a8580;
+  --warm: #ffb347;
+  --surface: #1d2329;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--street-night);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.frame {
+  width: 100vw;
+  max-width: 390px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.canvas-host {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+.canvas-host canvas { display: block; }
+
+.topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(180deg, rgba(22, 28, 34, 0.92), rgba(22, 28, 34, 0));
+  font-size: 12px;
+  letter-spacing: 0.14em;
+}
+.site { font-weight: 700; color: var(--warm); }
+.clock { color: var(--ink-muted); letter-spacing: 0.04em; }
+.trading { color: var(--warm); font-weight: 700; }
+.closed { color: var(--ink-muted); }
+
+.bottombar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(0deg, rgba(22, 28, 34, 0.94) 55%, rgba(22, 28, 34, 0));
+}
+
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.label { font-size: 9px; letter-spacing: 0.16em; color: var(--ink-muted); }
+.value { font-size: 26px; line-height: 1; font-weight: 600; }
+
+.speeds { margin-left: auto; display: flex; gap: 6px; }
+.speed {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 241, 234, 0.16);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 600;
+  /* §21.4: every tap acknowledges within 100ms. */
+  transition: transform 90ms ease, background 90ms ease, color 90ms ease;
+}
+.speed:active { transform: scale(0.94); }
+.speed.on { background: var(--warm); color: #1a1206; border-color: var(--warm); }
+
+.fatal {
+  margin: 40px 16px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #3a1d1d;
+  color: #ffd9d4;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speed { transition: none; }
+}

@@ -76,6 +76,9 @@ export interface Job {
   carryRemaining: number;
   /** Where the staffer stands to work. */
   readonly workTile: Tile;
+  /** Where the current walking leg started, and how long it was. */
+  legFrom: Tile;
+  legSeconds: number;
   /** Where the output is going, and where the staffer ends up. Null = stays put. */
   readonly deliverTile: Tile | null;
 }

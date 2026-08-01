@@ -7,12 +7,13 @@ half-done, say half-done. Future sessions depend on this being true.
 
 ## Current position
 
-**Next step: 5 — ShapeRegistry and the first watchable burger** (`docs/BUILD_PLAN.md`).
-The first pixels. Phase A is done: there is a simulation you can argue with.
+**Next step: 6 — Money and the P&L.**
 
-Blocked-ish on **Q11** — Leichhardt is currently 3.6m x 6.0m, which is a small
-shop, and step 5 is about to draw it. Proceeding on the invented dimensions
-unless Ben says otherwise; the fix is more tiles, not bigger ones.
+**But step 5's gate is not closed and only Ben can close it.** Density stage 0
+asks whether a stranger watching for thirty seconds describes what is happening
+unprompted, and whether you want to keep watching. No test claims that and this
+file does not either. `play/index.html` ships with step 5 so it can be judged
+rather than asserted. See D019.
 
 **Phase A — The engine (steps 1–4).** Headless. No pixels yet. The goal of this
 phase is a simulation you can argue with.
@@ -43,6 +44,81 @@ and a rewrite in Act III.
   determinism diff.
 
 40 tests passing, 32 pending gates.
+
+### 🟡 Step 5 — ShapeRegistry and the first watchable burger
+
+**There are pixels.** A warm shop in a cold street: tiled back wall, extraction
+hood over the gas run, grill and fryer against it, the pass glowing in the
+middle of the room, a cook in whites walking between them, food changing colour
+as it cooks, steam, and someone waiting at the door.
+
+Shipped:
+- `src/render/shapes/ShapeRegistry.ts` — every shape drawn once with
+  `Graphics`, baked into a `RenderTexture` at boot, then instanced. **No raster
+  assets.** Plus `SpritePool`, so density costs allocation once.
+- `src/render/projection.ts` — top-down with a shallow oblique lean, **not
+  isometric**. No rotation at all: grid x is screen x, so a nine-wide room is
+  nine taps wide. The lean is two things only — depth tiles are shorter than
+  they are wide, and anything with height gets a front face under its top face.
+- `src/render/scene/Scene.ts` — the shop. Floor, services drawn into it, wall,
+  hood, stations, staff, food, queue, steam, and depth sorting so a cook in
+  front of the grill does not vanish into it.
+- `src/render/palette.ts` — the raw → seared → perfect → burnt ramp as an
+  interpolation. Deliberately free of PixiJS so the ramp is testable without a
+  GPU.
+- `src/render/Game.ts` — fixed 10 Hz sim ticks, frames whenever the browser
+  offers one. Speed multiplies ticks processed, never tick size.
+- `src/ui/` — a thin React HUD polling at 4 Hz. It does **not** re-render on a
+  sim tick; a React tree reconciling at 10 Hz would cost more than the
+  simulation it describes.
+- `play/index.html` — one self-contained 648 kB file for the phone.
+
+Machine-checkable criteria — 11 tests in `tests/step5.test.ts`:
+- ✅ The projection is a cross-section: back-of-house up-screen, door
+  down-screen, food flowing down and customers up (§12).
+- ✅ Grid x is screen x, depth is foreshortened, nothing is skewed.
+- ✅ Leichhardt fits the 390-wide portrait frame.
+- ✅ The food ramp is continuous — every 2% step moves less than 24 units of
+  total channel distance, so there is no point at which it reads as a state
+  machine.
+- ✅ **Burnt is only ever reached because quality was lost.** Perfectly cooked
+  food never burns by itself; it burns because nobody came back for it.
+- ✅ Reserved hues are reserved: no decorative colour anywhere in `brand.ts`
+  collides with the food ramp or the ticket ramp (§21.3).
+- ✅ `src/sim` imports nothing from `render/`, `ui/` or pixi.
+
+**Not claimed — density stage 0.** *"Someone unfamiliar watches for 30 seconds
+and correctly describes what's happening, unprompted. You want to keep watching
+it."* That is Ben's call and nothing here asserts it. See D019.
+
+### What the render pass forced
+
+- **The floor alone was illegible.** A grid in a void, with the top rows of
+  floor indistinguishable from the empty frame above them. A tiled wall with a
+  hard skirting line fixed it. Not in the spec; added because the first
+  screenshot was unreadable (D020).
+- **The extraction hood is the best thing on screen** and it was an accident.
+  It hangs over the gas run and nowhere else, so the picture now states the
+  rule that §7.1 encodes — the grill is at the back because that is where the
+  extraction is. A constraint the player would otherwise have to be told.
+- A hard-edged ellipse for the warm wash read as a rendering bug. Baked soft
+  instead, twenty-two rings.
+- The first pass sized tiles at 36x24 and the shop sat in the bottom half of
+  the frame with a black void above. 40x31 fills it.
+
+### Notes for future sessions
+
+- Staff now carry a continuous `x`/`y` in grid coordinates, updated as they
+  walk. That is simulation truth, not a render hack — a person who teleports
+  between tiles reads as a bug, and §21.5's whole premise is that human motion
+  looks different from machine motion.
+- The front half of the shop is a large empty floor. Correct for stage 0, and
+  it is where seating goes at step 10 — worth checking then that it fills.
+- Delivery to the phone: single file, committed, githack, verified with
+  Playwright **touch** emulation. A desktop click passing is not evidence a tap
+  works (D021).
+
+---
 
 ### ✅ Step 4 — Attention profiles and buffers
 
@@ -326,6 +402,41 @@ Notes for future sessions:
 
 ---
 
+## Adversarial audit — step 5
+
+**Gameplay.** No new decisions — step 5 is a render pass and adds none. Nothing
+became maximisable and nothing became strictly better than its absence.
+
+**Architecture.** `sim/` still imports nothing from `render/` or `ui/`,
+asserted twice now (the boundary script and a test). Numbers outside config:
+none — every dimension, colour and motion constant is in `config/render.ts` or
+`config/brand.ts`. The §26 item this step touches is the camera, and it is
+**not** closed: there is one fixed view, not the N-tier stack §26 requires.
+That is correct for step 5 and it is step 17's job (zoom tiers, §23) — flagging
+it so it is not forgotten.
+
+**Presentation.** *Density stage?* Stage 0, which is this step's target — one
+staffer, one grill, two or three customers, one heat source, steam. *Does every
+new item have an install beat, an idle signature and a working signature?*
+Idle: yes, pilot lights breathe on anything that burns gas, so the kitchen
+looks ON at rest. Working: yes, steam per active cooking station and the food
+ramp. **Install beat: no** — nothing can be bought yet, and it lands with step
+7, which gates on it. *Does every shape read at 12px?* The silhouettes were
+drawn for it (hard outlines, colour carrying the information, the cap
+separating a cook from a customer) but it has not been verified at 12px on a
+real device. *Thumb, portrait, 390px, no hover?* Yes — 44px speed buttons in
+the bottom third, no hover states anywhere, verified with touch-only emulation.
+*Muted?* Silent by construction; there is no audio yet.
+
+**Discipline.** *What did you build that nobody asked for?* The back wall and
+the extraction hood (D020), both because the first render was illegible without
+them, and `src/render/palette.ts` as a separate module so the food ramp is
+testable without a GPU. *Is the newest system visible?* That is the entire
+step. *Most boring 60 seconds?* Watching the empty front half of the shop —
+which is where seating goes at step 10.
+
+---
+
 ## Adversarial audit — step 4
 
 **Gameplay.** *A decision where both options are defensible?* **Yes, and it is
@@ -494,6 +605,8 @@ against them.
 | 4 | My step 3 prediction was wrong — the capacity tax FELL, 6.7% → 3.6% | A staffer who can walk away from a patty has idle time, and walking eats idle before it eats production. The covers delta rose to 9.4% anyway. D016. |
 | 4 | Unattended cooking ran up to 64 times per tick | It sat inside the advance/schedule interleave. Fryer logged 123% of trading hours. Found by instrumentation, not by a test. D017. |
 | 4 | The holding cabinet turned out to have exactly the right shape by accident | It buys nothing alone and a lot in combination. Worth copying deliberately for the rest of the ladder. |
+| 5 | The extraction hood explains the game better than any HUD element | It hangs over the gas run and nowhere else, so the screen states why the grill is at the back. Unplanned, and the best thing in the render. |
+| 5 | A floor with no wall reads as a void, not a room | Added a tiled wall and a skirting line. D020. |
 
 ---
 

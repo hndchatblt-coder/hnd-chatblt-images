@@ -21,8 +21,16 @@ export interface Staff {
   jobId: string | null;
   /** Seconds worked in the current shift. Drives payroll (§8) and fatigue. */
   shiftSeconds: number;
-  /** Where they are standing. Walking between stations is charged from here. */
+  /** The tile they are standing at, or heading to. Pathing works in tiles. */
   tile: Tile;
+  /**
+   * Continuous position in grid coordinates, updated as they walk. Equal to
+   * `tile` when stationary. The renderer draws from here — a person who
+   * teleports between tiles reads as a bug, and §21.5's whole point is that
+   * human motion looks different from machine motion.
+   */
+  x: number;
+  y: number;
   /** Seconds spent walking today. The throughput tax, made visible. */
   walkSeconds: number;
 }
@@ -34,7 +42,18 @@ export function makeStaff(
   skill: number,
   tile: Tile,
 ): Staff {
-  return { id, name, siteId, skill, jobId: null, shiftSeconds: 0, tile, walkSeconds: 0 };
+  return {
+    id,
+    name,
+    siteId,
+    skill,
+    jobId: null,
+    shiftSeconds: 0,
+    tile,
+    x: tile.x,
+    y: tile.y,
+    walkSeconds: 0,
+  };
 }
 
 export const isStaffFree = (staff: Staff): boolean => staff.jobId === null;

@@ -100,6 +100,20 @@ export function freshnessWith(
   return base * KITCHEN.HOLDING_CABINET_FRESHNESS_MULTIPLIER ** holdingCabinets;
 }
 
+/** Where someone is, partway through a walking leg. */
+function stride(staff: Staff, from: Tile, to: Tile, total: number, remaining: number): void {
+  if (total <= NONE) return;
+  const done = Math.min(ONE, Math.max(NONE, ONE - remaining / total));
+  staff.x = from.x + (to.x - from.x) * done;
+  staff.y = from.y + (to.y - from.y) * done;
+}
+
+function settle(staff: Staff, at: Tile): void {
+  staff.tile = at;
+  staff.x = at.x;
+  staff.y = at.y;
+}
+
 export class KitchenSystem implements System {
   readonly name = 'kitchen';
 
@@ -216,8 +230,9 @@ export class KitchenSystem implements System {
         available -= spent;
         walk(spent);
         any = any || spent > EPSILON;
+        stride(staff, job.legFrom, job.workTile, job.legSeconds, job.travelRemaining);
         if (job.travelRemaining <= EPSILON) {
-          staff.tile = job.workTile;
+          settle(staff, job.workTile);
           job.phase = job.phase === 'travel' ? 'setup' : 'finish';
         }
       }
@@ -252,6 +267,8 @@ export class KitchenSystem implements System {
         if (job.finishRemaining <= EPSILON) {
           station.jobId = null;
           job.phase = 'carry';
+          job.legFrom = { x: staff.x, y: staff.y };
+          job.legSeconds = job.carryRemaining;
         }
       }
 
@@ -261,8 +278,11 @@ export class KitchenSystem implements System {
         available -= spent;
         walk(spent);
         any = any || spent > EPSILON;
+        if (job.deliverTile) {
+          stride(staff, job.legFrom, job.deliverTile, job.legSeconds, job.carryRemaining);
+        }
         if (job.carryRemaining <= EPSILON) {
-          if (job.deliverTile) staff.tile = job.deliverTile;
+          if (job.deliverTile) settle(staff, job.deliverTile);
           finished.push(job);
         }
       }
@@ -333,6 +353,8 @@ export class KitchenSystem implements System {
       job.staffId = staff.id;
       staff.jobId = job.id;
       job.travelRemaining = walkSeconds(tiles);
+      job.legFrom = { x: staff.x, y: staff.y };
+      job.legSeconds = job.travelRemaining;
       any = true;
     }
     return any;
@@ -486,6 +508,8 @@ export class KitchenSystem implements System {
       startedAt: now,
       phase: 'travel',
       travelRemaining: walkSeconds(travelTiles),
+      legFrom: { x: staff.x, y: staff.y },
+      legSeconds: walkSeconds(travelTiles),
       setupRemaining: split.setup,
       cookRemaining: split.cook,
       finishRemaining: split.finish,
