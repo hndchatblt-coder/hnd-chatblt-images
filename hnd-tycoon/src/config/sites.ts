@@ -24,10 +24,14 @@ export interface SiteDefinition {
   readonly entryTile: { x: number; y: number };
   readonly weeklyRent: ReturnType<typeof money>;
   readonly calendarId: string;
+  /** §26: wage rules come from here, never from a constant in the payroll. */
+  readonly jurisdictionId: string;
   /** Arrivals per hour at 1.0 multipliers. §6.1 */
   readonly baseFootTraffic: number;
   /** Multiplier on dine-in spend per head. */
   readonly spendPerHead: number;
+  /** Trading hours in a normal day. Used to scale part-days to a day rate. */
+  readonly tradingHoursPerDay: number;
   readonly notes: string;
 }
 
@@ -51,8 +55,10 @@ export const SITES: Readonly<Record<string, SiteDefinition>> = {
     entryTile: { x: 4, y: 0 },
     weeklyRent: money(2400),
     calendarId: 'sydneyStandard',
+    jurisdictionId: 'nsw',
     baseFootTraffic: 14,
     spendPerHead: 1.0,
+    tradingHoursPerDay: 11,
     notes: 'Home venue. Narrow terrace, gas along the back wall only. Tutorial-by-shape. Later the commissary anchor.',
   },
 
@@ -72,8 +78,10 @@ export const SITES: Readonly<Record<string, SiteDefinition>> = {
     entryTile: { x: 3, y: 0 },
     weeklyRent: money(1900),
     calendarId: 'sydneyStandard',
+    jurisdictionId: 'nsw',
     baseFootTraffic: 16,
     spendPerHead: 0.85,
+    tradingHoursPerDay: 11,
     notes: 'Absurdly long and deep. Walk distance is brutal; rewards strict linear flow. Industrial: enormous lunch, dead dinner. Ambience barely matters.',
   },
 
@@ -93,8 +101,10 @@ export const SITES: Readonly<Record<string, SiteDefinition>> = {
     entryTile: { x: 5, y: 0 },
     weeklyRent: money(3600),
     calendarId: 'sydneyStandard',
+    jurisdictionId: 'nsw',
     baseFootTraffic: 12,
     spendPerHead: 1.35,
+    tradingHoursPerDay: 11,
     notes: 'Squat and wide. Roomy-feeling, tiny kitchen zone, savage rent. High spend per head, low tolerance for waits. Ambience and premium tier both pay.',
   },
 };

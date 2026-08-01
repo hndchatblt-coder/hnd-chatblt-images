@@ -13,6 +13,8 @@
  * Satisfaction, reviews and reputation land at step 9. Wait is measured here
  * from the tick the customer walked in, because that is what they experienced.
  */
+import { ECONOMY } from '@/config/economy';
+import { RECIPES } from '@/config/recipes';
 import { REPORT } from '@/config/report';
 import { TIME } from '@/config/time';
 import { GAME_SECONDS_PER_TICK } from '../clock';
@@ -81,6 +83,20 @@ export class ServiceSystem implements System {
   private serve(state: SimState, order: Order, now: number): void {
     order.state = 'served';
     order.servedAt = now;
+
+    // Revenue lands on handover, never on order. A customer who leaves mid-cook
+    // has cost you the ingredients and paid you nothing, and that asymmetry is
+    // what makes a queue expensive rather than merely untidy. §8
+    let gross = ECONOMY.PACKAGING_PER_ORDER.cents * -ONE;
+    for (const line of order.lines) {
+      const recipe = RECIPES[line.recipeId as string];
+      if (recipe) gross += recipe.sellPrice.cents * line.quantity;
+    }
+    state.ledger.post('revenue', {
+      cents: Math.round(gross),
+      currency: state.ledger.cash.currency,
+    });
+    state.ledger.post('cogs', ECONOMY.PACKAGING_PER_ORDER);
 
     const customer = state.customers.get(order.customerId);
     if (customer) {

@@ -141,7 +141,7 @@ describe('STEP 4 — freshness, quality and waste (§7.3)', () => {
     expect(stock.count(patty)).toBe(4);
     // 0.35 is reached 390 seconds past the window.
     const binned = stock.binExpired(480 + 0.66 * KITCHEN.QUALITY_DECAY_SECONDS);
-    expect(binned.get(patty)).toBe(4);
+    expect(binned.get(patty)?.units).toBe(4);
     expect(stock.count(patty)).toBe(0);
   });
 

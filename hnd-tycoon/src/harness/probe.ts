@@ -21,6 +21,7 @@ export interface RunSummary {
   readonly batches: number;
   readonly wasteUnits: number;
   readonly openAtEnd: number;
+  readonly endingCashCents: number;
   readonly coversPerDay: readonly number[];
 }
 
@@ -60,6 +61,7 @@ export function runOnce(opts: ScenarioOptions & { days: number }): RunSummary {
     batches,
     wasteUnits: waste,
     openAtEnd: world.state.openOrders.length,
+    endingCashCents: world.state.ledger.cash.cents,
     coversPerDay,
   };
 }

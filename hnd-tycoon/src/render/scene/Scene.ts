@@ -51,6 +51,8 @@ export class Scene {
   private steamPool!: SpritePool;
   private pilotPool!: SpritePool;
 
+  /** Station id -> seconds since it was installed. Drives the install beat. */
+  private readonly installing = new Map<string, number>();
   private readonly steam: Steam[] = [];
   private steamCarry = 0;
   private elapsed = 0;
@@ -111,19 +113,6 @@ export class Scene {
       this.fixedLayer.addChild(sprite);
     }
 
-    for (const station of state.stations) {
-      const placement = floor.placementOf(station.id);
-      if (!placement) continue;
-      const rotated = placement.at.rotated === true;
-      const sprite = this.registry.sprite(this.registry.stationKey(station.type, rotated));
-      const spec = STATION_SPECS[station.type];
-      const depth = rotated ? spec.width : spec.depth;
-      const at = toScreenCorner(placement.at.x, placement.at.y + depth - 1);
-      sprite.position.set(at.x, at.y);
-      sprite.zIndex = depthSort(placement.at.y);
-      this.fixedLayer.addChild(sprite);
-      this.stationSprites.set(station.id, sprite);
-    }
 
     // The back wall, and the extraction hood over the gas run. The hood is the
     // most explanatory object on screen: it hangs where the grill has to live.
@@ -157,9 +146,70 @@ export class Scene {
     this.pilotPool = new SpritePool(this.registry, 'pilot', this.fxLayer);
   }
 
+  /**
+   * Anything bought mid-service appears here. §21.2: **no purchasable item
+   * ships without a distinct on-screen presence.** The install beat is the
+   * purchase's payoff moment — it drops in with weight, shakes, and settles.
+   */
+  private reconcileStations(state: SimState, dt: number): void {
+    for (const station of state.stations) {
+      if (!this.stationSprites.has(station.id)) {
+        const placement = state.floor.placementOf(station.id);
+        if (!placement) continue;
+        const rotated = placement.at.rotated === true;
+        const sprite = this.registry.sprite(this.registry.stationKey(station.type, rotated));
+        const spec = STATION_SPECS[station.type];
+        const depth = rotated ? spec.width : spec.depth;
+        const at = toScreenCorner(placement.at.x, placement.at.y + depth - 1);
+        sprite.position.set(at.x, at.y);
+        sprite.zIndex = depthSort(placement.at.y);
+        this.fixedLayer.addChild(sprite);
+        this.stationSprites.set(station.id, sprite);
+        // Only animate things that arrive after opening. The kitchen you
+        // started with did not fall out of the sky.
+        if (this.built) this.installing.set(station.id, 0);
+      }
+    }
+
+    for (const [id, age] of [...this.installing]) {
+      const sprite = this.stationSprites.get(id);
+      const placement = state.floor.placementOf(id);
+      if (!sprite || !placement) {
+        this.installing.delete(id);
+        continue;
+      }
+      const t = age / RENDER.INSTALL.seconds;
+      if (t >= 1) {
+        sprite.y = Math.round(sprite.y);
+        sprite.alpha = 1;
+        this.installing.delete(id);
+        continue;
+      }
+      const spec = STATION_SPECS[placement.type];
+      const rotated = placement.at.rotated === true;
+      const depth = rotated ? spec.width : spec.depth;
+      const rest = toScreenCorner(placement.at.x, placement.at.y + depth - 1).y;
+      if (t < RENDER.INSTALL.dropFraction) {
+        // Falls in from above with weight.
+        const k = t / RENDER.INSTALL.dropFraction;
+        sprite.y = rest - RENDER.INSTALL.dropPixels * (1 - k * k);
+        sprite.alpha = k;
+      } else {
+        // Two pixels of shake, settling. Cheap, and it is the whole payoff.
+        const k = (t - RENDER.INSTALL.dropFraction) / (1 - RENDER.INSTALL.dropFraction);
+        const decay = 1 - k;
+        sprite.y =
+          rest + Math.sin(k * Math.PI * RENDER.INSTALL.shakeCycles) * RENDER.INSTALL.shakePixels * decay;
+        sprite.alpha = 1;
+      }
+      this.installing.set(id, age + dt);
+    }
+  }
+
   /** One frame. `dt` is real seconds since the last one. */
   render(state: SimState, dt: number): void {
     this.build(state);
+    this.reconcileStations(state, dt);
     this.elapsed += dt;
 
     this.staffPool.begin();

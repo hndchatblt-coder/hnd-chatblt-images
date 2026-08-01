@@ -53,6 +53,10 @@ export class Clock {
     return (this.dayIndex % this.calendar.daysPerWeek) as DayOfWeek;
   }
 
+  get daysPerWeek(): number {
+    return this.calendar.daysPerWeek;
+  }
+
   get weekIndex(): number {
     return Math.floor(this.dayIndex / this.calendar.daysPerWeek);
   }
@@ -89,6 +93,13 @@ export class Clock {
       this.dayOfWeek === TIME.PAYROLL_DAY &&
       this.ticks % this.ticksPerCycle === Math.round(TIME.PAYROLL_HOUR * TICKS_PER_GAME_HOUR)
     );
+  }
+
+  /** How many hours of trade have elapsed today. Zero before opening. */
+  get hoursOpenToday(): number {
+    const openHours = this.calendar.hours[this.dayOfWeek];
+    if (!openHours) return 0;
+    return Math.max(0, Math.min(this.hourOfDay, openHours.close) - openHours.open);
   }
 
   /** Trading hours in the current day. Zero if closed. */

@@ -10,6 +10,8 @@ import { Application } from 'pixi.js';
 import { BRAND } from '@/config/brand';
 import { RENDER } from '@/config/render';
 import { TIME } from '@/config/time';
+import { buy, canAfford, priceOf, type ActionResult } from '@/sim/actions';
+import { CATALOGUE, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
 import { Scene } from './scene/Scene';
@@ -65,6 +67,24 @@ export class Game {
       this.world.tick();
       this.accumulator -= TICK_SECONDS;
     }
+  }
+
+  /** Everything the shop sells, with live prices and whether you can have it. */
+  shopfront(): { item: CatalogueItem; cents: number; affordable: boolean; owned: number }[] {
+    const state = this.world.state;
+    return CATALOGUE.map((item) => ({
+      item,
+      cents: priceOf(state, item),
+      affordable: canAfford(state, item),
+      owned:
+        item.kind === 'hire'
+          ? state.staff.length
+          : state.stations.filter((s) => s.type === item.station).length,
+    }));
+  }
+
+  buy(itemId: string): ActionResult {
+    return buy(this.world.state, itemId);
   }
 
   setSpeed(speed: number): void {

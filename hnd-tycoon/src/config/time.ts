@@ -58,4 +58,15 @@ export const CALENDARS: Record<string, TradingCalendar> = {
     daysPerWeek: 7,
     hours: STANDARD_11_TO_10,
   },
+  /**
+   * Shut Sundays. Exists so the §8 question — is Sunday worth opening once you
+   * are paying 1.5x plus casual loading plus super — can be measured against
+   * the same week rather than argued about.
+   */
+  sydneyClosedSunday: {
+    id: 'sydneyClosedSunday',
+    hoursPerCycle: 24,
+    daysPerWeek: 7,
+    hours: [null, ...STANDARD_11_TO_10.slice(1)],
+  },
 };

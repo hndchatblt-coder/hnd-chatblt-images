@@ -43,6 +43,7 @@
  * off by default — never the scheduler's own idea.
  */
 import { KITCHEN } from '@/config/kitchen';
+import { chargeIngredients } from './economy';
 import { walkSeconds } from '@/config/stations';
 import type { Step } from '@/config/recipes';
 import { GAME_SECONDS_PER_TICK } from '../clock';
@@ -302,7 +303,7 @@ export class KitchenSystem implements System {
     const freshFor = job.freshnessWindow;
     const bornAt = freshFor === undefined ? nowSeconds : nowSeconds - lost * freshFor;
 
-    state.stock.add(job.output, job.batch, bornAt, freshFor);
+    state.stock.add(job.output, job.batch, bornAt, freshFor, job.unitCents);
     state.day.batches += ONE;
 
     const graph = state.graphs.get(job.recipeId);
@@ -319,7 +320,14 @@ export class KitchenSystem implements System {
 
   private binWaste(state: SimState, nowSeconds: number): void {
     const binned = state.stock.binExpired(nowSeconds);
-    for (const units of binned.values()) state.day.wasteUnits += units;
+    for (const lost of binned.values()) {
+      state.day.wasteUnits += lost.units;
+      // A memo, not a second charge: those ingredients were already posted to
+      // COGS when they were consumed. This records what the bin was worth.
+      if (lost.cents > NONE) {
+        state.ledger.post('waste', { cents: lost.cents, currency: state.ledger.cash.currency });
+      }
+    }
   }
 
   // --- Coming back for what is already cooked ---------------------------
@@ -496,6 +504,9 @@ export class KitchenSystem implements System {
     // cook ahead.
     const freshFor = freshnessWith(candidate.step.freshnessWindow, state.holdingCabinets);
 
+    // The mince leaves the cool room now, not when the burger is sold.
+    const unitCost = chargeIngredients(state, candidate.step, batch);
+
     const jobId = `j${state.counters.job++}`;
     const job: Job = {
       id: jobId,
@@ -518,6 +529,7 @@ export class KitchenSystem implements System {
       quality: ONE,
       freshnessWindow: freshFor,
       depth: candidate.depth,
+      unitCents: unitCost.cents,
       carryRemaining: Number.isFinite(carryTiles) ? walkSeconds(carryTiles) : NONE,
       workTile,
       deliverTile: delivery?.at ?? null,

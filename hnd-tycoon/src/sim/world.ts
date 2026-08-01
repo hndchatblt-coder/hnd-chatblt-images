@@ -84,6 +84,14 @@ export class World {
     // system happens to be registered first would silently decide whether
     // anyone else sees yesterday's figures.
     this.state.day = emptyDay();
+    // Run-hours are read by the utilities bill AND the bottleneck readout, so
+    // neither system may reset them — whichever was registered first would
+    // silently blind the other.
+    for (const station of this.state.stations) station.runSeconds = 0;
+    for (const staff of this.state.staff) {
+      staff.shiftSeconds = 0;
+      staff.walkSeconds = 0;
+    }
     this.current = {
       dayIndex: this.clock.dayIndex,
       dayOfWeek: this.clock.dayOfWeek,

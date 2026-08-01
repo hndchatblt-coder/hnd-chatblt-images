@@ -111,3 +111,150 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .speed { transition: none; }
 }
+
+/* --- The bottleneck line. §13: always visible, always quantified. -------- */
+.bottleneck {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  background: rgba(22, 28, 34, 0.82);
+  border-left: 3px solid var(--ink-muted);
+  backdrop-filter: blur(6px);
+}
+/* Colour by WHAT KIND of problem, so it is glanceable before it is read. */
+.bottleneck.kind-station { border-left-color: #e8a33d; }
+.bottleneck.kind-staff   { border-left-color: #d6453a; }
+.bottleneck.kind-space   { border-left-color: #7d7086; }
+.bottleneck.kind-demand  { border-left-color: #4f7d63; }
+
+.cash { font-size: 17px; font-weight: 600; color: var(--ink); }
+.cash.overdrawn { color: #d6453a; }
+
+/* --- Bottom bar --------------------------------------------------------- */
+.bottombar { flex-direction: column; align-items: stretch; gap: 10px; }
+.stats { display: flex; align-items: flex-end; gap: 18px; }
+
+.shop-open {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 12px;
+  border: none;
+  background: var(--warm);
+  color: #1a1206;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: transform 90ms ease, filter 90ms ease;
+}
+.shop-open:active { transform: scale(0.98); filter: brightness(0.92); }
+
+/* --- The shop sheet ----------------------------------------------------- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(10, 13, 16, 0.66);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet {
+  width: 100%;
+  max-width: 390px;
+  max-height: 78dvh;
+  overflow-y: auto;
+  background: #1b2127;
+  border-radius: 18px 18px 0 0;
+  padding: 6px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+  animation: rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes rise { from { transform: translateY(28px); opacity: 0.4; } }
+
+.sheet-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 10px;
+  background: #1b2127;
+}
+.sheet-head h2 { margin: 0; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+.sheet-close {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 9px;
+  border: 1px solid rgba(244, 241, 234, 0.18);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.shop-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #232a31;
+}
+.shop-row.broke { opacity: 0.45; }
+.shop-text { flex: 1; min-width: 0; }
+.shop-title { font-size: 14.5px; font-weight: 650; display: flex; align-items: baseline; gap: 8px; }
+.owned {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+}
+.shop-blurb { margin-top: 3px; font-size: 12px; line-height: 1.4; color: #b9b4aa; }
+.shop-costs {
+  margin-top: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a8580;
+}
+.buy {
+  min-width: 78px;
+  min-height: 46px;
+  border-radius: 10px;
+  border: none;
+  background: var(--warm);
+  color: #1a1206;
+  font-size: 14px;
+  font-weight: 700;
+  transition: transform 90ms ease;
+}
+.buy:active { transform: scale(0.95); }
+.buy:disabled { background: #2f3841; color: var(--ink-muted); }
+
+/* --- Toast: every tap gets an answer, including the refusals. ----------- */
+.toast {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 132px;
+  z-index: 5;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: rgba(30, 37, 44, 0.96);
+  border: 1px solid rgba(244, 241, 234, 0.14);
+  font-size: 13px;
+  line-height: 1.4;
+  animation: rise 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .toast { animation: none; }
+  .shop-open, .buy, .speed { transition: none; }
+}

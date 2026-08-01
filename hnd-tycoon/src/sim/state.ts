@@ -19,8 +19,11 @@ import { Floor, type Tile } from './floor';
 import { makeStation, type Job, type Station } from './entities/station';
 import { makeStaff, type Staff } from './entities/staff';
 import { Stock } from './entities/stock';
+import { Ledger } from './ledger';
+import { ECONOMY } from '@/config/economy';
+import type { Constraint } from './systems/bottleneck';
 import type { Customer, Order } from './entities/order';
-import { id, type OrderId, type RecipeId, type SiteId, type StaffId } from './types';
+import { id, ZERO, type Money, type OrderId, type RecipeId, type SiteId, type StaffId } from './types';
 
 const NONE = 0;
 const ONE = 1;
@@ -78,6 +81,14 @@ export interface SimState {
   readonly parLevels: Record<string, number>;
   /** Holding cabinets owned. Each multiplies freshness windows. §14.2 tier 1. */
   holdingCabinets: number;
+  readonly ledger: Ledger;
+  /** Wages earned but not yet paid. Lands Sunday 23:00 as a lump. §8 */
+  accruedWages: Money;
+  lastPayroll: Money;
+  /** §8.1 — the early COGS lever. */
+  ingredientTier: keyof typeof ECONOMY.INGREDIENT_TIERS;
+  /** The current answer to "what is holding me back". §13 */
+  bottleneck: Constraint | null;
   day: DayAccumulator;
   counters: { customer: number; order: number; job: number };
 }
@@ -92,6 +103,8 @@ export interface StateOptions {
   /** Overrides `KITCHEN.PAR_LEVELS`. Par-cooking, made testable. */
   parLevels?: Readonly<Record<string, number>>;
   holdingCabinets?: number;
+  openingCash?: Money;
+  ingredientTier?: keyof typeof ECONOMY.INGREDIENT_TIERS;
 }
 
 export function createState(opts: StateOptions = {}): SimState {
@@ -131,6 +144,11 @@ export function createState(opts: StateOptions = {}): SimState {
     openOrders: [],
     parLevels: { ...KITCHEN.PAR_LEVELS, ...(opts.parLevels ?? {}) },
     holdingCabinets: opts.holdingCabinets ?? NONE,
+    ledger: new Ledger(opts.openingCash ?? ECONOMY.OPENING_CASH),
+    accruedWages: ZERO(),
+    lastPayroll: ZERO(),
+    ingredientTier: opts.ingredientTier ?? 'standard',
+    bottleneck: null,
     day: emptyDay(),
     counters: { customer: NONE, order: NONE, job: NONE },
   };

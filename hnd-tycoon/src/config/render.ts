@@ -98,6 +98,19 @@ export const RENDER = {
     speedJitter: 0.12,
   },
 
+  /**
+   * The install beat. §21.2 — a one-time arrival animation with weight:
+   * drop-in, 2px shake, settle. Two seconds, once, never repeated. This is the
+   * purchase's payoff moment and it is cheap to build.
+   */
+  INSTALL: {
+    seconds: 1.9,
+    dropPixels: 110,
+    dropFraction: 0.42,
+    shakePixels: 2,
+    shakeCycles: 7,
+  },
+
   /** Customers queue outside the door, up-screen from it. */
   QUEUE: {
     spacingPixels: 17,

@@ -29,6 +29,9 @@ export interface Lot {
   readonly producedAt: number;
   /** Seconds before quality starts to fall. Undefined = never stales. */
   readonly freshnessWindow: number | undefined;
+  /** Ingredient cost per unit, in cents. Travels with the food so that waste
+   *  can be valued at what it actually cost rather than at an average. */
+  readonly unitCents: number;
 }
 
 /** §7.3, exactly as written. */
@@ -48,9 +51,15 @@ export class Stock {
     return total;
   }
 
-  add(item: ItemId, units: number, producedAt: number, freshnessWindow?: number): void {
+  add(
+    item: ItemId,
+    units: number,
+    producedAt: number,
+    freshnessWindow?: number,
+    unitCents = NONE,
+  ): void {
     const list = this.lots.get(item) ?? [];
-    list.push({ item, units, producedAt, freshnessWindow });
+    list.push({ item, units, producedAt, freshnessWindow, unitCents });
     this.lots.set(item, list);
   }
 
@@ -87,13 +96,16 @@ export class Stock {
    * report can name it — "eleven patties" is a fact a player can act on,
    * "waste 3.2%" is a number they scroll past.
    */
-  binExpired(now: number): Map<ItemId, number> {
-    const binned = new Map<ItemId, number>();
+  binExpired(now: number): Map<ItemId, { units: number; cents: number }> {
+    const binned = new Map<ItemId, { units: number; cents: number }>();
     for (const [item, list] of this.lots) {
       const kept: Lot[] = [];
       for (const lot of list) {
         if (qualityOf(now - lot.producedAt, lot.freshnessWindow) < KITCHEN.WASTE_QUALITY_FLOOR) {
-          binned.set(item, (binned.get(item) ?? NONE) + lot.units);
+          const seen = binned.get(item) ?? { units: NONE, cents: NONE };
+          seen.units += lot.units;
+          seen.cents += lot.unitCents * lot.units;
+          binned.set(item, seen);
         } else {
           kept.push(lot);
         }

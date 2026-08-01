@@ -72,6 +72,8 @@ export interface Job {
   readonly freshnessWindow: number | undefined;
   /** How deep in the recipe this step sits. Ties broken by it when rescuing. */
   readonly depth: number;
+  /** Ingredient cost per unit produced, in cents. Travels into the buffer. */
+  readonly unitCents: number;
   /** Seconds of walking left to deliver the output to whatever consumes it. */
   carryRemaining: number;
   /** Where the staffer stands to work. */

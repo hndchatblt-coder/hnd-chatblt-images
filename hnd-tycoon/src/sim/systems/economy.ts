@@ -1,0 +1,121 @@
+/**
+ * Where the money goes. DESIGN.md §8.
+ *
+ * Revenue lands when an order is handed over, not when it is placed — a
+ * customer who walks out mid-cook has cost you the ingredients and paid you
+ * nothing, and that asymmetry is what makes a queue expensive.
+ *
+ * COGS is charged when ingredients are *consumed*, so a binned patty is
+ * already paid for. Waste is therefore not a separate cost, it is a cost you
+ * incurred and got nothing for, which is why it is posted to its own account
+ * and shown on its own line.
+ *
+ * Wages accrue only while trading. Billing twenty-four hours a day is an easy
+ * mistake and it quietly removes the entire staffing decision: if a staffer
+ * costs the same idle as busy, hiring is free at the margin.
+ */
+import { ECONOMY, hourlyCost, INGREDIENTS, JURISDICTIONS, STATION_UTILITY } from '@/config/economy';
+import type { Step } from '@/config/recipes';
+import { TIME } from '@/config/time';
+import { GAME_SECONDS_PER_TICK } from '../clock';
+import { Cash, money, ZERO, type Money } from '../types';
+import type { SimState } from '../state';
+import type { System, World } from '../world';
+
+const NONE = 0;
+
+/**
+ * What one unit of a step's output costs in raw ingredients, at the current
+ * tier. Per STEP, not per recipe: a binned patty should cost mince, not the
+ * price of a whole cheeseburger.
+ */
+export function stepCost(step: Step, tier: keyof typeof ECONOMY.INGREDIENT_TIERS): Money {
+  let total = ZERO();
+  for (const [ingredient, quantity] of Object.entries(step.consumes ?? {})) {
+    const unit = INGREDIENTS[ingredient];
+    if (unit) total = Cash.add(total, Cash.scale(unit, quantity));
+  }
+  return Cash.scale(total, ECONOMY.INGREDIENT_TIERS[tier].costMultiplier);
+}
+
+export class EconomySystem implements System {
+  readonly name = 'economy';
+
+  onOpen(world: World): void {
+    world.state.ledger.startDay();
+  }
+
+  tick(world: World): void {
+    const state = world.state;
+    if (!world.clock.isOpen) return;
+
+    // Wages accrue by the second, while trading. §8.
+    const jurisdiction = JURISDICTIONS[state.site.jurisdictionId] ?? JURISDICTIONS['nsw'];
+    if (jurisdiction) {
+      const rate = hourlyCost(jurisdiction, world.clock.dayOfWeek);
+      const perTick = Cash.scale(
+        rate,
+        GAME_SECONDS_PER_TICK / TIME.SECONDS_PER_HOUR,
+      );
+      state.accruedWages = Cash.add(
+        state.accruedWages,
+        Cash.scale(perTick, state.staff.length),
+      );
+    }
+  }
+
+  onClose(world: World): void {
+    const state = world.state;
+    const ledger = state.ledger;
+
+    // Utilities, on what the equipment actually ran. A dead Monday costs less
+    // to power than a slammed Saturday, and automation is *worse* than staff
+    // on a dead Monday precisely because it draws whether busy or not.
+    for (const station of state.stations) {
+      const hours = station.runSeconds / TIME.SECONDS_PER_HOUR;
+      const kind = STATION_UTILITY[station.type] ?? 'electric';
+      ledger.post('utilities', Cash.scale(ECONOMY.UTILITIES_PER_RUN_HOUR[kind], hours));
+    }
+
+    // Rent, insurance and the POS subscription, spread daily so a week's
+    // trading is legible against a week's fixed costs.
+    const perDay = (weekly: Money): Money => Cash.scale(weekly, 1 / world.clock.daysPerWeek);
+    ledger.post('rent', perDay(state.site.weeklyRent));
+    ledger.post('overheads', perDay(ECONOMY.INSURANCE_PER_WEEK));
+    ledger.post('overheads', perDay(ECONOMY.POS_PER_WEEK));
+
+    // The bank, if you are under. §8 — cash can go negative.
+    if (Cash.isNegative(ledger.cash)) {
+      const daily = ECONOMY.OVERDRAFT_ANNUAL_RATE / ECONOMY.DAYS_PER_YEAR;
+      ledger.post('interest', Cash.scale(money(-Cash.major(ledger.cash)), daily));
+    }
+
+    world.record('cash', Cash.major(ledger.cash).toFixed(0));
+    world.record('revenue', Cash.major(ledger.today('revenue')).toFixed(0));
+    world.record('cogs%', percent(ledger.today('cogs'), ledger.today('revenue')));
+    world.record('waste%', percent(ledger.today('waste'), ledger.today('revenue')));
+  }
+
+  /** §8: wages are paid Sunday 23:00 as a lump. */
+  onPayroll(world: World): void {
+    const state = world.state;
+    state.ledger.post('wages', state.accruedWages);
+    state.lastPayroll = state.accruedWages;
+    state.accruedWages = ZERO();
+  }
+}
+
+function percent(part: Money, whole: Money): string {
+  if (whole.cents === NONE) return '—';
+  return `${((part.cents / whole.cents) * 100).toFixed(1)}%`;
+}
+
+/**
+ * Charged the moment a batch starts, because that is when the mince leaves the
+ * cool room. Returns the per-unit cost so it can travel with the food.
+ */
+export function chargeIngredients(state: SimState, step: Step, units: number): Money {
+  const unit = stepCost(step, state.ingredientTier);
+  if (unit.cents > NONE) state.ledger.post('cogs', Cash.scale(unit, units));
+  return unit;
+}

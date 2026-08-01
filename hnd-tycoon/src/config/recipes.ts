@@ -38,6 +38,13 @@ export interface Step {
   /** Seconds before quality begins to decay. */
   readonly freshnessWindow?: number;
   readonly attention: AttentionProfile;
+  /**
+   * Raw ingredients this step consumes, per unit produced. They belong here
+   * rather than on the recipe because otherwise a binned patty would cost the
+   * price of a whole cheeseburger, and every root step would be charged the
+   * full list.
+   */
+  readonly consumes?: Readonly<Record<string, number>>;
 }
 
 export interface Recipe {
@@ -72,6 +79,7 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         dependsOn: [],
         output: 'patty' as ItemId,
         freshnessWindow: 480,
+        consumes: { mince: 0.15 },
         // 90s cooking, ~22s attention: load, flip, pull. The flip is what a
         // clamshell grill removes. §14.2
         attention: attn(8, 10, 4, true),
@@ -84,6 +92,7 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         dependsOn: [],
         output: 'toastedBun' as ItemId,
         freshnessWindow: 180,
+        consumes: { bun: 1 },
         attention: attn(5, 2, 3, true),
       },
       {
@@ -94,6 +103,7 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         dependsOn: [],
         output: 'garnish' as ItemId,
         freshnessWindow: 1200,
+        consumes: { salad: 0.05 },
         attention: attn(4, 6, 2, false),
       },
       {
@@ -103,6 +113,7 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         batchSize: 1,
         dependsOn: ['patty', 'bun', 'garnish'],
         output: 'assembledBurger' as ItemId,
+        consumes: { cheese: 1, sauce: 0.03 },
         // Sauce dispenser removes ~40% of setup. §14.2
         attention: attn(10, 6, 2, false),
       },
@@ -132,6 +143,7 @@ export const RECIPES: Readonly<Record<string, Recipe>> = {
         dependsOn: [],
         output: 'chips' as ItemId,
         freshnessWindow: 300,
+        consumes: { potato: 0.2, oil: 0.02, salt: 0.002 },
         // The shake and the pull are what an auto-lift fryer removes,
         // and it flips canLapse to false. §14.2
         attention: attn(6, 14, 6, true),

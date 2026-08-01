@@ -10,6 +10,8 @@ import type { RushWindow } from '@/config/demand';
 import { ArrivalsSystem } from './systems/arrivals';
 import { KitchenSystem } from './systems/kitchen';
 import { ServiceSystem } from './systems/service';
+import { EconomySystem } from './systems/economy';
+import { BottleneckSystem } from './systems/bottleneck';
 import { World, type WorldOptions } from './world';
 
 export interface ScenarioOptions extends WorldOptions {
@@ -28,12 +30,17 @@ export interface ScenarioOptions extends WorldOptions {
  *
  * Putting service first would add a full tick of latency to every order for
  * no reason anyone could later find.
+ *
+ * Economy and bottleneck come last: both read what the others did this tick,
+ * and neither changes what anyone else sees.
  */
 export function buildScenario(opts: ScenarioOptions): World {
   const world = new World(opts);
   world
     .register(new ArrivalsSystem(opts.arrivalsPerHour ?? null, opts.rush ?? null))
     .register(new KitchenSystem())
-    .register(new ServiceSystem());
+    .register(new ServiceSystem())
+    .register(new EconomySystem())
+    .register(new BottleneckSystem());
   return world;
 }

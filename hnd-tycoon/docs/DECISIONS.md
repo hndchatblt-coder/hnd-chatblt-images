@@ -368,3 +368,82 @@ and open it from Files.
 the repo and served through `raw.githack.com`. Verified with Playwright **touch**
 emulation (`isMobile`, `hasTouch`, no mouse) before sending — a desktop
 `click()` passing is not evidence that a tap works.
+
+---
+
+## D022 — steps 6, 7 and 8 built as one increment
+**Steps 6-8. Status: active. Deviates from BUILD_PLAN's "do one step".**
+
+Ben played step 5 and said: *"it's not a game yet"*. He was right — a
+simulation with a speed button is a screensaver.
+
+Following the plan literally meant another whole step (money, headless, no
+pixels) before a single tap did anything. So steps 6, 7 and 8 landed together,
+because none of them is a game on its own:
+
+- Money alone is a spreadsheet you cannot touch.
+- Money plus a shop, with no guidance, is a menu.
+- The **bottleneck line** is the piece that converts watching into playing.
+  §13 calls it the main UI thread through all five acts, and it is the thing
+  that answers "what should I do now".
+
+The standing rule against building two steps at once exists to protect
+quality. Player feedback that the product is not a game beats it. Every gate
+for all three steps is real, run, and mutation-tested.
+
+---
+
+## D023 — waste is a memo account, not a second expense
+**Step 6. Status: active.**
+
+Ingredients are charged to COGS when they are *consumed*, which is when the
+mince leaves the cool room. A binned patty has therefore already been paid for.
+
+Posting the bin as an expense as well would bill you twice for one patty and
+break the 90-day reconciliation, which is the entire point of the ledger.
+`waste` is a memo: it records what the bin was worth so it can be a line on the
+P&L, and it does not move cash. Mutation-tested — making it a real expense
+fails the reconciliation gate.
+
+Ingredients also moved onto the **step** that consumes them rather than the
+recipe as a whole. Charging every root step the full recipe list is how the
+previous build ended up with COGS at 94% of revenue.
+
+---
+
+## D024 — the readout may never say "demand" while a queue is out the door
+**Step 8. Status: active.**
+
+The first version blamed whoever was most utilised, and refused to blame anyone
+under 55%. Both were right. Together they produced this, on screen, with sixty
+people waiting:
+
+> Demand is your constraint — you have about 48% capacity spare
+
+Two separate bugs, both about trust. It extrapolated a per-day cover cost from
+twenty minutes of trade ("costing about 89 covers a day" from three people in a
+queue), and it treated "nobody is working hard" as sufficient evidence of a
+demand problem.
+
+Now: no per-day figure until two hours of trade have happened, and a real queue
+overrides the demand answer entirely. The most important line in the HUD is
+worth nothing if it is ever confidently wrong.
+
+---
+
+## D025 — automatic placement, with the refusal as the teaching moment
+**Step 7. Status: active until step 19.**
+
+§12 forbids station dragging in the live service view, and renovate mode is
+step 19. So a purchase goes to the best legal spot: the one closest to the
+stations that will consume its output. Nearest-to-the-pass would be wrong — a
+second fryer wants to be near assembly, not near the customer.
+
+The more useful half is the refusal. When there is nowhere legal:
+
+> Nowhere to put it — fryer needs gas and extraction, and every tile with that
+> is taken.
+
+Leichhardt has five tiles in the entire building with both. That message is the
+building explaining its own constraint, and it teaches §7.1 better than any
+tutorial would.
