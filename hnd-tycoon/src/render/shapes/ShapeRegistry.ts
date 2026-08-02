@@ -19,6 +19,7 @@
 import { Container, Graphics, Sprite, Texture, type Renderer } from 'pixi.js';
 import { BRAND } from '@/config/brand';
 import { RENDER } from '@/config/render';
+import { MACHINES } from '@/config/machines';
 import type { StationType } from '@/config/recipes';
 import { camera } from '../projection';
 
@@ -182,6 +183,45 @@ export class ShapeRegistry {
       g.rect(tw * 0.18, th * 0.64, tw * 0.44, 1.4).fill(0x8d8880);
       g.rect(tw * 0.18, th * 0.82, tw * 0.54, 1.4).fill(0x8d8880);
     });
+    /**
+     * Machines. §21.2 — nothing purchasable ships without a distinct on-screen
+     * presence, and §21.5 needs them to read as MACHINE at a glance.
+     *
+     * Two things carry that reading before any motion happens: a cold steel
+     * body against the warm room, and a hard horizontal band across the middle
+     * — the seam, hopper mouth or platen line that every real piece of catering
+     * kit has and no person does. Silhouette first, as always.
+     */
+    for (const spec of MACHINES) {
+      /**
+       * Narrower and shorter than the station it sits on, deliberately.
+       *
+       * The first cut matched the station's footprint exactly and drew over it
+       * at the same anchor, so a clamshell did not read as "a grill with a
+       * clamshell on it" — it read as the grill having been deleted. A fitted
+       * machine has to leave its host visible underneath or the room loses the
+       * stations the player spent the first ten steps learning to recognise.
+       */
+      const w = Math.max(1, spec.width) * camera.tileWidth * 0.62;
+      const h = RENDER.HEIGHT.station * 0.8;
+      this.bakeGraphics(`machine:${spec.id}`, (g) => {
+        g.roundRect(0, 0, w, h, 2).fill(BRAND.equipment.enamelDark);
+        g.roundRect(0.5, 0.5, w - 1, h * 0.55, 2).fill(BRAND.equipment.steel);
+        // The band. Machines have a mouth; people do not.
+        g.rect(0, h * 0.55, w, Math.max(2, h * 0.14)).fill(BRAND.equipment.hotplate);
+        // Hard edge, so it reads as a fitted unit and not as a smudge.
+        g.roundRect(0, 0, w, h, 2).stroke({ color: BRAND.interior.seam, width: 1 });
+      });
+      // The part that moves. Drawn separately so the cycle can translate it
+      // without redrawing the body every frame.
+      this.bakeGraphics(`machine:${spec.id}:arm`, (g) => {
+        const aw = w * 0.66;
+        const ah = Math.max(3, h * 0.2);
+        g.roundRect(0, 0, aw, ah, 1.5).fill(BRAND.equipment.steel);
+        g.roundRect(0, 0, aw, ah, 1.5).stroke({ color: BRAND.interior.seam, width: 1 });
+      });
+    }
+
     this.bakeGraphics('ticketFlag', (g) => {
       const tw = RENDER.RAIL.ticketWidth;
       g.roundRect(0, 0, tw, RENDER.RAIL.flagHeight, 2).fill(0xffffff);

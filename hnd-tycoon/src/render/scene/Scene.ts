@@ -21,7 +21,8 @@ import { Container, Sprite } from 'pixi.js';
 import { RENDER } from '@/config/render';
 import { STATION_SPECS } from '@/config/stations';
 import { footprintOf } from '@/sim/floor';
-import { attentionSplit } from '@/sim/systems/kitchen';
+import { attentionSplit, downMachines } from '@/sim/systems/kitchen';
+import { MACHINES, MACHINE_BY_ID } from '@/config/machines';
 import type { SimState } from '@/sim/state';
 import type { Job } from '@/sim/entities/station';
 import { BRAND } from '@/config/brand';
@@ -31,6 +32,7 @@ import { camera, depthSort, toScreen, toScreenCorner } from '../projection';
 import { ShapeRegistry, SpritePool } from '../shapes/ShapeRegistry';
 import { foodColour, lerpColour } from '../palette';
 
+const NONE = 0;
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
@@ -80,6 +82,8 @@ export class Scene {
   private pilotPool!: SpritePool;
   private ticketPool!: SpritePool;
   private flagPool!: SpritePool;
+  private readonly machinePools = new Map<string, SpritePool>();
+  private readonly armPools = new Map<string, SpritePool>();
 
   /** Walkouts currently playing. See `drawWalkouts`. */
   private readonly departing: Departing[] = [];
@@ -178,6 +182,16 @@ export class Scene {
     this.pilotPool = new SpritePool(this.registry, 'pilot', this.fxLayer);
     this.ticketPool = new SpritePool(this.registry, 'ticket', this.fxLayer);
     this.flagPool = new SpritePool(this.registry, 'ticketFlag', this.fxLayer);
+    for (const spec of MACHINES) {
+      this.machinePools.set(
+        spec.id,
+        new SpritePool(this.registry, `machine:${spec.id}`, this.actorLayer),
+      );
+      this.armPools.set(
+        spec.id,
+        new SpritePool(this.registry, `machine:${spec.id}:arm`, this.actorLayer),
+      );
+    }
 
     // Set LAST, and it has to actually BE last: reconcileStations() reads it to
     // decide whether an arriving station gets an install beat, and it runs in
@@ -269,8 +283,11 @@ export class Scene {
     this.pilotPool.begin();
     this.ticketPool.begin();
     this.flagPool.begin();
+    for (const p of this.machinePools.values()) p.begin();
+    for (const p of this.armPools.values()) p.begin();
 
     this.drawStations(state);
+    this.drawMachines(state, now);
     this.drawFood(state);
     this.drawStaff(state);
     this.drawQueue(state, now);
@@ -286,6 +303,8 @@ export class Scene {
     this.pilotPool.end();
     this.ticketPool.end();
     this.flagPool.end();
+    for (const p of this.machinePools.values()) p.end();
+    for (const p of this.armPools.values()) p.end();
   }
 
   /**
@@ -310,6 +329,96 @@ export class Scene {
       const at = toScreen(front.x, front.y);
       pilot.position.set(at.x - 4, at.y + RENDER.TILE_DEPTH * 0.5);
       pilot.alpha = working ? 1 : 0.45 + 0.25 * Math.sin(this.elapsed * 1.4);
+    }
+  }
+
+  /**
+   * **The rhythm beat. §21.5, and density stage 2.**
+   *
+   * A machine is drawn on its host station and moves on a fixed clock: one
+   * period, the same phase for every unit of the same kind, no jitter and no
+   * easing. Two clamshells are in perfect lockstep. That is deliberate and it
+   * is the entire trick — next to `drawStaff`, which is built to never repeat,
+   * the room reads as organic or mechanical without a single label.
+   *
+   * The sawtooth matters. A sine would read as breathing; a hard stroke and
+   * return reads as a mechanism.
+   */
+  private drawMachines(state: SimState, now: number): void {
+    void now;
+    for (const station of state.stations) {
+      if (station.machines.length === NONE) continue;
+      const placement = state.floor.placementOf(station.id);
+      if (!placement) continue;
+      const down = downMachines(state, station);
+
+      for (const machineId of station.machines) {
+        const spec = MACHINE_BY_ID[machineId];
+        const pool = this.machinePools.get(machineId);
+        const armPool = this.armPools.get(machineId);
+        if (!spec || !pool || !armPool) continue;
+
+        // On the host, slightly proud of it, so it reads as fitted rather than
+        // as a second station standing nearby.
+        const at = this.stationPosition(placement.at, station.type);
+        if (!at) continue;
+
+        // Sat ON the host and offset up, so the station reads underneath it.
+        // Two machines on one station stack rather than overlap.
+        const slot = station.machines.indexOf(machineId);
+        const body = pool.take();
+        body.anchor.set(0.5, 1);
+        body.position.set(
+          at.x + (slot - (station.machines.length - 1) / 2) * camera.tileWidth * 0.42,
+          at.y - RENDER.HEIGHT.station * 0.5,
+        );
+        body.zIndex = depthSort(placement.at.y) + 2;
+
+        const broken = down.has(machineId);
+        const working = station.jobId !== null && !broken;
+
+        // Idle: equipment looks ON at rest (§21.2). Evenly, unlike a person.
+        body.alpha = working
+          ? 1
+          : 1 - RENDER.RHYTHM.idleAlpha * (0.5 + 0.5 * Math.sin(this.elapsed * RENDER.RHYTHM.idleHz * Math.PI * 2));
+
+        const arm = armPool.take();
+        arm.anchor.set(0.5, 1);
+        arm.zIndex = body.zIndex + 1;
+
+        // The cycle. `this.elapsed` and nothing else — no per-unit phase, so
+        // machines of a kind move as one.
+        const t = (this.elapsed % RENDER.RHYTHM.cycleSeconds) / RENDER.RHYTHM.cycleSeconds;
+        let travel: number;
+        if (broken) {
+          /**
+           * **Visible before it is notified** — a step 13 requirement.
+           *
+           * It stalls partway through the stroke and buzzes there. It reads
+           * wrong instantly for the same reason the healthy cycle reads right:
+           * everything else about a machine is perfectly regular, so a machine
+           * that is not is the loudest thing in the room.
+           */
+          travel =
+            RENDER.RHYTHM.faultStallFraction +
+            (Math.sin(this.elapsed * RENDER.RHYTHM.faultHz * Math.PI * 2) *
+              RENDER.RHYTHM.faultJitterPixels) /
+              RENDER.RHYTHM.strokePixels;
+        } else if (!working) {
+          travel = 0;
+        } else {
+          // Sawtooth: hard stroke, hard return. A sine would read as breathing.
+          travel =
+            t < RENDER.RHYTHM.strokeFraction
+              ? t / RENDER.RHYTHM.strokeFraction
+              : 1 - (t - RENDER.RHYTHM.strokeFraction) / (1 - RENDER.RHYTHM.strokeFraction);
+        }
+        arm.position.set(
+          body.x,
+          body.y - RENDER.HEIGHT.station * 0.62 - travel * RENDER.RHYTHM.strokePixels,
+        );
+        arm.tint = broken ? BRAND.signal.ticketCritical : 0xffffff;
+      }
     }
   }
 
@@ -392,13 +501,42 @@ export class Scene {
 
       const job = staff.jobId === null ? null : state.jobs.get(staff.jobId);
       const walking = job?.phase === 'travel' || job?.phase === 'recall' || job?.phase === 'carry';
-      const phase = index * 1.7;
-      const bob = walking
-        ? Math.abs(Math.sin((this.elapsed + phase) * Math.PI * RENDER.MOTION.bobHz)) *
-          RENDER.MOTION.bobPixels
-        : Math.sin((this.elapsed + phase) * 0.8) * 0.4;
 
-      sprite.position.set(at.x, at.y + camera.tileDepth * 0.4 - bob);
+      /**
+       * **The human half of §21.5, and it has to be built to never repeat.**
+       *
+       * This used to be one clean sine, which made a cook exactly as
+       * metronomic as a clamshell — the contrast the whole step is about did
+       * not exist, it was just two things oscillating.
+       *
+       * Three things make a gait instead of an oscillation, and none of them
+       * appears anywhere in `drawMachines`:
+       *
+       *   a per-person phase AND a per-person speed, so nobody is ever in step
+       *   with anybody else (`speedJitter`, declared in config at step 5 and
+       *   unused until now);
+       *
+       *   a second, slower sway beaten against the bob on a deliberately
+       *   non-harmonic period, so the combined motion has no visible cycle;
+       *
+       *   sideways wander while walking and a slow fidget while standing,
+       *   because §21.5 asks for "small course corrections" and "occasional
+       *   idle fidget" and a person who holds a perfectly straight line reads
+       *   as being on rails.
+       */
+      const phase = index * 1.7;
+      const rate = 1 + ((index % 5) - 2) * RENDER.MOTION.speedJitter;
+      const clock = this.elapsed * rate + phase;
+
+      const bob = walking
+        ? Math.abs(Math.sin(clock * Math.PI * RENDER.MOTION.bobHz)) * RENDER.MOTION.bobPixels
+        : Math.sin(clock * RENDER.MOTION.fidgetHz * Math.PI * 2) * RENDER.MOTION.fidgetPixels;
+      const sway = Math.sin(clock * RENDER.MOTION.swayHz * Math.PI * 2) * RENDER.MOTION.swayPixels;
+      const wander = walking
+        ? Math.sin(clock * RENDER.MOTION.swayHz * Math.PI * 2 * 0.5) * RENDER.MOTION.wanderPixels
+        : 0;
+
+      sprite.position.set(at.x + wander, at.y + camera.tileDepth * 0.4 - bob - sway * 0.5);
       sprite.zIndex = depthSort(staff.y);
       // Someone working out their notice is still here, just not for long.
       sprite.alpha = staff.leavingOnDay !== null ? 0.62 : 1;

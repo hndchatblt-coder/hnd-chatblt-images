@@ -1012,3 +1012,51 @@ failure as D044, third occurrence of the pattern.
 4. Only then write `tests/step12.test.ts` with the ±25% gate.
 
 **Step 12 is IN PROGRESS. Step 11 is the last completed step.**
+
+---
+
+## Step 13 — the rhythm beat. **IN PROGRESS.**
+
+Committed because both halves of §21.5 are built and green, but the exit
+criterion — *"a player distinguishes an automated kitchen from a manual one at a
+glance, muted, with no labels"* — has **not been verified on screen**, and the
+spec says this is the game's best visual moment and not to rush it.
+
+### Built
+- **Machines are on the floor**, sat proud of their host station so the station
+  still reads underneath. Cold steel against the warm room, with the hard
+  horizontal band that every piece of catering kit has and no person does.
+- **The machine half of §21.5**: `RENDER.RHYTHM`. One period, the same phase for
+  every unit of a kind, no jitter, no easing. Two clamshells are in perfect
+  lockstep. A sawtooth stroke-and-return, because a sine reads as breathing and
+  a mechanism does not breathe.
+- **The human half**, which did not exist. `drawStaff` bobbed everyone on one
+  clean sine — exactly as metronomic as a machine — so the contrast the whole
+  step is about was two things oscillating. Now: per-person phase AND per-person
+  speed (`MOTION.speedJitter`, declared at step 5 and unused until now), a
+  second sway on a deliberately non-harmonic period so the gait never visibly
+  repeats, sideways wander while walking, and a slow fidget while standing.
+- **A failure visible before it is notified**: a broken machine stalls partway
+  through its stroke and buzzes there, tinted. It reads wrong instantly
+  *because* everything else about a machine is perfectly regular.
+
+### NOT done
+- **Not verified visually.** The first screenshot showed machines covering their
+  stations entirely; that is fixed but unconfirmed. The exit criterion is a
+  visual judgement and it has not been made.
+- No `tests/step13.test.ts` yet.
+- Density stage 2 not assessed against §21.1's table.
+
+### Found on the way — a shipped-build hazard, and the priority
+**At 70 arrivals an hour with one staffer, the game stops.** Not slows —
+stops. Forty-five seconds of wall time with no clock movement, no JS error, on
+the built bundle. The shipped config is fine (11:00 → 11:38 in twenty seconds),
+so this is reachable only under sustained overload.
+
+`state.openOrders` grows without bound and `ServiceSystem.tick` walks all of it
+every tick, so cost per tick rises with the backlog while the backlog rises with
+the cost. §11.2 requires 60fps at Tier 2 with 40 customers and 12 staff visible;
+a player who under-staffs a Saturday can reach the state where the game locks.
+
+It was found because a debug prop made it happen, which is the argument for
+those props existing. **This should be fixed before any more visual work.**

@@ -110,8 +110,63 @@ export const RENDER = {
     /** Walk bob amplitude in pixels, and its cycle. */
     bobPixels: 1.6,
     bobHz: 2.4,
-    /** Per-person speed jitter, so two people never walk in lockstep. */
+    /**
+     * Per-person speed jitter, so two people never walk in lockstep.
+     *
+     * This sat here unused from step 5 to step 13 while `drawStaff` bobbed
+     * everyone on a clean sine — which made human motion exactly as metronomic
+     * as a machine's, and §21.5's contrast is the whole of step 13.
+     */
     speedJitter: 0.12,
+    /**
+     * How irregular a person is, beyond speed. §21.5: *"variable speed, pauses,
+     * small course corrections, occasional idle fidget."*
+     *
+     * A second, slower sine beaten against the first is what turns a clean
+     * bob into a gait — the two periods are deliberately not harmonics, so the
+     * combined motion never visibly repeats.
+     */
+    swayHz: 0.61,
+    swayPixels: 1.1,
+    /** How far a person drifts off a straight line while walking. */
+    wanderPixels: 1.4,
+    /** Standing still is never quite still. */
+    fidgetHz: 0.37,
+    fidgetPixels: 0.5,
+  },
+
+  /**
+   * **The rhythm beat. DESIGN.md §21.5, and density stage 2 (§21.1).**
+   *
+   * *"Machines move on fixed rhythms. People move irregularly. That single
+   * distinction does more visual work than any other decision in this document,
+   * and it should be exaggerated deliberately."*
+   *
+   * Everything here is the machine half. It is the exact opposite of `MOTION`
+   * in construction as well as in feel: one period, no phase offset per unit,
+   * no jitter, no easing. A machine's cycle is a sawtooth on a fixed clock and
+   * two machines of the same kind are in perfect lockstep — which is unsettling
+   * next to people, and is meant to be.
+   */
+  RHYTHM: {
+    /** Seconds per machine cycle. Slow enough to read as deliberate. */
+    cycleSeconds: 1.45,
+    /** How far the working part of a machine travels, in pixels. */
+    strokePixels: 5,
+    /** Fraction of the cycle spent on the working stroke; the rest is return. */
+    strokeFraction: 0.42,
+    /** Idle: equipment should look ON at rest (§21.2), and machines breathe evenly. */
+    idleHz: 0.5,
+    idleAlpha: 0.22,
+    /**
+     * A machine that has failed is visible BEFORE the panel says so — a step 13
+     * requirement. It stutters: the cycle stalls partway and jerks, which reads
+     * wrong at a glance precisely because everything else about a machine is
+     * perfectly regular.
+     */
+    faultStallFraction: 0.55,
+    faultJitterPixels: 1.8,
+    faultHz: 7.5,
   },
 
   /**

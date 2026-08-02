@@ -19,10 +19,20 @@ export interface GameCanvasProps {
    * of nought. Reasoning about pixels is not evidence.
    */
   readonly arrivalsPerHour?: number;
+  /**
+   * Machines to fit at boot. Unset in the shipped app.
+   *
+   * Same reason as `arrivalsPerHour`: the only honest way to check that §21.5's
+   * mechanical/human contrast actually reads is to put an automated kitchen and
+   * a manual one side by side and look at them. Reasoning about motion is not
+   * evidence, and a machine takes far too long to earn in real play to check
+   * by playing.
+   */
+  readonly machines?: readonly string[];
   readonly onReady?: (game: Game) => void;
 }
 
-export function GameCanvas({ seed, arrivalsPerHour, onReady }: GameCanvasProps): JSX.Element {
+export function GameCanvas({ seed, arrivalsPerHour, machines, onReady }: GameCanvasProps): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +46,7 @@ export function GameCanvas({ seed, arrivalsPerHour, onReady }: GameCanvasProps):
       .start(element)
       .then(() => {
         if (cancelled || !game) return;
+        for (const id of machines ?? []) game.buy(id);
         onReady?.(game);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -48,7 +59,7 @@ export function GameCanvas({ seed, arrivalsPerHour, onReady }: GameCanvasProps):
     // Deliberately once per seed: restarting the simulation is a decision, not
     // a side effect of a prop changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, arrivalsPerHour]);
+  }, [seed, arrivalsPerHour, machines]);
 
   if (error) return <pre className="fatal">{error}</pre>;
   return <div className="canvas-host" ref={host} />;
