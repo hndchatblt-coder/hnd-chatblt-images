@@ -276,8 +276,12 @@ html, body {
 .value.bad { color: #d6453a; }
 
 /* --- The roster. The only real decision in the game right now. ----------- */
-.actions { display: flex; gap: 8px; }
-.shop-open { flex: 2; }
+/* Two by two, not four across. §16's contract panel made it a fourth button and
+   on a 390px phone all four wrapped to two lines each — "Spend some / money"
+   over "Who's / on". A grid keeps every target a full thumb wide however many
+   systems the shop has unlocked, which is the number that only ever grows. */
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.shop-open { grid-column: 1 / -1; }
 .roster-open {
   flex: 1;
   min-height: 50px;
@@ -290,7 +294,11 @@ html, body {
   transition: transform 90ms ease;
 }
 .roster-open:active { transform: scale(0.98); }
-.trade-open {
+/* Every secondary action shares one rule. A fourth button arriving unstyled and
+   falling back to the browser default is how "Special" shipped grey. */
+.trade-open,
+.specials-open,
+.trouble-open {
   flex: 1;
   min-height: 50px;
   border-radius: 12px;
@@ -301,7 +309,9 @@ html, body {
   font-weight: 650;
   transition: transform 90ms ease;
 }
-.trade-open:active { transform: scale(0.98); }
+.trade-open:active,
+.specials-open:active,
+.trouble-open:active { transform: scale(0.98); }
 
 .roster-note { font-size: 11.5px; color: #a49e97; padding: 0 2px 10px; line-height: 1.4; }
 .roster-days, .roster-row {
@@ -699,3 +709,50 @@ html, body {
 
 .sheet-note { font-size: 12px; line-height: 1.4; color: var(--ink-muted); margin: 0 0 12px; }
 .sheet-note.bad { color: #e8a33d; }
+
+/* --- §16: a job on offer. -------------------------------------------------
+   A card the player answers, in the same place and with the same weight as a
+   rung landing — because §16's guarantee is that saying no is free, and both
+   answers have to look equally available or it is not really a choice. */
+.offer {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  top: 118px;
+  z-index: 32;
+  max-width: 402px;
+  margin: 0 auto;
+  padding: 14px 15px;
+  border-radius: 12px;
+  background: #232b33;
+  border: 1px solid rgba(232, 163, 61, 0.55);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: drop 200ms ease;
+}
+.offer-label { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.offer-blurb { font-size: 12.5px; line-height: 1.4; color: var(--ink-muted); }
+.offer-terms { font-size: 11.5px; color: var(--warm); letter-spacing: 0.02em; }
+.offer-actions { display: flex; gap: 9px; margin-top: 9px; }
+.offer-actions button { flex: 1; min-height: 44px; border-radius: 10px; font-size: 14px; font-weight: 600; }
+/* "No thanks" is a full-sized button, not a dismiss cross. §16 says a player
+   mid-recovery must be able to say no; a refusal you have to hunt for is a
+   refusal the design is quietly discouraging. */
+.offer-no { border: 1px solid rgba(244, 241, 234, 0.22); background: transparent; color: var(--ink); }
+.offer-yes { border: none; background: var(--warm); color: #1a1206; }
+
+@media (prefers-reduced-motion: reduce) { .offer { animation: none; } }
+
+/* --- An active job. Deadlines outrank objectives, so it sits above them. -- */
+.contract { display: flex; flex-direction: column; gap: 5px; }
+.contract-line { font-size: 12.5px; line-height: 1.35; color: var(--ink); }
+.contract-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(244, 241, 234, 0.14);
+  overflow: hidden;
+}
+.contract-bar span { display: block; height: 100%; background: var(--warm); }

@@ -28,6 +28,7 @@ import { MACHINE_BY_ID, MACHINE_RULES } from '@/config/machines';
 import { unlocked } from './systems/ladder';
 import { availableSpecials, surplusCost } from './systems/specials';
 import { SPECIAL_BY_ID, SPECIAL_RULES } from '@/config/specials';
+import { CONTRACT_BY_ID, CONTRACT_RULES } from '@/config/contracts';
 import { RUNGS, type Rung } from '@/config/ladder';
 import type { SimState } from './state';
 
@@ -525,6 +526,41 @@ export function setSpecial(
     };
   }
   return { ok: true, reason: `${spec.label} from Monday, ${state.special.prepTarget} prepped.` };
+}
+
+/**
+ * Take the job on the table. §16.
+ *
+ * **Free.** Nothing is posted, nothing is reserved, no deposit is taken. §16:
+ * *"always optional and declinable with no penalty."* The entire price of a
+ * contract is in the doing of it, which is also what stops accepting one from
+ * being a trap for a shop that is not ready.
+ */
+export function acceptContract(state: SimState): ActionResult {
+  const offer = state.contractOffer;
+  if (!offer) return { ok: false, reason: 'Nothing on the table.' };
+  if (state.contract) return { ok: false, reason: 'You have already got one on.' };
+  const spec = CONTRACT_BY_ID[offer.id];
+  if (!spec) return { ok: false, reason: 'That job has gone.' };
+
+  state.contract = { id: spec.id, dueOnDay: state.dayIndex + spec.days, progress: NONE };
+  state.contractOffer = null;
+  return { ok: true, reason: `${spec.label}. ${spec.days} days.` };
+}
+
+/**
+ * Say no. §16 — *"a player mid-recovery must be able to say no."*
+ *
+ * Costs nothing and is recorded nowhere. There is deliberately no counter of
+ * declines, because the moment one exists somebody will hang a consequence off
+ * it and the guarantee stops being one.
+ */
+export function declineContract(state: SimState): ActionResult {
+  if (!state.contractOffer) return { ok: false, reason: 'Nothing on the table.' };
+  const spec = CONTRACT_BY_ID[state.contractOffer.id];
+  state.contractOffer = null;
+  state.nextOfferDay = state.dayIndex + CONTRACT_RULES.OFFER_EVERY_MIN_DAYS;
+  return { ok: true, reason: spec ? `Told them no. ${spec.label} is off.` : 'Told them no.' };
 }
 
 export function weeklyWage(state: SimState): Money {

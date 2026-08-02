@@ -14,6 +14,7 @@ import { SITES, type SiteDefinition } from '@/config/sites';
 import { KITCHEN } from '@/config/kitchen';
 import { DEFAULT_LAYOUT_FOR, LAYOUTS, type PlacedStation } from '@/config/layouts';
 import { RECIPES } from '@/config/recipes';
+import type { Capability } from '@/config/ladder';
 import { buildAllGraphs, type RecipeGraph } from './recipeGraph';
 import { Floor, type Tile } from './floor';
 import { makeStation, type Job, type Station } from './entities/station';
@@ -186,6 +187,25 @@ export interface SimState {
   /** §15.3's dead-zone detector. The last day anything was worth doing. */
   lastDecisionDay: number;
 
+  // --- §16 contracts ------------------------------------------------------
+  /** The one active job. §16: "one active contract maximum." */
+  contract: { id: string; dueOnDay: number; progress: number } | null;
+  /** On the table but not answered. Lapses free — never becomes a failure. */
+  contractOffer: { id: string; lapsesOnDay: number } | null;
+  nextOfferDay: number;
+  /**
+   * Capabilities won from contracts. Kept apart from `rungs` so §15.1's ladder
+   * stays a statement about the shop's own trading — a contract may only ever
+   * open a door EARLY, never be required to reach one.
+   */
+  readonly contractRewards: Capability[];
+  /** Stars-worth of goodwill won and lost on jobs. Signed, and it can go down. */
+  contractGoodwill: number;
+  contractsDone: number;
+  contractsFailed: number;
+  /** People the festival has off the floor today. §8's labour, from outside. */
+  staffAway: number;
+
   /**
    * This week's special. §18.
    *
@@ -350,6 +370,14 @@ export function createState(opts: StateOptions = {}): SimState {
       costsAtWeekStart: NONE,
     },
     lastDecisionDay: NONE,
+    contract: null,
+    contractOffer: null,
+    nextOfferDay: NONE,
+    contractRewards: [],
+    contractGoodwill: NONE,
+    contractsDone: NONE,
+    contractsFailed: NONE,
+    staffAway: NONE,
     reviews: [],
     // The prior, not a guess: a shop with no reviews IS its prior, and starting
     // arrivals from a different number than reputation reports would make day

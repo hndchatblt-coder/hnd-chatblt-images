@@ -58,6 +58,10 @@ describe('STEP 12 — automation must not dominate', () => {
 // more than 3 game days with nothing worth doing, and tests/step14.test.ts
 // proves the detector is capable of reporting one. See §15.3.
 
+// STEP 16's gate is live in tests/step16.test.ts: failing a contract posts no
+// money and leaves the shop trading, and a shop that declines every offer for
+// ninety days still banks every Act I rung. See §16.
+
 // STEP 15's gate is live in tests/step15.test.ts: under- and over-prepping both
 // cost, and 86'ing a PROMOTED special is worse than never running one. See §18.
 

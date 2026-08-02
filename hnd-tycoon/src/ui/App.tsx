@@ -47,6 +47,9 @@ interface Readout {
   rungs: { label: string; unlocks: string }[];
   banked: string;
   panels: { roster: boolean; trade: boolean; parLevels: boolean };
+  /** §16 — what is on the table, and what is on. */
+  offer: { id: string; label: string; blurb: string; days: number; fee: number } | null;
+  contract: { line: string; progress: number } | null;
 }
 
 const EMPTY: Readout = {
@@ -66,6 +69,8 @@ const EMPTY: Readout = {
   rungs: [],
   banked: '0/0',
   panels: { roster: false, trade: false, parLevels: false },
+  offer: null,
+  contract: null,
 };
 
 export function App(): JSX.Element {
@@ -89,6 +94,7 @@ export function App(): JSX.Element {
       // Consumed, not read — see Game.takeLadder(). Must run every poll or a
       // rung landing between polls is lost.
       const ladder = g.takeLadder();
+      const contracts = g.contracts();
       if (ladder.unlockedNow) setLanded(ladder.unlockedNow);
       setReadout({
         clock: g.world.clock.format().replace(/^D(\d+)\s/, 'D$1 · '),
@@ -105,6 +111,8 @@ export function App(): JSX.Element {
         rungs: ladder.rungs,
         banked: ladder.banked,
         panels: ladder.panels,
+        offer: contracts.offer,
+        contract: contracts.active,
         ...g.trouble(),
       });
       setBooted(true);
@@ -193,15 +201,67 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {/* §16: an offer is a card you ANSWER, not a badge on a panel you might
+          never open. The guarantee is that saying no is free, and a guarantee
+          the player is never shown is not one they can use. */}
+      {readout.offer && (
+        <div className="offer" role="dialog" aria-label="A job is on offer">
+          <span className="offer-label">{readout.offer.label}</span>
+          <span className="offer-blurb">{readout.offer.blurb}</span>
+          <span className="offer-terms">
+            {readout.offer.days} days
+            {readout.offer.fee > 0 ? ` · $${readout.offer.fee.toLocaleString('en-AU')}` : ' · no money in it'}
+          </span>
+          <div className="offer-actions">
+            <button
+              type="button"
+              className="offer-no"
+              onClick={() => {
+                const r = game.current?.declineContract();
+                if (r?.reason) setToast(r.reason);
+              }}
+            >
+              No thanks
+            </button>
+            <button
+              type="button"
+              className="offer-yes"
+              onClick={() => {
+                const r = game.current?.acceptContract();
+                if (r?.reason) setToast(r.reason);
+              }}
+            >
+              Take it
+            </button>
+          </div>
+        </div>
+      )}
+
       <footer className="bottombar">
         {readout.headline && <div className="headline">{readout.headline}</div>}
+
+        {/* An active job outranks the ladder: it has a deadline and the rungs
+            do not. One line, always with the days left in it. */}
+        {readout.contract && (
+          <div className="contract">
+            <span className="contract-line">{readout.contract.line}</span>
+            <span className="contract-bar">
+              <span style={{ width: `${Math.round(readout.contract.progress * 100)}%` }} />
+            </span>
+          </div>
+        )}
 
         {/* §15.1: "two rungs always in the HUD; the rest browsable." Always
             visible, because §15's whole claim is that the player can always see
             the next objective without going looking for it. */}
+        {/* One rung, not two, while a job is on. §15.1 asks for two rungs
+            visible; a contract is a THIRD objective with a deadline attached,
+            and three stacked objectives plus a headline left the room a sliver
+            at the top of the screen. A deadline outranks an open-ended target,
+            so the contract takes the slot rather than being added to it. */}
         {readout.rungs.length > 0 && (
           <ol className="rungs">
-            {readout.rungs.map((r, i) => (
+            {readout.rungs.slice(0, readout.contract ? 1 : 2).map((r, i) => (
               <li key={r.label} className={i === 0 ? 'now' : 'then'}>
                 <span className="rung-label">{r.label}</span>
                 {/* Only the NEXT one names its door. Both did until the phone

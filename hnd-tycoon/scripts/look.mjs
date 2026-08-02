@@ -62,6 +62,22 @@ for (const moment of MOMENTS) {
       await page.locator('.sheet-close').click();
     }
   }
+  // §16's offer card needs a shop good enough to be asked, which is an hour of
+  // play away. Posed rather than waited for — the card is what is being looked
+  // at, not the route to it.
+  if (moment.name === '3-after-a-day') {
+    await page.evaluate(() => {
+      const game = globalThis.__hnd;
+      if (!game) return;
+      game.world.state.stars = 4.3;
+      game.world.state.contractOffer = { id: 'functionCatering', lapsesOnDay: 9999 };
+    });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SHOTS}/6-a-job-on-offer.png` });
+    await page.locator('.offer-yes').click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SHOTS}/7-the-job-is-on.png` });
+  }
   const headline = await page.locator('.headline').textContent().catch(() => null);
   const rungs = await page.locator('.rungs li .rung-label').allTextContents();
   const buttons = await page.locator('.actions button').allTextContents();

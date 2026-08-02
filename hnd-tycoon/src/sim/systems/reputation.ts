@@ -127,7 +127,17 @@ export class ReputationSystem implements System {
     const state = world.state;
     // Cached once a day so arrivals can read it every tick without walking
     // 250 reviews three hundred times an hour.
-    state.stars = starsOf(state.reviews, world.clock.dayIndex, 'dineIn');
+    // §16: goodwill won and lost on contracts, signed, on top of the reviews.
+    // Clamped to the same 0..5 the reviews live in, so a shop that failed three
+    // jobs is badly rated rather than negatively rated — and a shop that nailed
+    // three cannot buy its way past a room full of two-star reviews.
+    state.stars = Math.max(
+      REPUTATION.MIN_STARS,
+      Math.min(
+        REPUTATION.MAX_STARS,
+        starsOf(state.reviews, world.clock.dayIndex, 'dineIn') + state.contractGoodwill,
+      ),
+    );
     for (const channel of REPUTATION.CHANNELS) {
       world.record(
         `stars:${channel}`,

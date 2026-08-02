@@ -1327,3 +1327,72 @@ and started walking through the door and taking up room.
   `npm run balance` says nothing about it. The step-15 gates live in
   `tests/step15.test.ts` instead.
 - The per-tick config lookup above.
+
+---
+
+## Step 16 — SHIPPED: contracts
+
+**What is now playable.** Once the shop is rated 4.0, somebody starts ringing
+up with work — a fortieth at the bowlo wanting eighty burgers by Friday six, a
+week on a festival site that takes two of your staff with it, someone with a
+camera and two hundred thousand followers and no intention of paying. The offer
+arrives as a card with two full-sized buttons, and *No thanks* is exactly as big
+as *Take it*, because §16's guarantee is that saying no is free and a guarantee
+you have to hunt for is one the design is quietly discouraging.
+
+Take one and it becomes the line above your objectives, with the days left in it
+and a bar that means the same thing on every job — including the influencer,
+whose target is a ceiling rather than a floor.
+
+### The exit criteria
+
+Both are safety properties, so both are tested at the mechanism:
+
+- **A contract can be failed without the run becoming unrecoverable.** Failing
+  posts *nothing* — a spy watches `ledger.post` across a failure and requires no
+  penalty account. The shop keeps trading and keeps banking rungs. Six failed
+  jobs in a row leaves it badly rated, never negatively rated. ✓
+- **A player mid-recovery can decline indefinitely and still progress.**
+  Measured over ninety days: a shop that says no to every offer banks all ten
+  Act I rungs, identical to one that accepts everything. Nothing on the ladder
+  names a contract; a contract reward only ever opens a door EARLY. ✓
+
+### What I got wrong, and how
+
+- **Goodwill never decayed** (D063). A shop taking every job ran +0.71 stars
+  above one declining every job, purely on the strength of jobs finished weeks
+  earlier — a stat that maximises with no downside, banned by pillar. With 4%
+  daily decay the edge is +0.09 stars and $11,387 rather than $48,204 over
+  ninety days.
+- **The whole system was invisible.** Offered, lapsed, and the player never saw
+  it. Caught by the first-timer lens, not by any test.
+- **The fourth action button shipped grey** and four buttons wrapped to two
+  lines each on a 390px phone. The button rule listed selectors one at a time,
+  so a new one fell back to the browser default. Found by `npm run look`.
+
+### Adversarial pass — the first-timer's lens
+
+1. **No UI at all.** Highest severity: a system the player cannot see is not a
+   system. **Fixed** — offer card, active-job line, progress bar.
+2. **Goodwill compounded forever.** **Fixed** by decay (D063).
+3. **Four buttons wrapped; the fourth was unstyled.** **Fixed** — 2x2 grid, one
+   shared rule for every secondary action.
+4. **Three stacked objectives** — headline, contract, two rungs — left the room
+   a sliver. **Fixed**: a deadline outranks an open-ended target, so a live
+   contract takes a rung's slot rather than adding to it (D066).
+5. `import.meta.env` needed Vite's ambient types the sim deliberately does not
+   pull in. **Fixed** by narrowing inline.
+
+### DEBT carried out of this step
+
+- **Contracts are still worth ~$11k over ninety days against declining.** Real
+  but no longer dominant. Whether that is the right size is a balance question
+  for the pass that also owns step 15's flat unpromoted special.
+- **No bot takes contracts**, so `npm run balance` says nothing about them —
+  same gap as specials. §25.2's report is supposed to include "contracts taken
+  vs failed".
+- **`festivalStall` and `foodTruckDay` both accrue on `day.served`.** They
+  differ in duration and in whether staff are removed, but the counter is the
+  same one. Distinct enough to pass the "no two stresses alike" test, thinner
+  than the other three in practice.
+- The per-tick `SPECIAL_BY_ID` lookup from step 15 is still there.

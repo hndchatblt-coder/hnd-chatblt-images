@@ -33,7 +33,11 @@ const CENTS = 100;
 export function unlocked(state: SimState, kind: string, id: string): boolean {
   const gate = RUNGS.find((r) => r.reward.kind === kind && r.reward.id === id);
   if (!gate) return true;
-  return state.rungs.includes(gate.id);
+  if (state.rungs.includes(gate.id)) return true;
+  // §16: a contract may open a door EARLY. It can never be required to reach
+  // one — the rung is still there and still earnable by trading, which is what
+  // makes declining contracts forever cost the player no progress at all.
+  return state.contractRewards.some((r) => r.kind === kind && r.id === id);
 }
 
 /**

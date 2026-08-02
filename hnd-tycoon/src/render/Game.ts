@@ -11,7 +11,9 @@ import { BRAND } from '@/config/brand';
 import { RENDER } from '@/config/render';
 import { TIME } from '@/config/time';
 import {
+  acceptContract,
   buy,
+  declineContract,
   canAfford,
   fire,
   fixIncident,
@@ -31,6 +33,8 @@ import { starsOf } from '@/sim/systems/reputation';
 import { ladderProgress, nextRungs, unlocked } from '@/sim/systems/ladder';
 import { RUNGS_BY_ID } from '@/config/ladder';
 import { availableSpecials } from '@/sim/systems/specials';
+import { contractLine, progressOf } from '@/sim/systems/contracts';
+import { CONTRACT_BY_ID } from '@/config/contracts';
 import { SPECIAL_RULES } from '@/config/specials';
 import { STATION_SPECS } from '@/config/stations';
 import { DAY_NAMES } from '@/config/time';
@@ -89,6 +93,20 @@ export class Game {
     // at 11:00; dropping the player into an empty room at 3am would be an
     // accurate simulation of nothing at all.
     this.world.runTicks(openingTicks(this.world));
+
+    // A handle for `npm run look`, dev builds only.
+    //
+    // Two steps in a row have shipped a visual claim that could not be
+    // screenshotted because the state it needs takes an hour of play to reach
+    // — a contract offer wants 4.0 stars, which a fresh shop does not see in
+    // forty seconds at 4x. Without this the choice is "assert it from the code
+    // and hope", which is the exact habit D054 and D058 exist to break.
+    // Narrowed inline rather than pulling `vite/client` into tsconfig — the sim
+    // and the harness both typecheck without Vite's ambient types today, and
+    // one debug handle is not a reason to change that.
+    if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV === true) {
+      (globalThis as unknown as { __hnd?: Game }).__hnd = this;
+    }
 
     this.app.ticker.add(() => {
       const dt = Math.min(this.app.ticker.deltaMS / 1000, RENDER.MAX_FRAME_SECONDS);
@@ -358,6 +376,42 @@ export class Game {
       promoCost: SPECIAL_RULES.PROMO_WEEKLY_COST,
       promoUplift: SPECIAL_RULES.PROMO_UPLIFT,
     };
+  }
+
+  /**
+   * §16, for the HUD. What is on the table, and what is on.
+   *
+   * The offer is a CARD the player answers rather than a badge on a panel they
+   * might not open. §16's guarantee is that declining is free, and a guarantee
+   * nobody is ever shown is not one they can use.
+   */
+  contracts(): {
+    offer: { id: string; label: string; blurb: string; days: number; fee: number } | null;
+    active: { line: string; progress: number } | null;
+  } {
+    const state = this.world.state;
+    const offer = state.contractOffer ? CONTRACT_BY_ID[state.contractOffer.id] : undefined;
+    const line = contractLine(state);
+    return {
+      offer: offer
+        ? {
+            id: offer.id,
+            label: offer.label,
+            blurb: offer.blurb,
+            days: offer.days,
+            fee: offer.feeDollars,
+          }
+        : null,
+      active: line === null ? null : { line, progress: progressOf(state) },
+    };
+  }
+
+  acceptContract(): ActionResult {
+    return acceptContract(this.world.state);
+  }
+
+  declineContract(): ActionResult {
+    return declineContract(this.world.state);
   }
 
   setSpecial(specialId: string | null, prepUnits: number, promote: boolean): ActionResult {

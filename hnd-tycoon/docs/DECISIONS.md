@@ -1363,3 +1363,78 @@ Found by `npm run look` driving the real UI, which reported
 the second time in two steps the screenshot harness has found something no test
 could have (D058 was the first). A misspelt class name is invisible to every
 gate this project has.
+
+## D063 — contract goodwill has to decay, or a rating is something you buy
+**Step 16. Status: active.**
+
+Contracts award reputation as well as cash, per §16. Goodwill was permanent for
+about an hour, and measured over ninety days a shop that took every job ran
+**+0.71 stars** above one that declined every job — entirely on the strength of
+jobs it had finished weeks earlier. Extrapolate and it pins at 5.0 and stops
+caring what anybody thinks of the food.
+
+That is a stat that maximises with no downside, which this project bans by
+pillar and by audit. §7.4's reviews are recency-weighted for exactly the same
+reason: what people think of you is about lately, and a function you catered six
+weeks ago is not why anyone walks in today.
+
+4% a day, so a good job is worth about a fortnight of visible benefit. The edge
+fell from +0.71 stars to **+0.09**, and the cash advantage from $48,204 to
+$11,387 over ninety days — because a lower rating means fewer offers, which is
+the loop closing properly rather than a second penalty.
+
+## D064 — failing a contract costs reputation and never cash
+**Step 16. Status: active.**
+
+§16 does not say what failing costs. The obvious answer is a forfeited deposit,
+and it is wrong: it lands hardest on the shop least able to absorb it, which is
+precisely the shop most likely to fail a job. §10 forbids a state the player
+cannot come back from, and the exit criterion for this step is that a failed
+contract leaves the run recoverable.
+
+So the whole penalty is `reputationSwing`, symmetric with the reward — a job
+whose upside beats its downside is a free roll rather than a decision. There is
+a test that spies on `ledger.post` across a failure and requires nothing to be
+charged, because "we decided not to add a penalty" is the kind of decision that
+survives until somebody adds one.
+
+Two consequences that fall out and are worth stating:
+
+- **An ignored offer lapses; it never becomes a failure.** The player that
+  protects is the one who has not opened the app for two days, and §4.3 forbids
+  punishing them for it.
+- **Nothing on §15.1's ladder depends on a contract.** A contract reward opens a
+  door EARLY, and the rung that opens the same door is still there and still
+  earnable by trading. Measured: a shop that declines every offer for ninety
+  days banks all ten Act I rungs, same as one that accepts everything.
+
+## D065 — a dev handle on the game, so visual claims can be looked at
+**Step 16. Status: active.**
+
+`npm run look` could not screenshot §16's offer card, because an offer needs a
+shop at 4.0 stars and a fresh shop does not get near that in forty seconds of
+play. The choice was between asserting the card from the code and hoping, which
+is the exact habit D054 and D058 exist to break.
+
+So `Game.start` publishes `globalThis.__hnd` under `import.meta.env.DEV`, and
+the screenshot harness poses the state it wants to photograph. It found two
+things immediately: the fourth action button was unstyled and shipped grey
+because the button rule listed selectors one at a time, and four buttons on a
+390px phone wrapped to two lines each — "Spend some / money" over "Who's / on".
+
+Neither is visible to any gate this project has. That is now three steps running
+where the screenshot harness found something the tests could not.
+
+## D066 — a deadline outranks an open-ended objective
+**Step 16. Status: active.**
+
+§15.1 asks for two rungs always visible. §16 adds a contract, which is a third
+objective and the only one with a clock on it. Stacked with §15.2's headline the
+HUD reached two-thirds of a phone and the room — the thing the game *is* — was a
+sliver at the top.
+
+The rule rather than the special case: **while a job is on, one rung shows
+instead of two.** A contract is not an addition to the objective list, it takes
+the top slot, because it is the only one that expires. §15.1's "two visible" is
+about the player always being able to see what is next, and a deadline is more
+next than a target with no date on it.
