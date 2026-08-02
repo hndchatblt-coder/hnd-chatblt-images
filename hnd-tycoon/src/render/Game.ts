@@ -58,6 +58,30 @@ export class Game {
   private accumulator = 0;
   private speed = 1;
   private running = true;
+  /**
+   * What the last frame cost us, split. §21.1's density gate.
+   *
+   * **Measured here rather than end-to-end, and that is a deliberate retreat.**
+   * Step 17's criterion is 60fps on a mid-range Android; this container has no
+   * GPU, so headless Chromium software-rasterises and paces requestAnimationFrame
+   * at a flat 83.3ms — exactly five vsync intervals — whether the room holds
+   * sixteen people or eighty-six. A number that does not move when the scene
+   * gets five times busier is not measuring the scene.
+   *
+   * So what is measured is the half this step actually controls: the CPU cost
+   * of stepping the sim and of drawing the frame. That DOES scale with density,
+   * it is comparable across changes, and it is the number that has to come down
+   * if the answer on real hardware is ever going to be sixty. End-to-end fps on
+   * a real device is recorded as unverified rather than claimed.
+   */
+  readonly cost = { sim: 0, render: 0, frames: 0 };
+
+  /** Start a fresh measurement window. Called by `npm run fps` per stage. */
+  resetCost(): void {
+    this.cost.sim = 0;
+    this.cost.render = 0;
+    this.cost.frames = 0;
+  }
 
   constructor(options: ScenarioOptions) {
     this.world = buildScenario(options);
@@ -110,8 +134,16 @@ export class Game {
 
     this.app.ticker.add(() => {
       const dt = Math.min(this.app.ticker.deltaMS / 1000, RENDER.MAX_FRAME_SECONDS);
+      const t0 = performance.now();
       if (this.running) this.step(dt);
+      const t1 = performance.now();
       this.scene.render(this.world.state, dt, this.world.clock.now as number);
+      // Rolling WORST, not last. A single frame sampled at an arbitrary instant
+      // is a number you can re-roll until it flatters you; the worst frame in
+      // the window is the one the player actually feels.
+      this.cost.sim = Math.max(this.cost.sim, t1 - t0);
+      this.cost.render = Math.max(this.cost.render, performance.now() - t1);
+      this.cost.frames++;
     });
   }
 

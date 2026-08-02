@@ -17,7 +17,8 @@
     "gate": "npm run boundaries && npm run typecheck && npm run test && npm run balance",
     "dev": "vite",
     "build": "vite build",
-    "look": "node scripts/look.mjs"
+    "look": "node scripts/look.mjs",
+    "fps": "node scripts/fps.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
