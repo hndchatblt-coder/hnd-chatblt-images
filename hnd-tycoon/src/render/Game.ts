@@ -27,6 +27,8 @@ import { fixCostDollars, specOf } from '@/sim/systems/incidents';
 import { bankMessage, recoveryLine } from '@/sim/systems/recovery';
 import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { starsOf } from '@/sim/systems/reputation';
+import { ladderProgress, nextRungs, unlocked } from '@/sim/systems/ladder';
+import { RUNGS_BY_ID } from '@/config/ladder';
 import { SHOPFRONT, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
@@ -116,6 +118,40 @@ export class Game {
 
   buy(itemId: string): ActionResult {
     return buy(this.world.state, itemId);
+  }
+
+  /**
+   * §15.1 and §15.2, for the HUD. The two next rungs, the day's verdict, and
+   * which panels the player has actually earned.
+   *
+   * **This CONSUMES the pending unlock**, which is why it is not called
+   * `ladder()`. A rung landing is a once-only event and the HUD polls at 4 Hz,
+   * so leaving it in state would redraw the same banner every 250ms until the
+   * next rung — a sticker, not a moment. A method that quietly empties a field
+   * the caller did not mention is how that becomes somebody else's afternoon,
+   * so the name says it.
+   */
+  takeLadder(): {
+    headline: string;
+    rungs: { label: string; unlocks: string }[];
+    banked: string;
+    unlockedNow: { label: string; unlocks: string } | null;
+    panels: { roster: boolean; trade: boolean; parLevels: boolean };
+  } {
+    const state = this.world.state;
+    const landed = state.justUnlocked === null ? null : RUNGS_BY_ID[state.justUnlocked];
+    state.justUnlocked = null;
+    return {
+      headline: state.headline,
+      rungs: nextRungs(state).map((r) => ({ label: r.label, unlocks: r.unlocks })),
+      banked: ladderProgress(state),
+      unlockedNow: landed ? { label: landed.label, unlocks: landed.unlocks } : null,
+      panels: {
+        roster: unlocked(state, 'panel', 'roster'),
+        trade: unlocked(state, 'panel', 'trade'),
+        parLevels: unlocked(state, 'panel', 'parLevels'),
+      },
+    };
   }
 
   /**

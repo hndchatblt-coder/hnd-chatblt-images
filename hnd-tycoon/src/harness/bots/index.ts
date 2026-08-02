@@ -13,6 +13,7 @@
  * numbers as the tuned ones.
  */
 import { buildScenario } from '@/sim/scenario';
+import { decisionGap } from '@/sim/systems/ladder';
 import type { Bot } from '../bot';
 import { balanced } from './balanced';
 import { roboboss } from './roboboss';
@@ -29,6 +30,11 @@ export interface BotDay {
   readonly covers: number;
   readonly balked: number;
   readonly marketingCents: number;
+  /** §15.3 — days since anything was worth doing. Zero on a day with a choice. */
+  readonly decisionGap: number;
+  /** §15.2 — the day's verdict, so the harness can read twenty of them. */
+  readonly headline: string;
+  readonly rungs: number;
 }
 
 export interface BotRun {
@@ -52,6 +58,9 @@ export function runBot(bot: Bot, seed: number, days: number): BotRun {
       covers: world.state.day.served,
       balked: world.state.day.balked,
       marketingCents: world.state.ledger.total('marketing').cents,
+      decisionGap: decisionGap(world.state),
+      headline: world.state.headline,
+      rungs: world.state.rungs.length,
     });
   }
   return { bot: bot.name, days: samples };
@@ -85,6 +94,9 @@ export function runHandover(
       covers: world.state.day.served,
       balked: world.state.day.balked,
       marketingCents: world.state.ledger.total('marketing').cents,
+      decisionGap: decisionGap(world.state),
+      headline: world.state.headline,
+      rungs: world.state.rungs.length,
     });
   }
   return { bot: `${first.name}->${second.name}`, days: samples };

@@ -211,6 +211,80 @@ if (idleCash <= 0) {
   );
 }
 
+// --- §15.3, the dead-zone detector ---------------------------------------
+/**
+ * *"`bot:balanced` must never go more than 3 game days without a meaningful
+ * decision available."*
+ *
+ * Applied to EVERY bot, not just balanced. §15.3 names balanced because it is
+ * the representative player, but a dead zone that only spares the bot that
+ * plays well is still a dead zone — `tightarse`, who buys nothing, is precisely
+ * the player most likely to find one.
+ *
+ * The measure it reads is deliberately capable of being false: a decision is an
+ * affordable action that would move §13's named constraint, and one constraint
+ * kind (`space`) has no answer anywhere in the catalogue. See `hadDecision`.
+ */
+const DEAD_ZONE_DAYS = 3;
+
+console.log('  §15.3 gate — nobody may go 3 game days with nothing worth doing:');
+for (const bot of BOTS) {
+  const rs = runs.get(bot.name) as BotRun[];
+  const worst = Math.max(...rs.flatMap((r) => r.days.map((d) => d.decisionGap)));
+  const flat = rs.flatMap((r) => r.days.filter((d) => d.decisionGap > 0)).length;
+  const seenRungs = mean(rs.map((r) => last(r.days.map((d) => d.rungs))));
+  console.log(
+    `    bot:${bot.name.padEnd(10)} longest dead run ${String(worst).padStart(2)}d` +
+      `   ${String(flat).padStart(3)} days with no move` +
+      `   ${seenRungs.toFixed(1)} rungs banked`,
+  );
+  if (worst > DEAD_ZONE_DAYS) {
+    failures.push(
+      `bot:${bot.name} went ${worst} game days with nothing worth doing. ` +
+        `§15.3 allows ${DEAD_ZONE_DAYS}. A player with no available move is watching a screensaver.`,
+    );
+  }
+}
+console.log('');
+
+// --- §15.2, the headline ---------------------------------------------------
+/**
+ * *"Specific, from real data, never generic encouragement."*
+ *
+ * The exit criterion is to read twenty and cut any that could apply to any day,
+ * so twenty get PRINTED — a boolean cannot tell you a line is dull. What the
+ * gate checks is the two properties that make dullness impossible by
+ * construction: every headline carries a digit, and no line survives more than
+ * a few days running without changing what it says.
+ */
+const REPEAT_LIMIT = 3;
+const sample = (runs.get('balanced') as BotRun[])[0] as BotRun;
+const twenty = sample.days.slice(0, 20);
+
+console.log('  §15.2 gate — twenty consecutive headlines from bot:balanced, seed 1:');
+for (const d of twenty) console.log(`    d${String(d.day).padStart(2)}  ${d.headline}`);
+console.log('');
+
+const numberless = twenty.filter((d) => !/\d/.test(d.headline));
+if (numberless.length > 0) {
+  failures.push(
+    `${numberless.length} of 20 headlines carried no figure from the day — e.g. "${numberless[0]?.headline}". ` +
+      '§15.2: specific, from real data. A line with no number in it fits every day ever traded.',
+  );
+}
+let repeat = 1;
+let worstRepeat = 1;
+for (let i = 1; i < twenty.length; i++) {
+  repeat = twenty[i]?.headline === twenty[i - 1]?.headline ? repeat + 1 : 1;
+  worstRepeat = Math.max(worstRepeat, repeat);
+}
+if (worstRepeat > REPEAT_LIMIT) {
+  failures.push(
+    `the same headline ran ${worstRepeat} days unchanged. ` +
+      'A line the player has already read is generic no matter how specific it was the first time.',
+  );
+}
+
 if (failures.length > 0) {
   console.error('✗ BALANCE FAILURES\n');
   for (const f of failures) console.error('  ' + f);

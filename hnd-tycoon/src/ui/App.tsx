@@ -24,6 +24,8 @@ import { TroublePanel } from './Trouble';
 import type { Game } from '@/render/Game';
 
 const HUD_HZ = 4;
+const TOAST_MS = 2600;
+const UNLOCK_MS = 5200;
 
 interface Readout {
   clock: string;
@@ -38,6 +40,12 @@ interface Readout {
   faults: number;
   bank: string | null;
   recovery: string | null;
+  /** §15.2 — the day's verdict, one line, above the P&L. */
+  headline: string;
+  /** §15.1 — "two rungs always in the HUD; the rest browsable." */
+  rungs: { label: string; unlocks: string }[];
+  banked: string;
+  panels: { roster: boolean; trade: boolean; parLevels: boolean };
 }
 
 const EMPTY: Readout = {
@@ -53,6 +61,10 @@ const EMPTY: Readout = {
   faults: 0,
   bank: null,
   recovery: null,
+  headline: '',
+  rungs: [],
+  banked: '0/0',
+  panels: { roster: false, trade: false, parLevels: false },
 };
 
 export function App(): JSX.Element {
@@ -63,6 +75,7 @@ export function App(): JSX.Element {
   const [tradeOpen, setTradeOpen] = useState(false);
   const [troubleOpen, setTroubleOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [landed, setLanded] = useState<{ label: string; unlocks: string } | null>(null);
   const [booted, setBooted] = useState(false);
   const [readout, setReadout] = useState<Readout>(EMPTY);
 
@@ -71,6 +84,10 @@ export function App(): JSX.Element {
       const g = game.current;
       if (!g) return;
       const state = g.world.state;
+      // Consumed, not read — see Game.takeLadder(). Must run every poll or a
+      // rung landing between polls is lost.
+      const ladder = g.takeLadder();
+      if (ladder.unlockedNow) setLanded(ladder.unlockedNow);
       setReadout({
         clock: g.world.clock.format().replace(/^D(\d+)\s/, 'D$1 · '),
         cashCents: state.ledger.cash.cents,
@@ -82,6 +99,10 @@ export function App(): JSX.Element {
         bottleneck: state.bottleneck?.line ?? 'Nothing is holding you back',
         bottleneckKind: state.bottleneck?.kind ?? 'demand',
         faults: state.incidents.length,
+        headline: ladder.headline,
+        rungs: ladder.rungs,
+        banked: ladder.banked,
+        panels: ladder.panels,
         ...g.trouble(),
       });
       setBooted(true);
@@ -91,9 +112,18 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (!toast) return;
-    const id = setTimeout(() => setToast(null), 2600);
+    const id = setTimeout(() => setToast(null), TOAST_MS);
     return () => clearTimeout(id);
   }, [toast]);
+
+  // A rung is a door opening, so it stays up long enough to read what is now
+  // behind it — twice a toast, which is the difference between a notification
+  // and a moment.
+  useEffect(() => {
+    if (!landed) return;
+    const id = setTimeout(() => setLanded(null), UNLOCK_MS);
+    return () => clearTimeout(id);
+  }, [landed]);
 
   const changeSpeed = useCallback((next: number): void => {
     setSpeed(next);
@@ -139,6 +169,9 @@ export function App(): JSX.Element {
         {readout.recovery ?? readout.bottleneck}
       </div>
 
+      {/* §15.2: the day's verdict sits with the figures it is about, so it is
+          pinned to the bottom bar rather than floating over the room. It only
+          exists once a day has actually closed. */}
       <GameCanvas
         seed={42}
         onReady={(g) => {
@@ -149,7 +182,36 @@ export function App(): JSX.Element {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {/* §15.1: a rung is the only thing in this game that opens a door, so it
+          gets a beat of its own and says what is now behind it. */}
+      {landed && (
+        <div className="unlock" role="status">
+          <span className="unlock-label">{landed.label}</span>
+          <span className="unlock-what">{landed.unlocks}</span>
+        </div>
+      )}
+
       <footer className="bottombar">
+        {readout.headline && <div className="headline">{readout.headline}</div>}
+
+        {/* §15.1: "two rungs always in the HUD; the rest browsable." Always
+            visible, because §15's whole claim is that the player can always see
+            the next objective without going looking for it. */}
+        {readout.rungs.length > 0 && (
+          <ol className="rungs">
+            {readout.rungs.map((r, i) => (
+              <li key={r.label} className={i === 0 ? 'now' : 'then'}>
+                <span className="rung-label">{r.label}</span>
+                {/* Only the NEXT one names its door. Both did until the phone
+                    was actually looked at: four lines of small type under the
+                    room, and the room is the game. §15.1 asks for two rungs
+                    VISIBLE, not two rungs explained. */}
+                {i === 0 && <span className="rung-what">{r.unlocks}</span>}
+              </li>
+            ))}
+          </ol>
+        )}
+
         <div className="stats">
           <div className="stat">
             <span className="label">COVERS</span>
@@ -184,12 +246,19 @@ export function App(): JSX.Element {
           <button type="button" className="shop-open" onClick={() => setShopOpen(true)}>
             Spend some money
           </button>
-          <button type="button" className="roster-open" onClick={() => setRosterOpen(true)}>
-            Who&rsquo;s on
-          </button>
-          <button type="button" className="trade-open" onClick={() => setTradeOpen(true)}>
-            Prices
-          </button>
+          {/* Earned, not hidden-then-revealed. `setRoster` and `setPrice` refuse
+              in the SIM until the rung lands (see `panelGate`), so the button
+              being absent is the consequence and not the mechanism. */}
+          {readout.panels.roster && (
+            <button type="button" className="roster-open" onClick={() => setRosterOpen(true)}>
+              Who&rsquo;s on
+            </button>
+          )}
+          {readout.panels.trade && (
+            <button type="button" className="trade-open" onClick={() => setTradeOpen(true)}>
+              Prices
+            </button>
+          )}
           {/* Only there when there IS something wrong. A permanently visible
               "problems" button on a shop with no problems trains the player to
               ignore it, which is the one thing this button cannot afford. */}

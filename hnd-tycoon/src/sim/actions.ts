@@ -25,6 +25,8 @@ import { CALENDARS, DAY_NAMES, type DayOfWeek } from '@/config/time';
 import { Cash, id, money, ZERO, type Money, type SiteId, type StaffId } from './types';
 import { fixCostDollars, specOf } from './systems/incidents';
 import { MACHINE_BY_ID, MACHINE_RULES } from '@/config/machines';
+import { unlocked } from './systems/ladder';
+import { RUNGS, type Rung } from '@/config/ladder';
 import type { SimState } from './state';
 
 const NONE = 0;
@@ -57,6 +59,20 @@ export function canAfford(state: SimState, item: CatalogueItem): boolean {
 export function buy(state: SimState, itemId: string): ActionResult {
   const item = CATALOGUE_BY_ID[itemId];
   if (!item) return { ok: false, reason: `No such thing as a ${itemId}` };
+  // §15.1 and §14.5: the ladder is the gate, not the bank balance. A rung opens
+  // a capability, which is why a rung never pays cash — the reward IS this.
+  const gateKind = item.kind === 'machine' ? 'machine' : 'catalogue';
+  const gateId = item.kind === 'machine' ? item.machine : item.id;
+  // The SITE requirement wins when both apply. See `siteGate`.
+  const sited = item.kind === 'machine' ? siteGate(item.machine) : null;
+  if (sited) return sited;
+  if (!unlocked(state, gateKind, gateId)) {
+    const rung = rungGating(gateKind, gateId);
+    return {
+      ok: false,
+      reason: rung ? `Not yet — ${rung.label.toLowerCase()} first.` : 'Not yet.',
+    };
+  }
   if (item.kind === 'hire') return hire(state);
   if (item.kind === 'machine') return buyMachine(state, item.machine);
   return install(state, item.station, item);
@@ -92,6 +108,26 @@ function hire(state: SimState): ActionResult {
 
 const EMPTY_ROSTER: readonly boolean[] = [false, false, false, false, false, false, false];
 
+/** Which rung opens this, so the refusal can name it. */
+function rungGating(kind: string, id: string): Rung | undefined {
+  return RUNGS.find((r) => r.reward.kind === kind && r.reward.id === id);
+}
+
+/**
+ * §15.1's panel gate, enforced in the SIM rather than by hiding a button.
+ *
+ * A HUD that hides the roster while `setRoster` still works is not a gate, it
+ * is a curtain: the harness walks straight past it and the balance numbers are
+ * measured against a game nobody plays. So the refusal lives here, where the
+ * bots hit it too, and the button disappearing is the consequence rather than
+ * the mechanism.
+ */
+function panelGate(state: SimState, panel: 'roster' | 'trade' | 'parLevels'): ActionResult | null {
+  if (unlocked(state, 'panel', panel)) return null;
+  const rung = rungGating('panel', panel);
+  return { ok: false, reason: rung ? `Not yet — ${rung.label.toLowerCase()} first.` : 'Not yet.' };
+}
+
 /**
  * Put someone on, or take them off, a day of the week. Takes effect tomorrow —
  * rostering mid-rush would be a way to conjure a pair of hands out of nowhere
@@ -103,6 +139,8 @@ export function setRoster(
   day: number,
   on: boolean,
 ): ActionResult {
+  const gate = panelGate(state, 'roster');
+  if (gate) return gate;
   const staff = state.staff.find((s) => s.id === staffId);
   if (!staff) return { ok: false, reason: 'Nobody by that name.' };
   if (staff.leavingOnDay !== null) {
@@ -176,20 +214,31 @@ export function fixIncident(state: SimState, incidentId: string): ActionResult {
  * messages are the interesting part: "you have no fryer" and "there is nowhere
  * to put it" are two different problems and the player has to be told which.
  */
+/**
+ * §14.5's venue-count gate. Act I is one site, so tier 5 is visible and locked
+ * rather than absent — §15 wants the next rung on screen, not hidden.
+ *
+ * Checked BEFORE the ladder gate in `buy`, because §14.5 names both gates and
+ * the site one is the more specific answer: "for an operation with two shops"
+ * tells the player what the business has to become, where the rung label only
+ * repeats it back through the ladder.
+ */
+function siteGate(machineId: string): ActionResult | null {
+  const spec = MACHINE_BY_ID[machineId];
+  const sites = ONE;
+  if (!spec || (spec.requiresSites ?? ONE) <= sites) return null;
+  return {
+    ok: false,
+    reason: `${spec.label} is for an operation with ${spec.requiresSites} shops. Not yet.`,
+  };
+}
+
 export function buyMachine(state: SimState, machineId: string): ActionResult {
   const spec = MACHINE_BY_ID[machineId];
   if (!spec) return { ok: false, reason: `No such thing as a ${machineId}` };
 
-  // §14.5: gated on ladder rung and venue count, never purely on cash. Act I
-  // is one site, so tier 5 is visible and locked rather than absent — §15 wants
-  // the next rung on screen.
-  const sites = ONE;
-  if ((spec.requiresSites ?? ONE) > sites) {
-    return {
-      ok: false,
-      reason: `${spec.label} is for an operation with ${spec.requiresSites} shops. Not yet.`,
-    };
-  }
+  const sited = siteGate(machineId);
+  if (sited) return sited;
 
   const hosts = state.stations.filter((s) => s.type === spec.station);
   if (hosts.length === NONE) {
@@ -369,6 +418,8 @@ function bestSpotForFootprint(
  * day and finding out afterwards whether you were right.
  */
 export function setPrice(state: SimState, multiplier: number): ActionResult {
+  const gate = panelGate(state, 'trade');
+  if (gate) return gate;
   const clamped = Math.max(
     PRICING.MIN_MULTIPLIER,
     Math.min(PRICING.MAX_MULTIPLIER, multiplier),
@@ -399,6 +450,8 @@ export function setMarketing(
   channelId: string,
   weeklyDollars: number,
 ): ActionResult {
+  const gate = panelGate(state, 'trade');
+  if (gate) return gate;
   const channel = MARKETING_CHANNELS.find((c) => c.id === channelId);
   if (!channel) return { ok: false, reason: `No such channel: ${channelId}` };
   if (weeklyDollars < NONE) return { ok: false, reason: 'Cannot spend a negative amount.' };

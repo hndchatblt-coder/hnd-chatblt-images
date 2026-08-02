@@ -27,6 +27,7 @@ import {
 } from '@/sim/systems/incidents';
 import { bankMessage, bankTier, dayQualifies, recoveryLine } from '@/sim/systems/recovery';
 import { BOTS, runBot, runHandover } from '@/harness/bots';
+import { openEverything } from './helpers';
 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 /**
@@ -121,12 +122,14 @@ describe('STEP 11 — incidents degrade, and they never run on a timer (§9)', (
     // Something breaking on day one reads as the game being broken rather than
     // as the world having weather.
     const world = buildScenario({ seed: 3 });
+    openEverything(world.state);
     world.runDays(INCIDENT_RULES.GRACE_DAYS);
     expect(world.state.incidents.length).toBe(0);
   });
 
   it('does actually break things once the grace is up', () => {
     const world = buildScenario({ seed: 3 });
+    openEverything(world.state);
     world.runDays(INCIDENT_RULES.GRACE_DAYS + 40);
     // Not asserting a count — it is a probability, and pinning the number would
     // gate the RNG rather than the system.
@@ -138,6 +141,7 @@ describe('STEP 11 — incidents degrade, and they never run on a timer (§9)', (
     // A fryer thermostat in a shop with no fryer is the game describing
     // somebody else's kitchen.
     const world = buildScenario({ seed: 5 });
+    openEverything(world.state);
     world.runDays(INCIDENT_RULES.GRACE_DAYS + 60);
     for (const incident of world.state.incidents) {
       if (incident.stationId === null) continue;
@@ -185,6 +189,7 @@ describe('STEP 11 — incidents degrade, and they never run on a timer (§9)', (
 describe('STEP 11 — ambience is a claimant on the floor, not a stat (§6.4)', () => {
   it('costs tiles, which is the entire lever', () => {
     const world = buildScenario({ seed: 7 });
+    openEverything(world.state);
     const free = () => {
       let n = 0;
       for (let y = 0; y < world.state.floor.depth; y++) {
@@ -219,6 +224,7 @@ describe('STEP 11 — ambience is a claimant on the floor, not a stat (§6.4)', 
 
   it('shows up on the shop, not just in a formula', () => {
     const world = buildScenario({ seed: 7 });
+    openEverything(world.state);
     expect(ambiencePoints(world.state)).toBe(0);
     expect(patienceBonus(world.state)).toBe(1);
     expect(spendBonus(world.state)).toBe(1);
@@ -249,6 +255,7 @@ describe('STEP 11 — ambience is a claimant on the floor, not a stat (§6.4)', 
       mean(
         [1, 2, 3, 4, 5, 6].map((seed) => {
           const world = buildScenario({ seed });
+          openEverything(world.state);
           world.runDays(1);
           for (let i = 0; i < seats; i++) buy(world.state, 'seating');
           world.runDays(55);
@@ -268,6 +275,7 @@ describe('STEP 11 — ambience is a claimant on the floor, not a stat (§6.4)', 
 
   it('is spoiled by a tired room — §9 reaches §6.4', () => {
     const world = buildScenario({ seed: 7 });
+    openEverything(world.state);
     buy(world.state, 'seating');
     buy(world.state, 'seating');
     const kept = patienceBonus(world.state);
@@ -313,6 +321,7 @@ describe('STEP 11 — the bank gets colder, and never takes anything (§10)', ()
 
   it('charges interest on an overdraft, daily and bounded', () => {
     const world = buildScenario({ seed: 11, openingCash: { cents: -1_000_000, currency: 'AUD' } });
+    openEverything(world.state);
     world.runDays(1);
     const interest = world.state.ledger.total('interest').cents;
     expect(interest).toBeGreaterThan(0);
@@ -337,6 +346,7 @@ describe('STEP 11 — the Recovery Plan (§10)', () => {
   it('opens below 2.5 stars and clears above 3.1, with hysteresis', () => {
     expect(RECOVERY.TRIGGER_STARS).toBeLessThan(RECOVERY.CLEAR_STARS);
     const world = buildScenario({ seed: 13 });
+    openEverything(world.state);
     expect(world.state.recovery).toBeNull();
 
     // Wreck it through the real path. Assigning `state.stars` directly does
@@ -384,6 +394,7 @@ describe('STEP 11 — the Recovery Plan (§10)', () => {
     // serves people, and the accumulator it would have zeroed is rebuilt every
     // morning by `openDay`.
     const world = buildScenario({ seed: 17, arrivalsPerHour: 150 });
+    openEverything(world.state);
     bomb(world, 1, 300);
     world.runDays(1);
     const plan = world.state.recovery;

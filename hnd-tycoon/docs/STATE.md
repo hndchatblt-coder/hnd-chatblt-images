@@ -1140,3 +1140,100 @@ now this) and the first one I have shipped in a commit message. The pattern is
 always the same: a confident mechanism written before the measurement. The
 measurement here took four minutes.
 
+
+---
+
+## Step 14 — SHIPPED: the ladder and the daily headline
+
+**What is now playable.** Every trading day ends on one line of plain English
+drawn from that day's own figures, pinned above the covers count. Under it sit
+the next two rungs — the nearer one naming the door it opens, the one after it
+named only. Clearing a rung opens a capability and never pays cash: the pricing
+and marketing panel is not on screen until the shop has served fifty covers in a
+day, and the button is absent rather than greyed, because the refusal lives in
+the simulation and the missing button is its consequence.
+
+### The exit criteria
+
+**"The harness dead-zone detector reports no decision-free gap over 3 game days
+for any active bot."**
+
+```
+  §15.3 gate — nobody may go 3 game days with nothing worth doing:
+    bot:naive      longest dead run  0d     0 days with no move   5.8 rungs banked
+    bot:balanced   longest dead run  0d     0 days with no move   8.0 rungs banked
+    bot:tightarse  longest dead run  0d     0 days with no move   8.0 rungs banked
+    bot:roboboss   longest dead run  0d     0 days with no move   8.0 rungs banked
+    bot:idle       longest dead run  0d     0 days with no move   6.0 rungs banked
+```
+
+Applied to all five bots, not just `balanced` as §15.3 names — a dead zone that
+only spares the bot that plays well is still a dead zone. **The detector is
+capable of reporting one**: before D057's fix it reported real 7-day and 5-day
+runs for `naive` and `roboboss`, and three tests construct false cases directly.
+
+**"Read twenty and cut any that could apply to any day."** Twenty are printed by
+the gate on every run, so this stays a reading criterion rather than becoming a
+boolean:
+
+```
+    d 1  Waste ate your Mon — 26 things binned, 17% of what you made.
+    d 3  $2,861 through the till. Best day you have had.
+    d 4  141 covers and nobody walked out.
+    d10  Best Wed yet — 231 covers.
+    d11  Lost 31 customers to the queue.
+    d17  202 covers, nobody walked. second clean day in a row.
+    d20  Waste ate your Sat — 221 things binned, 45% of what you made.
+```
+
+Eighty-four consecutive headlines were read end to end. Every line was specific
+and true and *"Waste ate your Wednesday"* still landed five days out of seven —
+specific is not the same as worth reading twice. So a repeat says what the
+repeat means: **"the third day straight over a tenth of everything you cooked."**
+Nine templates gained an `again` variant; two were rewritten because they read
+wrong rather than because a test failed.
+
+### What I got wrong, and how
+
+- **The trade panel behind `secondStaff` disarmed the naive trap.** `bot:naive`
+  never hires, so it never reached the rung, so it spent `AUD 0.00` on
+  advertising for seventy days and finished indistinguishable from the shop
+  nobody touched. Caught by the balance gate, not by reading. D056.
+- **The roster on rung one cost `bot:balanced` $5,679** and pushed `roboboss` to
+  exactly +25.0% against step 12's 25% ceiling. Ablation isolated it to the
+  interaction of two gates that were each fine alone. D055.
+- **`hadDecision` was tautological on its first draft** — it counted `hire`,
+  which is affordable and unowned forever. D057, and D030's defect again in the
+  function written to avoid it.
+- **`decisionGap` took a "today" that meant two different things** at its two
+  call sites, so every bot read a gap of ≥1 every day and 276 ordinary days
+  looked dead. The parameter is gone.
+- **The HUD grew to 40% of the phone** and the day's verdict rendered over floor
+  tiles with the grout showing through. Only found by running `npm run look`.
+
+### Adversarial pass — the exploiter's lens
+
+1. **The rung panel emptied once Act I was cleared** — which `bot:balanced`
+   reaches inside seventy days — leaving the most invested player with no stated
+   objective. That is the readout version of the dead zone §15.3 forbids.
+   `nextRungs` now falls through to the next act. **Fixed.**
+2. `decisionGap`'s two conventions. **Fixed** by deleting the parameter.
+3. `Game.ladder()` emptied `justUnlocked` as a side effect of a read. Renamed
+   `takeLadder()`. **Fixed** — the consume is right, the silence was not.
+4. `revenueAtDayStart`/`expensesAtDayStart` depended on system registration
+   order. **Fixed by deletion** — `ledger.today()` already existed.
+5. `brokenKit.again` said *"still 3 things broken"* when the count moves between
+   days. Now *"3 things now"*. **Fixed.**
+6. Three weekly rungs met in one week bank over three weeks. True, good, and now
+   documented so it does not get "fixed".
+
+### Known and not fixed
+
+- **The headline is written at CLOSE**, so a customer already in the queue when
+  the doors shut is not counted. Measured: 2 days in 84, always by exactly one
+  cover. Moving it to cycle-end would put it after the day report is sealed.
+- **The room is sparse and dark** in every screenshot — one person, empty floor.
+  Not step 14's remit, but it is what the game currently looks like.
+- **Covers and walkouts persist on screen overnight** with no "yesterday" mark.
+- D054's debt stands: the motion contrast is still gated structurally and never
+  watched. `npm run look` takes stills, and a still frame contains no motion.

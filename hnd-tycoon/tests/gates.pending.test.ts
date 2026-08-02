@@ -54,9 +54,9 @@ describe('STEP 12 — automation must not dominate', () => {
   it.todo('every machine in config declares at least two new costs it creates');
 });
 
-describe('STEP 14 — no dead zones', () => {
-  it.todo('no bot has a decision-free gap longer than 3 game days');
-});
+// STEP 14's gate is live: `npm run balance` fails if any of the five bots goes
+// more than 3 game days with nothing worth doing, and tests/step14.test.ts
+// proves the detector is capable of reporting one. See §15.3.
 
 describe('STEP 20 — ship criteria', () => {
   it.todo('bot:balanced reaches the venue-2 threshold at game day 45-60');

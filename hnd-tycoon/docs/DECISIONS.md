@@ -1163,3 +1163,114 @@ buzzes faster than any healthy motion in the room.
 
 What remains unverified: whether it actually reads as mechanical-versus-organic
 when watched. Recorded in STATE.md as debt rather than assumed.
+
+## D055 — the ladder awards one rung a day, and the roster is not on it
+**Step 14. Status: active.**
+
+Two calls, and the harness made both of them.
+
+**One rung per day.** With no cap the shop banks `fiftyCovers`, `thousandDay`
+and `hundredCovers` on its FIRST trading day — 139 covers and $2,724 on a
+Sunday clears all three — and holds six of the ten Act I rungs by day six.
+§15.1 asks for *"systems arriving one per session"*; three panels in one evening
+is a firehose and the player learns none of them.
+
+The alternative was to raise §15.1's thresholds until one day clears one rung.
+Rejected: 50 covers, 100 covers and $1,000 are the spec's verbatim figures and
+they read as targets a burger shop owner would recognise. Moving them to fit
+this shop's demand curve would hide a demand-curve question inside a
+progression config. Capping the rate is reversible; rewriting the spec is not.
+
+Consequence, stated so it does not get "fixed" later: the three weekly rungs can
+only land on the payroll boundary and the cap takes one, so a shop that clears
+waste, labour and profit in one good week banks them over three weeks.
+
+**The roster is NOT on the ladder.** It was rung one for about an hour. But
+§15.1's reward *"changes what the player can do"*, and the shop is handed over
+with staff already on a default roster — so gating it does not GIVE a
+capability, it confiscates one and hands it back. A lock is not an unlock.
+
+That argument came second. What came first was the harness: with the roster
+behind rung one AND rungs landing one a day, `bot:balanced` — the bot whose
+entire edge is reading the constraint and staffing to it — lost **$5,679 over
+ninety days** to two shut days, and `bot:roboboss` sailed to **+25.0%** against
+step 12's 25% ceiling. Ablation confirmed the interaction rather than either
+half:
+
+```
+                       balanced      roboboss
+panel gate off, cap on  $74,028        +15.4%
+panel gate on, cap off  $74,028        +15.4%
+both on                 $68,349        +25.0%   <- step 12's gate fails
+roster off the ladder   $74,028        +15.4%
+```
+
+Handicapping the representative player was never the intent.
+
+## D056 — the trade panel hangs off the first rung, because of `bot:naive`
+**Step 14. Status: active.**
+
+Pricing and marketing were paired with `secondStaff` — "get a second pair of
+hands on the floor" — which reads beautifully and is wrong.
+
+`secondStaff` requires two people rostered. `bot:naive` is defined as a player
+who buys advertising instead of hiring, so naive never reaches it. Gating the
+trade panel there made §25.2's central trap **unreachable**: naive spent
+`AUD 0.00` on marketing across seventy days and finished at 6,344 covers against
+idle's 6,388 — indistinguishable from the shop nobody touched.
+
+A gate that quietly disarms the game's central trap is the wrong gate, however
+tidy it reads. Moved to `fiftyCovers`, the first rung anyone reaches. Naive now
+spends $5,400, bottoms at **2.28 stars**, serves 8,542 covers against idle's
+6,388, and finishes on $38,900 against idle's $39,211 — worked much harder, for
+slightly less. That is §25.2's shape exactly.
+
+The revenue rung took the second assembly bench instead, which is the better
+pairing anyway: a $1,000 day is the day one bench stops being enough.
+
+## D057 — the dead-zone detector had to be capable of being false
+**Step 14. Status: active.**
+
+§15.3: *"`bot:balanced` must never go more than 3 game days without a meaningful
+decision available."* The first draft of `hadDecision` counted any unlocked,
+unowned, affordable catalogue line. `hire` is unowned and affordable forever, so
+it measured `gap = 0` on every one of 84 probed days including the flat ones —
+D030's defect again, in a function written specifically to avoid it.
+
+Rewritten against §13's readout, which is the game's own published statement of
+what is wrong. A decision is: something broken you can afford to fix, or
+something affordable that ADDRESSES the named constraint. "Addresses" is
+specific per constraint kind, and one kind — `space` — has no answer anywhere in
+the catalogue, because you cannot buy floor at Leichhardt.
+
+That branch is what makes it falsifiable, and it was demonstrated rather than
+argued: before the fix the detector reported real 7-day and 5-day dead runs for
+`naive` and `roboboss`. Three tests now construct false cases directly.
+
+Also fixed here: `decisionGap` took a caller-supplied "today" and the two call
+sites passed two different things — `clock.dayIndex`, which has already rolled
+to tomorrow by sampling time, and `state.dayIndex`, the day that actually
+traded. Every bot read a gap of at least 1 on every day of its life, which made
+276 ordinary days look like dead ones and hid the real seven-day run underneath
+them. The parameter is gone; the convention is owned in one place.
+
+## D058 — `npm run look`, because two steps in a row shipped an unwatched claim
+**Step 14. Status: active.**
+
+D054 recorded that step 13's motion contrast was gated structurally and never
+watched. Step 14 was heading for the same: a headline strip, two rungs and an
+unlock banner, all asserted from code and none of them seen.
+
+So there is now `npm run look` — build, serve, drive the game at 4x, screenshot
+at four named moments, print the headline and the rungs and the buttons that are
+actually on screen. Deliberately **outside `npm run gate`**: nothing in it can
+pass or fail, and pretending otherwise would be the same mistake in a costume.
+
+It paid for itself on the first run. The HUD had grown to roughly 40% of a
+phone, and the day's verdict — §15.2's *"the thing the player remembers"* — was
+rendering over floor tiles with the grout showing through it. Neither is
+visible in any test that could have been written for them. Fixed by cutting the
+second rung to its label alone and taking the bottom bar solid.
+
+What it still cannot verify: motion. A still frame contains none, so D054's debt
+stands.

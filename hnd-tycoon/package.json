@@ -16,7 +16,8 @@
     "boundaries": "node scripts/check-boundaries.mjs",
     "gate": "npm run boundaries && npm run typecheck && npm run test && npm run balance",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "look": "node scripts/look.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

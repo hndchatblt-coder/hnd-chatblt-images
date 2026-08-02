@@ -80,6 +80,20 @@ export class Ledger {
     this.dayTotals.set(account, Cash.add(this.dayTotals.get(account) ?? ZERO(), amount));
   }
 
+  /** Everything that is not revenue, added up. §15.1's profitable-week rung. */
+  totalExpenses(): Money {
+    let sum = ZERO(this.cash.currency);
+    for (const account of EXPENSES) sum = Cash.add(sum, this.total(account));
+    return sum;
+  }
+
+  /** The same, for today only. Cleared at open by `startDay`. */
+  todayExpenses(): Money {
+    let sum = ZERO(this.cash.currency);
+    for (const account of EXPENSES) sum = Cash.add(sum, this.today(account));
+    return sum;
+  }
+
   total(account: Account): Money {
     return this.totals.get(account) ?? ZERO();
   }

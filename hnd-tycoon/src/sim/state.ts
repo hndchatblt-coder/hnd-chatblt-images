@@ -157,6 +157,34 @@ export interface SimState {
   recovery: RecoveryPlan | null;
   /** Which overdraft tier the bank is at, or null in the black. §10 */
   bankTier: string | null;
+
+  // --- §15 the progression spine -----------------------------------------
+  /** Rung ids banked. §15.1 — the ladder IS the unlock system. */
+  readonly rungs: string[];
+  /** The rung that landed most recently, for the HUD to celebrate once. */
+  justUnlocked: string | null;
+  /** Today's one-line verdict. §15.2 */
+  headline: string;
+  /** Which template wrote it, and for how many days running. See `again`. */
+  headlineId: string | null;
+  headlineStreak: number;
+  /** Yesterday's rating, so the headline can say the rating MOVED. */
+  starsYesterday: number;
+  /** Best covers per weekday so far, so "best Tuesday yet" is true. */
+  readonly bestCoversByWeekday: Record<number, number>;
+  bestRevenueCents: number;
+  /** Rolling week, for the rungs §15.1 measures over a week. */
+  readonly weekWaste: {
+    wasted: number;
+    produced: number;
+    revenueCents: number;
+    wagesCents: number;
+    costsCents: number;
+    wagesAtWeekStart: number;
+    costsAtWeekStart: number;
+  };
+  /** §15.3's dead-zone detector. The last day anything was worth doing. */
+  lastDecisionDay: number;
   /**
    * Whether preventive maintenance is being paid. §14.4.
    *
@@ -273,6 +301,24 @@ export function createState(opts: StateOptions = {}): SimState {
     recovery: null,
     bankTier: null,
     maintaining: true,
+    rungs: [],
+    justUnlocked: null,
+    headline: '',
+    headlineId: null,
+    headlineStreak: 0,
+    starsYesterday: REPUTATION.PRIOR_STARS,
+    bestCoversByWeekday: {},
+    bestRevenueCents: NONE,
+    weekWaste: {
+      wasted: NONE,
+      produced: NONE,
+      revenueCents: NONE,
+      wagesCents: NONE,
+      costsCents: NONE,
+      wagesAtWeekStart: NONE,
+      costsAtWeekStart: NONE,
+    },
+    lastDecisionDay: NONE,
     reviews: [],
     // The prior, not a guess: a shop with no reviews IS its prior, and starting
     // arrivals from a different number than reputation reports would make day

@@ -34,6 +34,7 @@ import {
   reputationMultiplier,
 } from '@/sim/systems/demand';
 import { mean, runSeeds } from '@/harness/probe';
+import { openEverything } from './helpers';
 
 const SEEDS = [1, 2, 3, 4];
 const DAYS = 28;
@@ -151,6 +152,7 @@ describe('STEP 10 — archetypes (§6.2) are mechanical, not decorative', () => 
     // The dread is that it arrives indivisible: the pass is blocked until all
     // six exist. Six separate orders would just be a busy minute.
     const world = buildScenario({ seed: 3 });
+    openEverything(world.state);
     world.runDays(4);
     const sixTops = [...world.state.orders.values()].filter(
       (o) => o.archetypeId === 'tableOfSix',
@@ -167,6 +169,7 @@ describe('STEP 10 — archetypes (§6.2) are mechanical, not decorative', () => 
     // service does not lose an average slice of its customers, it loses a
     // specific KIND of customer.
     const world = buildScenario({ seed: 5, arrivalsPerHour: 90 });
+    openEverything(world.state);
     world.runDays(7);
     const balked = world.state.day.balkedBy;
     const share = (id: string): number =>
@@ -181,6 +184,7 @@ describe('STEP 10 — archetypes (§6.2) are mechanical, not decorative', () => 
 
   it('reports walkouts by archetype so the readout can say which kind', () => {
     const world = buildScenario({ seed: 7, arrivalsPerHour: 90 });
+    openEverything(world.state);
     world.runDays(3);
     const by = world.state.day.balkedBy;
     const total = Object.values(by).reduce((a, b) => a + b, 0);
@@ -219,6 +223,7 @@ describe('STEP 10 — pricing is a lever with a delayed cost (§8.2)', () => {
     // through the lunch rush and drop it before anyone noticed — a slider, not
     // a decision.
     const world = buildScenario({ seed: 11 });
+    openEverything(world.state);
     world.runDays(2);
     const before = world.state.priceMultiplier;
 
@@ -234,6 +239,7 @@ describe('STEP 10 — pricing is a lever with a delayed cost (§8.2)', () => {
 
   it('refuses a price outside the range, and says so in English', () => {
     const state = createState({});
+    openEverything(state);
     const tooHigh = setPrice(state, PRICING.MAX_MULTIPLIER + 1);
     expect(tooHigh.ok).toBe(false);
     expect(tooHigh.reason).toContain('%');
@@ -242,6 +248,7 @@ describe('STEP 10 — pricing is a lever with a delayed cost (§8.2)', () => {
 
   it('tells the player where they have landed relative to the band', () => {
     const state = createState({});
+    openEverything(state);
     expect(setPrice(state, 1.5).reason).toContain('Above');
     expect(setPrice(state, 0.7).reason).toContain('Under');
     expect(setPrice(state, 1.0).reason).toContain('expect');
@@ -253,6 +260,7 @@ describe('STEP 10 — pricing is a lever with a delayed cost (§8.2)', () => {
     const runs = (price: number): { cash: number; covers: number } => {
       const rs = SEEDS.map((seed) => {
         const world = buildScenario({ seed });
+        openEverything(world.state);
         setPrice(world.state, price);
         world.runDays(DAYS);
         let covers = 0;
@@ -294,6 +302,7 @@ describe('STEP 10 — marketing is bad money after bad when the shop is bad (§8
 
   it('surfaces cost-per-cover, which is the number that makes it visible', () => {
     const world = buildScenario({ seed: 13 });
+    openEverything(world.state);
     world.runDays(2);
     for (const channel of MARKETING_CHANNELS) {
       setMarketing(world.state, channel.id, channel.weeklyCost);
@@ -309,6 +318,7 @@ describe('STEP 10 — marketing is bad money after bad when the shop is bad (§8
 
   it('warns at the moment of the decision, not in next week&apos;s P&L', () => {
     const state = createState({});
+    openEverything(state);
     state.stars = 2.0;
     const bad = setMarketing(state, 'social', 420);
     expect(bad.ok).toBe(true);
@@ -323,6 +333,7 @@ describe('STEP 10 — marketing is bad money after bad when the shop is bad (§8
     // §8.3: "the Sunday bill is labour plus marketing, two decisions arriving
     // as one number."
     const world = buildScenario({ seed: 17 });
+    openEverything(world.state);
     world.runDays(1);
     for (const channel of MARKETING_CHANNELS) {
       setMarketing(world.state, channel.id, channel.weeklyCost);
@@ -336,6 +347,7 @@ describe('STEP 10 — marketing is bad money after bad when the shop is bad (§8
 
   it('decays awareness, so a spend stopped is a spend that fades', () => {
     const world = buildScenario({ seed: 19 });
+    openEverything(world.state);
     world.runDays(1);
     setMarketing(world.state, 'social', 420);
     world.runDays(10);
@@ -349,6 +361,7 @@ describe('STEP 10 — marketing is bad money after bad when the shop is bad (§8
 
   it('caps awareness — you cannot buy a queue out of nothing', () => {
     const world = buildScenario({ seed: 23 });
+    openEverything(world.state);
     world.runDays(1);
     for (const channel of MARKETING_CHANNELS) {
       setMarketing(world.state, channel.id, channel.weeklyCost * 50);
@@ -416,6 +429,7 @@ describe('STEP 10 — balking is still what makes speed worth money (§6.3)', ()
     // generates hundreds of reviews and swamps the fifteen-review prior. The
     // ordering is what matters, not the size.
     const world = buildScenario({ seed: 29, arrivalsPerHour: 120 });
+    openEverything(world.state);
     const startStars = world.state.stars;
 
     let sawWalkoutBeforeRatingMoved = false;
