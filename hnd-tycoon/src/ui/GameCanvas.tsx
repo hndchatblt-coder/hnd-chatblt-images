@@ -33,6 +33,8 @@ export interface GameCanvasProps {
 }
 
 export function GameCanvas({ seed, arrivalsPerHour, machines, onReady }: GameCanvasProps): JSX.Element {
+  /** Stable across renders even when the caller passes an array literal. */
+  const fitOut = (machines ?? []).join(',');
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +48,7 @@ export function GameCanvas({ seed, arrivalsPerHour, machines, onReady }: GameCan
       .start(element)
       .then(() => {
         if (cancelled || !game) return;
-        for (const id of machines ?? []) game.buy(id);
+        for (const id of fitOut === '' ? [] : fitOut.split(',')) game.buy(id);
         onReady?.(game);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -59,7 +61,17 @@ export function GameCanvas({ seed, arrivalsPerHour, machines, onReady }: GameCan
     // Deliberately once per seed: restarting the simulation is a decision, not
     // a side effect of a prop changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, arrivalsPerHour, machines]);
+    // `machines` is DELIBERATELY not in this list, and `fitOut` is why.
+    //
+    // An array prop is a fresh identity on every render, so listing it here
+    // re-ran the effect four times a second — destroying and rebuilding the
+    // Game before it could advance a single tick. The game looked completely
+    // frozen and there was no error, which sent me looking for a simulation
+    // stall that did not exist.
+    //
+    // The joined key is the honest dependency: what matters is WHICH machines
+    // were asked for, not which array object carried the request.
+  }, [seed, arrivalsPerHour, fitOut]);
 
   if (error) return <pre className="fatal">{error}</pre>;
   return <div className="canvas-host" ref={host} />;

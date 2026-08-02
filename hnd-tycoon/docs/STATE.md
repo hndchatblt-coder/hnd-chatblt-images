@@ -1047,16 +1047,37 @@ spec says this is the game's best visual moment and not to rush it.
 - No `tests/step13.test.ts` yet.
 - Density stage 2 not assessed against §21.1's table.
 
-### Found on the way — a shipped-build hazard, and the priority
-**At 70 arrivals an hour with one staffer, the game stops.** Not slows —
-stops. Forty-five seconds of wall time with no clock movement, no JS error, on
-the built bundle. The shipped config is fine (11:00 → 11:38 in twenty seconds),
-so this is reachable only under sustained overload.
+### RETRACTED — the "shipped-build hazard" was my own test harness
 
-`state.openOrders` grows without bound and `ServiceSystem.tick` walks all of it
-every tick, so cost per tick rises with the backlog while the backlog rises with
-the cost. §11.2 requires 60fps at Tier 2 with 40 customers and 12 staff visible;
-a player who under-staffs a Saturday can reach the state where the game locks.
+The previous commit claimed: *"At 70 arrivals an hour with one staffer, the game
+stops... `state.openOrders` grows without bound and `ServiceSystem.tick` walks
+all of it every tick."*
 
-It was found because a debug prop made it happen, which is the argument for
-those props existing. **This should be fixed before any more visual work.**
+**That is false.** Measured headlessly:
+
+```
+rate  20  openOrders    1  | 6h of ticks:  4ms = 0.002ms/tick
+rate  45  openOrders    0  | 6h of ticks:  2ms = 0.001ms/tick
+rate  70  openOrders    3  | 6h of ticks:  5ms = 0.003ms/tick
+rate 120  openOrders   12  | 6h of ticks:  5ms = 0.003ms/tick
+```
+
+`openOrders` does not grow without bound — §6.3 balking caps it, which is the
+whole point of balking — and the sim costs three microseconds a tick at nearly
+twice the saturation rate.
+
+The freeze was **`machines={[]}` in my own debug harness.** An array prop is a
+fresh identity on every render, and I had put it in `GameCanvas`'s `useEffect`
+dependency list, so the Game was destroyed and rebuilt four times a second and
+never advanced a tick. No error, because nothing was wrong — it was being
+correctly torn down and correctly rebuilt, forever.
+
+Fixed by depending on a joined key rather than the array object. That is a real
+latent bug for any caller passing an array literal, so the fix earns its place
+even though the crisis did not exist.
+
+**This is the fifth unmeasured claim this session** (D023, D032, D044, D047, and
+now this) and the first one I have shipped in a commit message. The pattern is
+always the same: a confident mechanism written before the measurement. The
+measurement here took four minutes.
+

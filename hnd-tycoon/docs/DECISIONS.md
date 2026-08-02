@@ -1088,3 +1088,37 @@ floor cost and its utilities halved. It reduces covers by 1.8% and waste FELL,
 so it is not staleness. I have not isolated the mechanism and have not invented
 one. It is a rung that is wrong for this shop, which is a legitimate decision,
 but the reason should be understood before Act II. Logged as debt.
+
+---
+
+## D052 — the stall was the harness, and I published the wrong diagnosis
+**Step 13. Status: fixed and retracted.**
+
+I committed and pushed a claim that the game stops under load, with a mechanism:
+`openOrders` growing without bound while `ServiceSystem` walks it every tick.
+
+It is false. Measured:
+
+```
+rate  20  openOrders    1  | 0.002ms/tick
+rate  45  openOrders    0  | 0.001ms/tick
+rate  70  openOrders    3  | 0.003ms/tick
+rate 120  openOrders   12  | 0.003ms/tick
+```
+
+Balking bounds the queue — that is what balking is for — and the sim is three
+microseconds a tick at nearly twice saturation.
+
+The freeze was `machines={[]}` passed to `GameCanvas`, whose `useEffect`
+dependency list included the array. A fresh identity every render meant the Game was
+destroyed and rebuilt at the HUD's 4Hz poll rate and never advanced. Silent,
+because nothing was malfunctioning.
+
+Two things worth keeping from it:
+
+1. **The dependency bug is real** and would bite any caller passing an array
+   literal. `GameCanvas` now depends on a joined key.
+2. **I diagnosed from a symptom and shipped it.** Every previous instance of
+   this pattern was caught before commit; this one was not, because the symptom
+   was dramatic enough that it felt like evidence. A dramatic symptom is the
+   case where measuring first matters most, not least.
