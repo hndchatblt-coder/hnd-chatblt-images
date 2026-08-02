@@ -873,6 +873,84 @@ budgeted, which is what killed the acceleration multiplier (D044).
 
 ---
 
+## Step 12 — the equipment ladder. SHIPPED.
+
+**What is now playable:** you can automate, and it is a genuine argument rather
+than an upgrade path. Three different shops all work and none of them is the
+answer.
+
+### Measured — 90 days, four seeds
+
+```
+bot         cash      covers   stars    vs balanced
+balanced   $74,028    21,774    3.39         —
+tightarse  $71,156     8,874    3.47      -3.9%
+roboboss   $87,066    13,737    3.91     +17.6%
+naive      $41,800    10,693    2.37
+idle       $43,407     7,965    2.77
+```
+
+**Exit criterion met.** It started at +85% and -262%.
+
+The lean shop serves 40% of the covers for about the same money. The automated
+one serves fewer covers than the staffed one and keeps more of the takings. The
+staffed one serves everybody. All three are defensible and that is the point.
+
+### What the ladder is
+Six rungs of §14.2, each expressed as a change to the §14.1 attention split and
+never to the clock. Machines fit to a station, break on their own run-hours
+inverse to maintenance spend, and draw utilities every trading hour whether busy
+or not — which is what makes automation worse than staff on a dead Monday.
+
+Prices come from **measured operating value** at roughly an 85-day payback, not
+from how impressive the machine sounds. Tier 5 is visible and locked behind
+`requiresSites: 2` — a robotic fry station generates about $71 a day in one
+shop, so an honest single-shop price would be less than an auto-lift fryer.
+One burger bar is not the business that buys a robot. §14.5 gates on venue
+count, not cash.
+
+### Surprises — every one of them a modelling error, not a tuning one
+The gap was never the prices. Four bugs, in order of damage:
+
+1. **A machine that walled in its own station.** A conveyor took the last access
+   tile of the toaster it bolts onto; covers fell from 10,595 to **116** over
+   ninety days while staff-hours went UP. Nothing checked whether a purchase
+   stranded an existing station. D048.
+2. **Saved attention became phantom unattended time.** Cutting assembly's setup
+   conjured four seconds of "cooking" into an eighteen-second hand step, and
+   §14.1 released the staffer to walk away into it. Buying a $1,250 pump bought
+   extra walking, at -$4,778. D047.
+3. **Machines charged for floor they do not take.** A clamshell replaces a
+   flat-top; it does not stand beside one. D048.
+4. **A broken machine was billed twice** — it stopped helping AND taxed its
+   station 70%. §14.4 wants the first, not the second. D049.
+
+And one economy finding: over-pricing was nearly free, because it suppressed
+demand a one-staffer shop could not serve anyway. Charging over §8.2's fair band
+now costs satisfaction on every order served. D050.
+
+### Debt carried
+- **The conveyor toaster is still -$1,841** of operating value with no floor
+  cost and halved utilities. Covers fall 1.8%; waste FELL, so it is not
+  staleness. **I have not isolated the mechanism and have not invented one.** A
+  rung that is wrong for this shop is legitimate, but the reason should be
+  understood before Act II.
+- **D030** (`reconcile()` is a tautology) — still unfixed. Oldest open debt.
+- **DEBT-1** — no inter-tick interpolation; walking still teleports.
+- Machines have no on-screen presence yet beyond the install beat — §21.2 wants
+  an idle and a working signature each, and §14.2's whole tier-3 payoff is the
+  §21.5 mechanical/human motion contrast. **That is step 13 and it is the next
+  step**, so it is scheduled rather than skipped.
+- The §25.2 session model is still not applied to bots; needs offline accrual,
+  step 20.
+- Financing and resale still dropped from step 7. `src/save/` is still a
+  `.gitkeep`.
+
+**Next: step 13 — the rhythm beat.**
+
+---
+
+## Step 12 — superseded WIP note (kept for the record)
 ## Step 12 — the equipment ladder. **NOT DONE. The exit criterion fails.**
 
 Committed because the machinery is real and tested, not because the step is

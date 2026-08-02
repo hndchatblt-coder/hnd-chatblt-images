@@ -57,9 +57,42 @@ export interface MachineSpec {
   /** The station whose work it takes over. */
   readonly station: StationType;
   readonly price: Money;
-  /** Tiles it eats. §14.3's floor-space cost, made real. */
+  /**
+   * The machine's real size in tiles.
+   *
+   * **It does not all cost floor.** A clamshell REPLACES a flat-top; it does
+   * not stand beside one. Only the tiles beyond its host station's own
+   * footprint are taken from the room — see `extraTiles`. Modelling every
+   * machine as new floor was measured and it was ruinous: at Leichhardt every
+   * tile a machine took lengthened every walk, and a $1,250 bench-top sauce
+   * rail destroyed $6,118 of trade over ninety days on its footprint alone.
+   *
+   * §14.2 describes these as replacements in its own words — "clamshell grill",
+   * "conveyor bun toaster", "auto-lift fryer" are all the station, upgraded.
+   * The two that genuinely eat room say so: the kiosk is "1x1 of *floor*" and
+   * the robotic fry station is a 2x2 cabinet where a 1x1 fryer used to be.
+   */
   readonly width: number;
   readonly depth: number;
+  /**
+   * True when it sits ON its host rather than replacing it — a bench-top.
+   * Costs no floor at all, which is why the sauce rail does not list
+   * `floorSpace` among its costs.
+   */
+  readonly benchTop?: boolean;
+  /**
+   * True when it is an ADDITION rather than a replacement: its whole footprint
+   * comes out of the room.
+   *
+   * The kiosk is the case. §14.2 calls it "1x1 of *floor*" — it goes by the
+   * door and the pass stays exactly where it was. Netting it against its host's
+   * footprint gave it a NEGATIVE floor cost, because the pass is 1x2 and the
+   * kiosk is 1x1, which would have made it free.
+   *
+   * Three shapes, and every machine is exactly one: bench-top (no floor),
+   * replacement (only the excess over its host), addition (all of it).
+   */
+  readonly standalone?: boolean;
   /**
    * Continuous draw in dollars per trading hour, **whether busy or not**. §14.3
    * is explicit that this is what makes automation *worse* than staff on a dead
@@ -79,6 +112,18 @@ export interface MachineSpec {
   /** Dollars for a callout. Bigger machines cost more to have looked at. */
   readonly calloutCost: number;
   readonly attention: AttentionDelta;
+  /**
+   * Sites the company must run before this rung unlocks. §14.5: *"never gate
+   * automation purely behind cash. Gate on ladder rungs and venue count."*
+   *
+   * This is how tier 5 stays in the ladder honestly. A robotic fry station
+   * generates about $71 a day of value in one Leichhardt-sized shop, so an
+   * honest single-shop price for it would be roughly $5,000 — less than an
+   * auto-lift fryer, which is absurd. It is not that the machine is overpriced;
+   * it is that one burger bar is not the business that buys one. Visible and
+   * locked is also better progression than absent (§15).
+   */
+  readonly requiresSites?: number;
   readonly costs: readonly CostKind[];
   /** §21.2 — nothing purchasable ships without a distinct on-screen presence. */
   readonly signature: { install: string; idle: string; working: string };
@@ -91,7 +136,7 @@ export const MACHINES: readonly MachineSpec[] = [
     blurb: 'Dressing a burger stops being a job and becomes two pumps.',
     tier: 1,
     station: 'assembly',
-    price: money(1250),
+    price: money(950),
     width: 1,
     depth: 1,
     utilitiesPerHour: 0.02,
@@ -102,7 +147,10 @@ export const MACHINES: readonly MachineSpec[] = [
     calloutCost: 120,
     // §14.2: "~40% of assembly setup".
     attention: { setup: 0.6 },
-    costs: ['capital', 'floorSpace', 'reliability'],
+    // Bench-top: it sits on the assembly bench and takes no floor. Two costs,
+    // which is §14.3's minimum, and both are real.
+    benchTop: true,
+    costs: ['capital', 'reliability'],
     signature: {
       install: 'Bolted to the bench, lines primed, a test squirt into a cup.',
       idle: 'Six steel nozzles in a row, one of them dripping.',
@@ -115,7 +163,7 @@ export const MACHINES: readonly MachineSpec[] = [
     blurb: 'Cooks both sides at once. No flip, no watching. One cook level, forever.',
     tier: 2,
     station: 'grill',
-    price: money(9800),
+    price: money(4600),
     width: 2,
     depth: 1,
     // Heavy gas AND power, and it holds temperature all day. This is the line
@@ -127,11 +175,19 @@ export const MACHINES: readonly MachineSpec[] = [
     calloutCost: 640,
     // §14.2: "the flip and the watching: tendSeconds -> ~0".
     attention: { tend: 0.05 },
-    // Five of five. The flexibility cost is real and unmodelled today: it
-    // cannot do custom cook levels, and there is no custom cook level to lose
-    // until §18's specials. Listed because the audit reads this array, and
-    // removing it later would be quietly dropping a stated cost.
-    costs: ['capital', 'floorSpace', 'utilities', 'flexibility', 'reliability'],
+    /**
+     * NOT `floorSpace`. A clamshell is 2x1 and it replaces a 2x1 flat-top, so
+     * it takes no floor from the room — and the gate for §14.3 now checks that
+     * every declared cost is backed by a number that bites. Claiming a cost you
+     * do not charge is how a machine ends up looking expensive on paper and
+     * being free in play.
+     *
+     * The flexibility cost is real and unmodelled today: it cannot do custom
+     * cook levels, and there is no custom cook level to lose until §18's
+     * specials. Kept because the audit reads this array and removing it later
+     * would be quietly dropping a stated cost.
+     */
+    costs: ['capital', 'utilities', 'flexibility', 'reliability'],
     signature: {
       install: 'Craned in. Two people, a lot of swearing, a gas fitter.',
       idle: 'Lid up, platen glowing, thermostat clicking every forty seconds.',
@@ -144,17 +200,31 @@ export const MACHINES: readonly MachineSpec[] = [
     blurb: 'Buns go in one end. They come out the other whether you wanted them or not.',
     tier: 2,
     station: 'toast',
-    price: money(4400),
+    price: money(2300),
     width: 2,
     depth: 1,
-    utilitiesPerHour: 0.9,
-    maintenancePerWeek: 18,
+    // 0.35, down from 0.9. A bun toaster is not a flat-top: it was drawing
+    // more than a clamshell holding temperature all day, which made it the one
+    // rung with negative operating value at any price.
+    utilitiesPerHour: 0.35,
+    maintenancePerWeek: 12,
     failuresPerKiloHour: 1.8,
     failureSeverity: 0.45,
     calloutCost: 300,
     // §14.2: "the toast step entirely" — loading is all that is left.
     attention: { tend: 0, teardown: 0.15 },
-    costs: ['capital', 'floorSpace', 'utilities', 'reliability'],
+    /**
+     * Bench-top: it replaces the bench toaster ON the bench, which is what a
+     * conveyor toaster physically is. Charging it one extra tile beside a
+     * toaster that lives in the back-left corner cost $1,345 of trade over
+     * ninety days — more than the machine saves — because that corner is where
+     * the grill run is worked from.
+     *
+     * Still three of §14.3's five costs. The tier-3 automatic bun feeder is
+     * what takes the loading off it, and that is where the next floor cost is.
+     */
+    benchTop: true,
+    costs: ['capital', 'utilities', 'reliability'],
     signature: {
       install: 'Slid onto the bench, belt threaded, run empty once to burn off.',
       idle: 'Belt turning with nothing on it, elements orange, constant hum.',
@@ -167,7 +237,7 @@ export const MACHINES: readonly MachineSpec[] = [
     blurb: 'The basket pulls itself. Chips stop burning because somebody got busy.',
     tier: 3,
     station: 'fryer',
-    price: money(11200),
+    price: money(7400),
     width: 1,
     depth: 1,
     utilitiesPerHour: 1.1,
@@ -192,7 +262,7 @@ export const MACHINES: readonly MachineSpec[] = [
     blurb: 'Takes orders without a person. The Regulars liked being greeted.',
     tier: 3,
     station: 'pass',
-    price: money(6300),
+    price: money(8950),
     width: 1,
     depth: 1,
     utilitiesPerHour: 0.14,
@@ -203,6 +273,8 @@ export const MACHINES: readonly MachineSpec[] = [
     // The pass carries front-of-house work — §14.1's `plate` step is 48 seconds
     // of hands, most of it setup. This is the machine that takes it.
     attention: { setup: 0.45 },
+    // §14.2: "1x1 of *floor*". It goes by the door; the pass stays put.
+    standalone: true,
     costs: ['capital', 'floorSpace', 'utilities', 'reliability'],
     signature: {
       install: 'Bolted to the floor by the door. Screen wakes up, chimes once.',
@@ -227,6 +299,9 @@ export const MACHINES: readonly MachineSpec[] = [
     failureSeverity: 0.62,
     calloutCost: 2600,
     attention: { setup: 0.2, tend: 0, teardown: 0.1, canLapse: false },
+    // §14.5 gates this on venue count, not cash. One shop is not the business
+    // that buys a robot — see `requiresSites`.
+    requiresSites: 2,
     costs: ['capital', 'floorSpace', 'utilities', 'flexibility', 'reliability'],
     signature: {
       install: 'A pallet, a forklift, a day of commissioning and a laminated card.',

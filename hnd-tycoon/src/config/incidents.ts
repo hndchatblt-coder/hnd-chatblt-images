@@ -119,12 +119,27 @@ export const INCIDENTS: readonly IncidentSpec[] = [
   {
     id: 'machineDown',
     label: 'Something has packed it in',
-    blurb: 'It still runs. It runs badly, and it will not fix itself.',
+    blurb: 'Back to doing it by hand, and the hand way is slower than it used to be.',
     effect: 'stationSpeed',
     weight: 0,
-    severity: 0.4,
-    severityPerDay: 0.05,
-    maxSeverity: 0.7,
+    /**
+     * Deliberately SMALL, because the real cost of a breakdown is that the
+     * machine stops helping — `machinedAttention` drops a down machine's
+     * benefit entirely, so the shop reverts to the manual attention profile it
+     * had before it bought the thing.
+     *
+     * This residual is §14.4's other clause: *"the manual fallback is slower
+     * because you sold the old gear."*
+     *
+     * It was 0.4 rising to 0.7, applied to the whole station, on top of losing
+     * the benefit. Measured: that made a $1,250 bench-top sauce pump destroy
+     * $4,778 of trade over ninety days, because a clogged nozzle ran the entire
+     * assembly bench at 30%. Double-counting a cost is how a system ends up
+     * punishing the player for something they were right to buy.
+     */
+    severity: 0.12,
+    severityPerDay: 0.02,
+    maxSeverity: 0.3,
     baseFixCost: 400,
   },
   {

@@ -35,16 +35,42 @@ import type { Bot } from '../bot';
  * exactly on the grace line has no room for a Saturday.
  */
 const TARGET_WAIT_MINUTES = 5;
-/** Cash it will not spend below. A shop with no buffer cannot absorb §9. */
-const RESERVE_CENTS = 250_000;
+/**
+ * Cash it will not spend below. A shop with no buffer cannot absorb §9.
+ *
+ * $2,500 was too thin and it showed: the bot spent to the floor every session
+ * and kept hiring, ending ninety days with the MOST covers in the harness
+ * (21,993) and the LEAST cash. Serving everybody is not the same as running a
+ * business, and a bot meant to model a thoughtful operator should not need to
+ * be told that.
+ */
+const RESERVE_CENTS = 900_000;
 const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
+/**
+ * Walkouts, as a fraction of covers, above which another wage can pay for
+ * itself. Below it there is nobody left at the door for a new hire to serve.
+ */
+const BALK_WORTH_A_WAGE = 0.06;
 
 export const balanced: Bot = {
   name: 'balanced',
   onSession(world: World): void {
     const state = world.state;
     const wait = meanWaitMinutes(state.day.waitTicks, state.day.served);
+    /**
+     * Two different questions, and conflating them was the bug.
+     *
+     * `struggling` — is service bad? Gates MARKETING: never advertise into a
+     * queue you cannot clear.
+     *
+     * `sheddingCustomers` — are we actually losing people at the door? Gates
+     * HIRING, because that is the only thing another pair of hands can buy. A
+     * shop with a seven-minute wait and nobody walking out does not need
+     * another wage; it needs to be left alone. Using `struggling` for both had
+     * this bot finish with the most covers in the harness and the least cash.
+     */
     const struggling = wait > TARGET_WAIT_MINUTES || state.day.balked > state.day.served * 0.1;
+    const sheddingCustomers = state.day.balked > state.day.served * BALK_WORTH_A_WAGE;
 
     // 1. Fix what is broken, first and without hesitating. §9's whole design is
     //    that an unattended fault costs more the longer it runs, so "I will get
@@ -56,7 +82,12 @@ export const balanced: Bot = {
 
     // 2. Do what the readout says. §13.
     const constraint = state.bottleneck?.kind ?? null;
-    if (constraint === 'staff' && state.ledger.cash.cents > RESERVE_CENTS) {
+    // Acts on the readout, but only when the shop is ACTUALLY struggling. The
+    // readout names the binding constraint even on a day that went fine, and
+    // "staff is your constraint" on a shop with a four-minute wait is a fact,
+    // not an instruction. Hiring on it regardless is how this bot ended up
+    // paying three wages to serve a queue two people could clear.
+    if (constraint === 'staff' && sheddingCustomers && state.ledger.cash.cents > RESERVE_CENTS) {
       const result = buy(state, 'hire');
       if (result.ok) {
         const hired = state.staff[state.staff.length - 1];

@@ -26,6 +26,30 @@ export const PRICING = {
   CHANGE_FRICTION_STARS: 0.04,
   MIN_MULTIPLIER: 0.6,
   MAX_MULTIPLIER: 1.8,
+  /**
+   * **Value for money is part of satisfaction, and this is what stops "small,
+   * dear and lean" being the dominant strategy.**
+   *
+   * §8.2's fair band is a statement about what a shop at your rating can get
+   * away with. Until now, exceeding it only suppressed demand — and for a shop
+   * that could not serve that demand anyway, suppressing it was FREE. Measured:
+   * `bot:tightarse` charging 118% on one staffer finished ninety days 41% ahead
+   * of a well-run larger shop, on half the covers.
+   *
+   * Charging over the odds now costs satisfaction on every order that IS served,
+   * which feeds §7.4's reviews and §6.1's demand. Below the band it is zero: a
+   * cheap shop is not penalised, it just makes less per cover.
+   *
+   * Multiplies the satisfaction score by `1 - OVER_BAND_SATISFACTION * over`,
+   * where `over` is how far past the top of the band the price sits, as a
+   * fraction of the band's own width.
+   */
+  OVER_BAND_SATISFACTION: 0.38,
+  /**
+   * However dear you get, the food is still the food. §10 — there is no price
+   * at which the shop becomes untradeable, only one at which it is resented.
+   */
+  MIN_VALUE_SCORE: 0.25,
 } as const;
 
 export interface MarketingChannel {

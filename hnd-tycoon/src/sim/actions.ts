@@ -180,6 +180,17 @@ export function buyMachine(state: SimState, machineId: string): ActionResult {
   const spec = MACHINE_BY_ID[machineId];
   if (!spec) return { ok: false, reason: `No such thing as a ${machineId}` };
 
+  // §14.5: gated on ladder rung and venue count, never purely on cash. Act I
+  // is one site, so tier 5 is visible and locked rather than absent — §15 wants
+  // the next rung on screen.
+  const sites = ONE;
+  if ((spec.requiresSites ?? ONE) > sites) {
+    return {
+      ok: false,
+      reason: `${spec.label} is for an operation with ${spec.requiresSites} shops. Not yet.`,
+    };
+  }
+
   const hosts = state.stations.filter((s) => s.type === spec.station);
   if (hosts.length === NONE) {
     const label = STATION_SPECS[spec.station].label.toLowerCase();
@@ -196,24 +207,45 @@ export function buyMachine(state: SimState, machineId: string): ActionResult {
     return { ok: false, reason: `${Cash.format(spec.price)}. Not in the account.` };
   }
 
-  const spot = bestSpotForFootprint(state, spec.width, spec.depth);
-  if (!spot) {
-    return {
-      ok: false,
-      reason: `Nowhere to put it — ${spec.label.toLowerCase()} needs ${spec.width}x${spec.depth} tiles clear.`,
-    };
-  }
-
+  /**
+   * **Only the tiles beyond the host's own footprint come out of the room.**
+   *
+   * A clamshell replaces a flat-top, an auto-lift fryer replaces a fryer, and a
+   * bench-top sauce rail sits on the bench. Charging each of them for its whole
+   * size was measured and it was ruinous — see the note on `width` in
+   * config/machines.ts.
+   *
+   * What is left over is taken as a strip beside the host, which is what a
+   * conveyor toaster hanging off the end of a bench or a 2x2 robot cabinet
+   * where a 1x1 fryer used to be actually looks like.
+   */
   const fittingId = `${machineId}@${host.id}`;
-  // Reserved as its own occupant so the tiles are genuinely gone. Under the
-  // machine's own id, not the host's, or removing the host later would leave
-  // the floor thinking the tiles are still taken.
-  // Rotation has to be applied HERE as well as in the search, or a machine
-  // found a legal spot at 1x2 and then reserved 2x1 tiles somewhere it does
-  // not fit — silently taking the wrong squares.
-  const w = spot.rotated === true ? spec.depth : spec.width;
-  const d = spot.rotated === true ? spec.width : spec.depth;
-  state.floor.reserve(fittingId, spot, w, d);
+  const hostPlacement = state.floor.placementOf(host.id);
+  const hostTiles = hostPlacement
+    ? footprintOf(host.type, hostPlacement.at).length
+    : NONE;
+  const tiles = spec.width * spec.depth;
+  const extra =
+    spec.benchTop === true
+      ? NONE
+      : spec.standalone === true
+        ? tiles
+        : tiles - hostTiles;
+
+  if (extra > NONE) {
+    const spot = bestSpotForFootprint(state, extra, ONE, host.id);
+    if (!spot) {
+      return {
+        ok: false,
+        reason: `Nowhere to put it — ${spec.label.toLowerCase()} needs ${extra} more tile${extra === ONE ? '' : 's'} beside the ${STATION_SPECS[spec.station].label.toLowerCase()}.`,
+      };
+    }
+    // Rotation has to be applied HERE as well as in the search, or a strip
+    // found legal at 1xN reserves Nx1 somewhere it does not fit.
+    const w = spot.rotated === true ? ONE : extra;
+    const d = spot.rotated === true ? extra : ONE;
+    state.floor.reserve(fittingId, spot, w, d);
+  }
   host.machines.push(machineId);
   host.machineHours[machineId] = NONE;
   state.ledger.post('capex', spec.price);
@@ -237,21 +269,94 @@ export function setMaintenance(state: SimState, on: boolean): ActionResult {
   };
 }
 
-/** Any legal placement for a bare w x d footprint. Used by machines. */
-function bestSpotForFootprint(state: SimState, width: number, depth: number): Placement | null {
+/**
+ * Would reserving these tiles leave every station still workable and still
+ * reachable from every other?
+ *
+ * Tries it and undoes it. A dry-run beats a hand-written adjacency argument,
+ * because the thing that goes wrong is never the case you thought about.
+ */
+function leavesShopWorkable(
+  state: SimState,
+  at: Tile,
+  width: number,
+  depth: number,
+): boolean {
+  const floor = state.floor;
+  const PROBE = '__probe__';
+  floor.reserve(PROBE, at, width, depth);
+  try {
+    for (const station of state.stations) {
+      // Somewhere to stand and work.
+      if (floor.accessTiles(station.id).length === NONE) return false;
+    }
+    // And the line still joins up: a machine that cuts the room in two leaves
+    // two half-kitchens that cannot hand food to each other.
+    for (const a of state.stations) {
+      for (const b of state.stations) {
+        if (!Number.isFinite(floor.betweenStations(a.id, b.id))) return false;
+      }
+    }
+    // Nobody currently standing on the floor is sealed off from the pass.
+    for (const staff of state.staff) {
+      if (!floor.isWalkable(staff.tile.x, staff.tile.y)) return false;
+    }
+    return true;
+  } finally {
+    floor.release(PROBE);
+  }
+}
+
+/**
+ * Where a machine goes: **as close as possible to the station it bolts onto.**
+ *
+ * The first cut returned the first legal tile scanning from the origin, which
+ * is the doorway. Measured: a conveyor bun toaster landed at (1,0), fourteen
+ * tiles from the toaster it is attached to, in the front row where the queue
+ * comes in. That is nonsense to look at and it was expensive — every machine
+ * narrowed the walkable strip by the door, and the kiosk alone cost $11,299
+ * over ninety days, more than the thing costs to buy.
+ *
+ * Scored rather than first-found, exactly like `bestSpotFor` does for stations.
+ */
+function bestSpotForFootprint(
+  state: SimState,
+  width: number,
+  depth: number,
+  hostId: string,
+): Placement | null {
   const floor = state.floor;
   const standing = state.staff.map((s) => s.tile);
+  const anchors = floor.accessTiles(hostId);
+  let best: { at: Placement; score: number } | null = null;
+
   for (let y = NONE; y < floor.depth; y += ONE) {
     for (let x = NONE; x < floor.width; x += ONE) {
       for (const rotated of [false, true]) {
         const w = rotated ? depth : width;
         const d = rotated ? width : depth;
-        if (floor.fits({ x, y }, w, d, standing)) return { x, y, rotated };
-
+        if (!floor.fits({ x, y }, w, d, standing)) continue;
+        // **And it must not wall in something that already exists.**
+        //
+        // `fits` only asks whether the tiles are free. Measured: a conveyor bun
+        // toaster took the last access tile of the toaster it was bolted to,
+        // and the station became unworkable — covers fell from 10,595 to 116
+        // over ninety days and staff-hours went UP, because the kitchen spent
+        // the day unable to make a bun. This is the same class as the audit
+        // finding where a purchase stranded a staffer, and it needs the same
+        // kind of check: simulate the placement, confirm the shop still works,
+        // put it back.
+        if (!leavesShopWorkable(state, { x, y }, w, d)) continue;
+        let score = NONE;
+        for (const anchor of anchors) {
+          score += Math.abs(anchor.x - x) + Math.abs(anchor.y - y);
+        }
+        score = anchors.length ? score / anchors.length : y;
+        if (best === null || score < best.score) best = { at: { x, y, rotated }, score };
       }
     }
   }
-  return null;
+  return best?.at ?? null;
 }
 
 /**

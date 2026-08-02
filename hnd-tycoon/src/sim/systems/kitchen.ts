@@ -59,6 +59,7 @@ import type { AttentionProfile } from '@/config/recipes';
 import type { ItemId, StaffId } from '../types';
 
 const NONE = 0;
+const EMPTY_SET: ReadonlySet<string> = new Set();
 const ONE = 1;
 const EPSILON = KITCHEN.EPSILON;
 const MAX_PASSES = KITCHEN.MAX_SCHEDULER_PASSES;
@@ -80,6 +81,7 @@ export function attentionSplit(
   step: Step,
   batch = ONE,
   station?: Station,
+  down: ReadonlySet<string> = EMPTY_SET,
 ): {
   setup: number;
   cook: number;
@@ -88,7 +90,7 @@ export function attentionSplit(
   // §14.2. Machines act HERE and nowhere else: they change what a person has to
   // do, never how long the food takes. A clamshell cooks a patty in the same
   // ninety seconds a flat-top does — it just does not need anybody watching it.
-  const { setupSeconds, tendSeconds, teardownSeconds } = machinedAttention(step, station);
+  const { setupSeconds, tendSeconds, teardownSeconds } = machinedAttention(step, station, down);
   if (!KITCHEN.UNATTENDED_COOKING) {
     return { setup: step.duration, cook: NONE, finish: NONE };
   }
@@ -104,11 +106,40 @@ export function attentionSplit(
   const setup = setupSeconds * units;
   const finish = (tendSeconds + teardownSeconds) * units;
 
-  // Elapsed time scales with the batch only where the work is sequential.
-  // A grill's ninety seconds covers the whole tray; a prep bench's does not.
+  /**
+   * **Unattended time is physics; attention is labour. Machines move the second
+   * and must never invent the first.**
+   *
+   * `cook` is derived from the step as WRITTEN, not as machined. A patty takes
+   * ninety seconds on a clamshell exactly as it does on a flat-top, so the gap
+   * a cook can walk away during is a property of the food. What a machine
+   * changes is how much of that time needs a person, and — for a step that is
+   * pure hand-work — how long the step takes at all.
+   *
+   * Computing `cook` as `duration - machinedSetup - machinedFinish` was the
+   * bug. Assembly is eighteen seconds of hands with no unattended gap; cutting
+   * its setup with a sauce rail conjured four seconds of "cooking" out of
+   * nothing, during which §14.1 released the staffer to walk away and come
+   * back. Buying the machine bought extra WALKING. Measured at -$4,778 of trade
+   * over ninety days from a $1,250 bench-top pump.
+   */
+  const bare = step.attention;
+  const bareSetup = bare.setupSeconds * units;
+  const bareFinish = (bare.tendSeconds + bare.teardownSeconds) * units;
   const perBatch = SIMULTANEOUS_BATCH[step.station] ? step.duration : step.duration * units;
-  const cook = Math.max(NONE, perBatch - setup - finish);
+  const cook = Math.max(NONE, perBatch - bareSetup - bareFinish);
   return { setup, cook, finish };
+}
+
+/** Which machines on this station are currently broken. §14.4 */
+export function downMachines(state: SimState, station: Station): ReadonlySet<string> {
+  if (station.machines.length === NONE) return EMPTY_SET;
+  const down = new Set<string>();
+  for (const incident of state.incidents) {
+    if (incident.stationId !== station.id) continue;
+    if (incident.machineId !== undefined) down.add(incident.machineId);
+  }
+  return down;
 }
 
 /**
@@ -118,7 +149,11 @@ export function attentionSplit(
  * without either needing to know about the other — which matters because §14.2
  * puts an auto-lift fryer and a robotic fry station on the same station type.
  */
-export function machinedAttention(step: Step, station?: Station): AttentionProfile {
+export function machinedAttention(
+  step: Step,
+  station?: Station,
+  down: ReadonlySet<string> = EMPTY_SET,
+): AttentionProfile {
   if (!station || station.machines.length === NONE) return step.attention;
   let setup = step.attention.setupSeconds;
   let tend = step.attention.tendSeconds;
@@ -127,6 +162,10 @@ export function machinedAttention(step: Step, station?: Station): AttentionProfi
   for (const id of station.machines) {
     const spec = MACHINE_BY_ID[id];
     if (!spec) continue;
+    // §14.4: a machine that is down does not help. You are back to doing it by
+    // hand, which is the real cost of a breakdown — not a mysterious tax on the
+    // whole station. See `machineDown` in config/incidents.ts.
+    if (down.has(id)) continue;
     setup *= spec.attention.setup ?? ONE;
     tend *= spec.attention.tend ?? ONE;
     teardown *= spec.attention.teardown ?? ONE;
@@ -571,7 +610,7 @@ export class KitchenSystem implements System {
       ? this.nearestStation(state, consumer.station, workTile, false)
       : null;
     const carryTiles = delivery ? state.floor.pathTiles(workTile, delivery.at) : NONE;
-    const split = attentionSplit(candidate.step, batch, station);
+    const split = attentionSplit(candidate.step, batch, station, downMachines(state, station));
     // Holding cabinets extend how long the output stays good. §14.2 tier 1 —
     // they buy nothing on their own, only in combination with a decision to
     // cook ahead.

@@ -968,3 +968,123 @@ gate now fails if following it does not out-serve ignoring it.
 Idle keeps one job, the one §10 gives it: survive. Not thrive, not hold its
 rating — a shop nobody touches for ten weeks ends up badly rated, and that is
 correct. What it may never do is die.
+
+---
+
+## D047 — attention is labour, unattended time is physics, and I conflated them
+**Step 12. Status: fixed.**
+
+`attentionSplit` computed `cook = duration - setup - finish` using the MACHINED
+attention. That is wrong in a way that only shows up once machines exist.
+
+A patty is ninety seconds whatever you cook it on: the gap a person can walk
+away during is a property of the food. Assembly is eighteen seconds of pure
+hand-work with no gap at all. Deriving `cook` from the reduced attention meant a
+sauce rail that cut assembly's setup from 10s to 6s **conjured four seconds of
+"cooking" out of nothing** — and §14.1 dutifully released the staffer into it,
+who walked away and came back.
+
+Buying the machine bought extra walking. Measured at **-$4,778** of trade over
+ninety days from a $1,250 bench-top pump.
+
+`cook` now comes from the step as written; machines move only setup and finish,
+and for a pure hand step that means the step genuinely takes less time. Five of
+six rungs went from negative to positive operating value on this one change.
+
+---
+
+## D048 — machines were charged for floor they do not take
+**Step 12. Status: fixed.**
+
+Every machine reserved its whole footprint as new floor. But a clamshell
+REPLACES a flat-top and a conveyor toaster replaces a bench toaster — §14.2
+describes them as replacements in its own words.
+
+At Leichhardt the room is tight and every tile a machine took lengthened every
+walk. There are three shapes and every machine is exactly one:
+
+- **bench-top** — sits on its host, takes nothing (sauce rail, conveyor toaster)
+- **replacement** — only the excess over its host's footprint (clamshell 0,
+  auto-lift 0, robotic fry station 3)
+- **standalone** — an addition, all of it (the kiosk, which §14.2 calls
+  "1x1 of *floor*")
+
+The kiosk found the third case only because the §14.3 gate caught it: netting a
+1x1 kiosk against a 1x2 pass gave it a NEGATIVE floor cost.
+
+Placement was also wrong twice over. Machines took the first legal tile from the
+origin — the doorway — so a conveyor bun toaster landed fourteen tiles from the
+toaster it bolts onto. And nothing checked whether a machine walled in an
+existing station: one took the last access tile of its own toaster and **covers
+fell from 10,595 to 116** over ninety days while staff-hours went UP, because
+the kitchen spent every day unable to make a bun.
+
+---
+
+## D049 — a broken machine reverts to manual; it does not tax the station
+**Step 12. Status: fixed.**
+
+`machineDown` applied a 0.4-rising-to-0.7 station-speed penalty **on top of**
+the machine still being counted as working. Two costs for one event, and the
+larger one was invented: a clogged sauce nozzle ran the entire assembly bench at
+30%.
+
+§14.4 says something more specific and more interesting: *"the manual fallback
+is slower because you sold the old gear."* So a down machine now stops
+contributing its attention saving — the shop reverts to the profile it had
+before buying the thing — and carries a small residual (0.12 to 0.3) for the
+fallback being worse. The cost of a breakdown is losing what you paid for.
+
+---
+
+## D050 — charging over the odds now costs satisfaction, not just demand
+**Step 12. Status: active.**
+
+`bot:tightarse` — one staffer, 118% price, no servicing — finished ninety days
+**85% ahead** of a well-run larger shop on half the covers. "Small, dear and
+lean" dominated.
+
+The cause: over-pricing only suppressed demand, and for a shop that could not
+serve that demand anyway, suppressing it was **free**. The price curve had a
+peak and both sides fell away, so the dial looked healthy in isolation; it was
+the interaction with understaffing that was broken.
+
+§8.2's fair band is a claim about what a shop at your rating can get away with,
+so exceeding it now costs satisfaction on every order that IS served, which
+feeds §7.4's reviews and §6.1's demand. Zero inside or under the band — a cheap
+shop is never punished for being cheap, it just earns less per cover — and
+floored at 0.25, because §10 forbids a state you cannot trade out of.
+
+Tuned by measurement, not by feel: 0.16 left tightarse at +37%, 0.62 overshot to
+-36%, 0.38 lands it at -3.9%.
+
+---
+
+## D051 — the ladder is priced from measured value, and tier 5 is venue-gated
+**Step 12. Status: active.**
+
+Every rung was originally priced against how impressive it sounded, with §14.3's
+costs attached and the BENEFIT never measured. Prices now come from operating
+value at the one-staffer baseline, at roughly an 85-day payback:
+
+```
+                 op.value/89d   price
+sauceRail              $964      $950
+clamshell            $4,746    $4,600
+conveyorToaster     -$1,841    $2,300
+autoLiftFryer        $7,665    $7,400
+kiosk                $9,507    $8,950
+```
+
+The robotic fry station generates about $71 a day in one Leichhardt-sized shop,
+so an honest single-shop price would be roughly $5,000 — less than an auto-lift
+fryer, which is absurd. It is not overpriced; **one burger bar is not the
+business that buys one.** §14.5 says to gate on ladder rung and venue count
+rather than cash, so it is visible and locked at `requiresSites: 2`. Visible and
+locked is also better progression than absent (§15).
+
+**Unresolved:** the conveyor toaster remains at -$1,841 operating value with no
+floor cost and its utilities halved. It reduces covers by 1.8% and waste FELL,
+so it is not staleness. I have not isolated the mechanism and have not invented
+one. It is a rung that is wrong for this shop, which is a legitimate decision,
+but the reason should be understood before Act II. Logged as debt.

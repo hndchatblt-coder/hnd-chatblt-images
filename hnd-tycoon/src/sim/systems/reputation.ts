@@ -15,6 +15,8 @@
  */
 import { archetypeOf } from '@/config/archetypes';
 import { REPUTATION } from '@/config/reputation';
+import { PRICING } from '@/config/marketing';
+import { fairPriceBand } from './demand';
 import { TIME } from '@/config/time';
 import { GAME_SECONDS_PER_TICK } from '../clock';
 import { orderQuality, type Order } from '../entities/order';
@@ -52,8 +54,25 @@ export function satisfactionOf(
   quality: number,
   accuracy = ONE,
   patience = ONE,
+  value = ONE,
 ): number {
-  return waitScore(waitMinutes, patience) * quality * accuracy;
+  return waitScore(waitMinutes, patience) * quality * accuracy * value;
+}
+
+/**
+ * §8.2. What people think of the price, as a multiplier on satisfaction.
+ *
+ * One inside or under the band — a cheap shop is never penalised for being
+ * cheap, it simply earns less per cover. Above it, every order served carries
+ * the resentment, which is the cost that "charge over the odds and stay small"
+ * was escaping entirely.
+ */
+export function valueScore(priceMultiplier: number, stars: number): number {
+  const band = fairPriceBand(stars);
+  if (priceMultiplier <= band.high) return ONE;
+  const width = Math.max(band.high - band.low, Number.EPSILON);
+  const over = (priceMultiplier - band.high) / width;
+  return Math.max(PRICING.MIN_VALUE_SCORE, ONE - PRICING.OVER_BAND_SATISFACTION * over);
 }
 
 /** §7.4: stars = clamp(round(1 + satisfaction * 4), 1, 5). */
@@ -137,6 +156,7 @@ export function reviewServedOrder(state: SimState, order: Order, now: number): v
     orderQuality(order),
     ONE,
     archetype.patience,
+    valueScore(state.priceMultiplier, state.stars),
   );
   state.day.satisfactionSum += satisfaction;
   state.day.satisfactionCount += ONE;

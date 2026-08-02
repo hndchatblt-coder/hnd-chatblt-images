@@ -21,8 +21,16 @@ import { meanWaitMinutes } from '@/sim/systems/service';
 import type { World } from '@/sim/world';
 import type { Bot } from '../bot';
 
-/** Keeps this back. A machine you cannot service is a machine you cannot run. */
-const RESERVE_CENTS = 180_000;
+/**
+ * Keeps this back. A machine you cannot service is a machine you cannot run.
+ *
+ * $1,800 was far too thin: the bot spent to the floor every session, so any bad
+ * week tipped it into overdraft and §10's interest did the rest. Measured at
+ * -$51,045 over ninety days. An operator who automates aggressively is not an
+ * operator with no buffer — they have MORE fixed cost to cover, so they need
+ * more.
+ */
+const RESERVE_CENTS = 1_200_000;
 const TARGET_WAIT_MINUTES = 7;
 const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
@@ -50,9 +58,14 @@ export const roboboss: Bot = {
       if (buy(state, item.id).ok) break;
     }
 
-    // Hires only when the machines are not coping. The machines are the point.
+    // Hires only when the machines are not coping AND there is no rung left to
+    // buy. The machines are the point; a roboboss that also staffs up like
+    // `balanced` is just `balanced` with a bigger capex bill.
+    const rungsLeft = MACHINES.some(
+      (m) => !state.stations.some((s) => s.machines.includes(m.id)),
+    );
     const wait = meanWaitMinutes(state.day.waitTicks, state.day.served);
-    if (wait > TARGET_WAIT_MINUTES && state.ledger.cash.cents > RESERVE_CENTS * 2) {
+    if (!rungsLeft && wait > TARGET_WAIT_MINUTES && state.ledger.cash.cents > RESERVE_CENTS * 2) {
       const result = buy(state, 'hire');
       if (result.ok) {
         const hired = state.staff[state.staff.length - 1];
