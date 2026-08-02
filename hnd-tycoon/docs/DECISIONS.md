@@ -1122,3 +1122,44 @@ Two things worth keeping from it:
    this pattern was caught before commit; this one was not, because the symptom
    was dramatic enough that it felt like evidence. A dramatic symptom is the
    case where measuring first matters most, not least.
+
+---
+
+## D053 — the human gait was a 4:1 harmonic and looked like a machine
+**Step 13. Status: fixed.**
+
+`MOTION.bobHz` 2.4 against `MOTION.swayHz` 0.61 is a ratio of 3.934. The two
+sines re-aligned every four steps, so the combined motion had a short visible
+cycle — a person who visibly loops reads as a machine, which is the one thing
+§21.5 exists to prevent. The whole step was building a contrast that one of its
+two halves quietly undermined.
+
+Now `bobHz / 2phi` = 0.7417, a ratio of 3.236. Irrational, so it never
+re-aligns at all. The golden ratio is the standard choice for quasi-periodic
+motion for exactly this reason.
+
+**Found by writing the gate, not by looking at it.** That is worth recording,
+because the instinct on a visual step is to trust your eyes and skip the test:
+a 3.9:1 beat is not something anyone would spot in a screenshot, or probably in
+motion either, and it would have sat there undermining the step's whole premise.
+
+## D054 — what a screenshot can and cannot verify
+**Step 13. Status: active.**
+
+Step 13's exit criterion is a motion criterion, and **a still frame contains no
+motion**. Verifying it from screenshots would have been a category error, and
+after five unmeasured claims this session it is worth being explicit rather
+than quietly counting the visual check as complete.
+
+What the screenshots DO verify: palette, silhouette, height, that a machine sits
+on its station rather than floating above the room, that the ticket rail no
+longer buries the kitchen. All of that is genuinely at-a-glance and it is
+genuinely done.
+
+What is gated structurally instead: that `RHYTHM` has no field that could vary
+between two machines, that `MOTION` has four separate sources of irregularity,
+that the two periods are non-harmonic, and that a fault stalls mid-stroke and
+buzzes faster than any healthy motion in the room.
+
+What remains unverified: whether it actually reads as mechanical-versus-organic
+when watched. Recorded in STATE.md as debt rather than assumed.

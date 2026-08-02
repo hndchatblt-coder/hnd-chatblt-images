@@ -194,31 +194,43 @@ export class ShapeRegistry {
      */
     for (const spec of MACHINES) {
       /**
-       * Narrower and shorter than the station it sits on, deliberately.
+       * **A machine has to read as a different KIND of thing from a bench.**
        *
-       * The first cut matched the station's footprint exactly and drew over it
-       * at the same anchor, so a clamshell did not read as "a grill with a
-       * clamshell on it" — it read as the grill having been deleted. A fitted
-       * machine has to leave its host visible underneath or the room loses the
-       * stations the player spent the first ten steps learning to recognise.
+       * Three things carry that, muted and at a glance, before any motion:
+       *
+       *   HEIGHT — it breaks the bench line. The first cut was shorter than its
+       *   station and read as a texture change rather than as a machine.
+       *   COLD — `BRAND.machine` is the only cool mass in a sodium-lamp room.
+       *   Sharing the equipment steel made it look like more bench.
+       *   A GANTRY — a hard frame with a gap under it, which no station and no
+       *   person has. It is the shape that says "something travels along here".
+       *
+       * Narrower than its host on purpose, so the station still reads beneath.
        */
-      const w = Math.max(1, spec.width) * camera.tileWidth * 0.62;
-      const h = RENDER.HEIGHT.station * 0.8;
+      const w = Math.max(1, spec.width) * camera.tileWidth * 0.58;
+      const h = RENDER.HEIGHT.machine;
       this.bakeGraphics(`machine:${spec.id}`, (g) => {
-        g.roundRect(0, 0, w, h, 2).fill(BRAND.equipment.enamelDark);
-        g.roundRect(0.5, 0.5, w - 1, h * 0.55, 2).fill(BRAND.equipment.steel);
-        // The band. Machines have a mouth; people do not.
-        g.rect(0, h * 0.55, w, Math.max(2, h * 0.14)).fill(BRAND.equipment.hotplate);
-        // Hard edge, so it reads as a fitted unit and not as a smudge.
-        g.roundRect(0, 0, w, h, 2).stroke({ color: BRAND.interior.seam, width: 1 });
+        const legW = Math.max(2, w * 0.16);
+        const gantryH = Math.max(3, h * 0.2);
+        // Two uprights and a crossbeam: the gap between them is the silhouette.
+        g.rect(0, gantryH, legW, h - gantryH).fill(BRAND.machine.housingDark);
+        g.rect(w - legW, gantryH, legW, h - gantryH).fill(BRAND.machine.housingDark);
+        // The body sits between the legs, not over them.
+        g.roundRect(legW, h * 0.5, w - legW * 2, h * 0.5, 1.5).fill(BRAND.machine.housing);
+        // The crossbeam the arm runs along.
+        g.roundRect(0, 0, w, gantryH, 1.5).fill(BRAND.machine.housing);
+        g.roundRect(0, 0, w, gantryH, 1.5).stroke({ color: BRAND.interior.seam, width: 1 });
+        // One cold indicator. Equipment looks ON at rest (§21.2), and this one
+        // is the only thing in the room lit in a colour the kitchen has not got.
+        g.circle(w * 0.5, h * 0.72, Math.max(1.5, w * 0.07)).fill(BRAND.machine.indicator);
       });
-      // The part that moves. Drawn separately so the cycle can translate it
+      // The part that travels. Drawn separately so the cycle translates it
       // without redrawing the body every frame.
       this.bakeGraphics(`machine:${spec.id}:arm`, (g) => {
-        const aw = w * 0.66;
-        const ah = Math.max(3, h * 0.2);
-        g.roundRect(0, 0, aw, ah, 1.5).fill(BRAND.equipment.steel);
-        g.roundRect(0, 0, aw, ah, 1.5).stroke({ color: BRAND.interior.seam, width: 1 });
+        const aw = w * 0.34;
+        const ah = Math.max(4, h * 0.26);
+        g.roundRect(0, 0, aw, ah, 1).fill(BRAND.machine.arm);
+        g.roundRect(0, 0, aw, ah, 1).stroke({ color: BRAND.machine.housingDark, width: 1 });
       });
     }
 

@@ -368,9 +368,14 @@ export class Scene {
         const slot = station.machines.indexOf(machineId);
         const body = pool.take();
         body.anchor.set(0.5, 1);
+        // Feet ON the station, not floating above it. The lift is a fraction of
+        // a TILE, not of the machine's own height — offsetting by the latter
+        // put a clamshell up over the extraction hood, detached from the grill
+        // it is bolted to, which reads as a rendering bug rather than as a
+        // fitted machine.
         body.position.set(
           at.x + (slot - (station.machines.length - 1) / 2) * camera.tileWidth * 0.42,
-          at.y - RENDER.HEIGHT.station * 0.5,
+          at.y + camera.tileDepth * 0.3,
         );
         body.zIndex = depthSort(placement.at.y) + 2;
 
@@ -413,9 +418,17 @@ export class Scene {
               ? t / RENDER.RHYTHM.strokeFraction
               : 1 - (t - RENDER.RHYTHM.strokeFraction) / (1 - RENDER.RHYTHM.strokeFraction);
         }
+        /**
+         * The arm travels ALONG the gantry, not up and down it. A crossbeam
+         * with something sliding under it is the clearest possible statement
+         * that a machine is working, and horizontal travel is legible at a
+         * glance in a way a few pixels of lift is not.
+         */
+        const span = camera.tileWidth * spec.width * 0.28;
+        arm.anchor.set(0.5, 0);
         arm.position.set(
-          body.x,
-          body.y - RENDER.HEIGHT.station * 0.62 - travel * RENDER.RHYTHM.strokePixels,
+          body.x + (travel - 0.5) * 2 * span,
+          body.y - RENDER.HEIGHT.machine * 0.82,
         );
         arm.tint = broken ? BRAND.signal.ticketCritical : 0xffffff;
       }

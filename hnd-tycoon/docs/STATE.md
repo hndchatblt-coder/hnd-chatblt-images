@@ -1015,6 +1015,65 @@ failure as D044, third occurrence of the pattern.
 
 ---
 
+## Step 13 — the rhythm beat. SHIPPED, with one honest caveat.
+
+**What is now playable:** the kitchen changes character when you automate it.
+A fitted machine is a cold blue-grey gantry with a cyan indicator standing
+proud of the warm timber-and-steel bench it sits on, and its arm travels the
+crossbeam on a fixed clock while the people around it never quite repeat.
+
+### The contrast, built on both sides
+- **Machines**: one period, identical phase for every unit of a kind, sawtooth
+  stroke and return. Two clamshells move as one. `RENDER.RHYTHM` has no jitter
+  field, no phase offset and no easing — there is nothing in it that *could*
+  put two machines out of step.
+- **People**: per-person phase AND speed (`MOTION.speedJitter`, declared at
+  step 5 and unused until now), a sway beaten against the bob, wander while
+  walking, fidget while standing.
+- **A failure visible before it is notified**: a broken machine stalls partway
+  through the stroke and buzzes there, tinted. It reads wrong instantly
+  *because* everything else about a machine is perfectly regular.
+
+### Found by the new gate, in my own work
+The human gait had a bob:sway ratio of **3.934** — a 4:1 harmonic in all but
+name. The two sines re-aligned every four steps, so a person visibly looped,
+which is precisely the thing that makes a person read as a machine. Now
+`bobHz / 2phi`: an irrational ratio never re-aligns.
+
+I would not have caught that by looking. It came out of writing the gate.
+
+### THE CAVEAT — what "verified" does and does not mean here
+The exit criterion is *"a player distinguishes an automated kitchen from a
+manual one at a glance, muted, with no labels."*
+
+**The palette and silhouette half is verified**, from screenshots: cold blue
+machine mass with a cool indicator against a sodium-lamp room, standing taller
+than the bench line. That is a genuine at-a-glance read.
+
+**The MOTION half is not verified and cannot be, from a still frame.** §21.5's
+actual claim is about rhythm, and a screenshot has no rhythm in it. What is
+gated is structural — that the two vocabularies differ in construction, that
+the machine has no source of variation and the person has four, that the
+periods are non-harmonic. That is a strong proxy and it is not the same thing
+as having watched it.
+
+Anyone continuing this should watch it move before trusting stage 2 is hit.
+
+### Debt carried
+- Motion contrast unwatched — see above. Needs a multi-frame capture or a human.
+- Density stage 2 assessed against §21.1 with only two machines fitted, not a
+  full stage-2 kitchen.
+- The ticket rail still overlaps the assembly bench, though at six dockets
+  rather than nine it no longer buries the kitchen.
+- **D030** (`reconcile()` is a tautology) — still unfixed. Oldest open debt.
+- **DEBT-1** — no inter-tick interpolation; walking still teleports.
+- The conveyor toaster's -$1,841 operating value is still unexplained (D051).
+
+**Next: step 14 — the ladder and the daily headline.**
+
+---
+
+## Step 13 — superseded WIP note (kept for the record)
 ## Step 13 — the rhythm beat. **IN PROGRESS.**
 
 Committed because both halves of §21.5 are built and green, but the exit

@@ -49,6 +49,26 @@ export const BRAND = {
     timberDark: 0x453425,
   },
 
+  /**
+   * Machines. §21.5, and deliberately NOT the equipment palette.
+   *
+   * A clamshell has to read as a different KIND of thing from the grill it
+   * sits on, muted and at a glance, or the automation ladder is invisible.
+   * Sharing `equipment.steel` made a fitted machine look like more bench.
+   *
+   * Colder and darker than the room, with a machined blue cast the warm
+   * interior has nowhere else. Against sodium-lamp orange this is the only
+   * cool mass on the floor, which is the whole reading.
+   */
+  machine: {
+    housing: 0x4d5a68,
+    housingDark: 0x2b333c,
+    /** The gantry and the moving arm. Bright enough to track in motion. */
+    arm: 0xa9b7c4,
+    /** A machine is ON. One cold indicator against the shop's warm pilots. */
+    indicator: 0x6fd3e8,
+  },
+
   /** People. Chef whites in the kitchen, brand tee at the counter. §21.2 */
   people: {
     whites: 0xe8e4dc,

@@ -35,6 +35,19 @@ export const RENDER = {
     counter: 15,
     column: 40,
     person: 32,
+    /**
+     * Machines stand TALLER than the bench they sit on. §21.5.
+     *
+     * Height is the cheapest silhouette differentiator there is, and the
+     * §21.1 test for stage 2 is that an automated kitchen reads as different
+     * MUTED and with no labels. A machine the same height as its station is a
+     * texture change; one that breaks the bench line is a different kitchen.
+     *
+     * Taller than a station (22) and shorter than a person (32) — it must not
+     * out-mass the staff, because §14.5 says automation never makes them
+     * obsolete and the picture should not say otherwise.
+     */
+    machine: 28,
   },
 
   /**
@@ -126,7 +139,17 @@ export const RENDER = {
      * bob into a gait — the two periods are deliberately not harmonics, so the
      * combined motion never visibly repeats.
      */
-    swayHz: 0.61,
+    /**
+     * bobHz / 2φ — the golden ratio, for the reason it is always used for this.
+     *
+     * 0.61 was measured at a bob:sway ratio of 3.934, which is a 4:1 harmonic
+     * in all but name: the two sines re-align every four steps and the gait
+     * acquires a short visible cycle. A person who visibly loops is a person
+     * who reads as a machine, which is the one thing this step exists to stop.
+     *
+     * An irrational ratio never re-aligns at all. 2.4 / 3.236 = 0.7417.
+     */
+    swayHz: 0.7417,
     swayPixels: 1.1,
     /** How far a person drifts off a straight line while walking. */
     wanderPixels: 1.4,
@@ -271,7 +294,15 @@ export const RENDER = {
    * with no number attached to it.
    */
   RAIL: {
-    maxVisible: 9,
+    /**
+     * Six, down from nine.
+     *
+     * At nine the rail spanned half the room and was drawn over the assembly
+     * bench and the person working it — the shop's stress buried the shop. The
+     * rail is a glance-read, and six dockets carry "we are behind" exactly as
+     * well as nine while leaving the kitchen visible.
+     */
+    maxVisible: 6,
     ticketWidth: 19,
     ticketHeight: 25,
     gapPixels: 3,
@@ -283,7 +314,7 @@ export const RENDER = {
      * equipment, not paper. Above the pass it is where a real one is, and it is
      * next to the food it is describing.
      */
-    liftPixels: 30,
+    liftPixels: 44,
     /** The coloured band across the top of each docket. Only this ages. */
     flagHeight: 7,
     /** A degree or two of tilt each, so they read as paper and not as tiles. */
