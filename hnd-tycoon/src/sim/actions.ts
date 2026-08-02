@@ -26,6 +26,8 @@ import { Cash, id, money, ZERO, type Money, type SiteId, type StaffId } from './
 import { fixCostDollars, specOf } from './systems/incidents';
 import { MACHINE_BY_ID, MACHINE_RULES } from '@/config/machines';
 import { unlocked } from './systems/ladder';
+import { availableSpecials, surplusCost } from './systems/specials';
+import { SPECIAL_BY_ID, SPECIAL_RULES } from '@/config/specials';
 import { RUNGS, type Rung } from '@/config/ladder';
 import type { SimState } from './state';
 
@@ -471,6 +473,60 @@ const PERCENT = 100;
 const asPercent = (x: number): string => `${Math.round(x * PERCENT)}%`;
 
 /** A full week of one person, at every day's own penalty rate. */
+/**
+ * Pick next week's special, and say how much to prep. §18.
+ *
+ * One action for both, because they are one decision: *"what draws people,
+ * what your kitchen can produce at volume, what you can prep without eating
+ * the waste."* Splitting them would let a player choose the brisket and then
+ * think about the prep on Thursday, which is precisely the thinking §18 wants
+ * to happen on Monday.
+ *
+ * Lands next Monday. Same shape as §8.2's price change and for the same
+ * reason: catching a rush you can already see is not a decision.
+ */
+export function setSpecial(
+  state: SimState,
+  specialId: string | null,
+  prepUnits: number,
+  promote = false,
+): ActionResult {
+  state.special.pendingPromo = promote && specialId !== null;
+  if (specialId === null) {
+    state.special.pending = null;
+    state.special.prepTarget = NONE;
+    return { ok: true, reason: 'No special next week. Nothing to bin, nothing to draw them in.' };
+  }
+  const spec = SPECIAL_BY_ID[specialId];
+  if (!spec) return { ok: false, reason: `No such special: ${specialId}` };
+  if (!availableSpecials(state).some((s) => s.id === specialId)) {
+    return { ok: false, reason: `${spec.label} is not on the board yet.` };
+  }
+  if (prepUnits < NONE) return { ok: false, reason: 'Cannot prep a negative number of anything.' };
+
+  state.special.pending = specialId;
+  state.special.prepTarget = Math.round(prepUnits);
+
+  // The honest warning at the moment of the decision, the same as §8.3's
+  // cost-per-cover. Under half the promise and it will not open at all.
+  const floor = Math.ceil(spec.prepUnits * SPECIAL_RULES.MIN_READY_FRACTION);
+  if (state.special.prepTarget < floor) {
+    return {
+      ok: true,
+      reason: `${spec.label} from Monday. ${state.special.prepTarget} is under the ${floor} it needs to open at all — you will draw the crowd and turn them away.`,
+    };
+  }
+  const over = state.special.prepTarget - spec.prepUnits;
+  if (over > NONE) {
+    const waste = surplusCost(spec, over);
+    return {
+      ok: true,
+      reason: `${spec.label} from Monday, ${state.special.prepTarget} prepped. ${over} more than it will sell — about ${Cash.format(money(waste, state.ledger.cash.currency))} in the bin.`,
+    };
+  }
+  return { ok: true, reason: `${spec.label} from Monday, ${state.special.prepTarget} prepped.` };
+}
+
 export function weeklyWage(state: SimState): Money {
   const jurisdiction = JURISDICTIONS[state.site.jurisdictionId] ?? JURISDICTIONS['nsw'];
   if (!jurisdiction) return ZERO();

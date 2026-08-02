@@ -1274,3 +1274,92 @@ second rung to its label alone and taking the bottom bar solid.
 
 What it still cannot verify: motion. A still frame contains none, so D054's debt
 stands.
+
+## D059 — the crowd is drawn by the sign, not by the stock
+**Step 15. Status: active.**
+
+§18: *"Under-prep and you 86 it mid-rush — worse than never running it, because
+you drew the crowd and disappointed them."* Making that true took four attempts
+and three of them were wrong in ways that measured fine at the time.
+
+**Attempt 1 — a withdrawal threshold.** Below half the promise the special
+never opened and the uplift never applied. Measured: under-prepping to 15 of 60
+cost $331 across nine weeks, all of it stock, and turned nobody away. It had
+made *announcing a special you cannot deliver* free. Deleted, along with
+`MIN_READY_FRACTION` and `openedThisWeek`.
+
+**Attempt 2 — reconstruct the crowd at close.** `drawn = arrivals x
+uplift/(1+uplift)`, evaluated on the day's totals. Wrong twice over: it counted
+a whole trading day for a spike that only ran at dinner, and it kept counting on
+weeks the special never opened. Replaced with a per-tick measurement, then that
+was deleted too (see below).
+
+**Attempt 3 — credibility.** A promise you broke stops working: 86 and next
+week's sign draws a smaller crowd. This one is RIGHT and it stayed, but on its
+own it is self-limiting rather than punishing — the shop settles into a small
+free uplift and under-prepping was still the most profitable play at $39,135
+against $37,935 for never running one.
+
+**Attempt 4 — walk them in.** The disappointed were book-keeping at close: a
+number added to `day.balked` after the fact. They never entered the sim, never
+took a place in the queue, never cost the shop the cover it could have served
+instead. Now `ArrivalsSystem` rolls each arrival during the window against the
+uplift's own share, sells a unit if there is one, and turns them away at the
+door if there is not — visible on screen through the existing walkout queue.
+
+Running out now costs throughput, which is the only currency a burger shop
+really has. All three exit criteria followed.
+
+## D060 — the seeker roll needs its own RNG stream
+**Step 15. Status: active.**
+
+The seeker check drew from the arrivals stream. Deterministic, so it passed
+every gate — and wrong, because switching the specials system on shifted every
+subsequent draw in that stream. A shop running a special did not merely face
+more customers, it faced a different sequence of them.
+
+Every A/B the harness runs on specials was therefore measuring the weather as
+well as the special. Moved to `arrivals:seekers`. The exit-criterion table
+changed materially when it moved, and three tests that had passed against the
+tidier-looking contaminated numbers failed honestly afterwards. They were
+rewritten against what is actually true rather than reverted.
+
+§25.2's whole method is A/B on one changed variable. A shared stream quietly
+changes two.
+
+## D061 — every prep number in the config was invented, and every one was wrong
+**Step 15. Status: active.**
+
+`prepUnits` was authored from intuition — sixty wings, fifty briskets, a
+morning's work each. Measured seeker counts: about 24. Every figure was 2-3x
+high, which made prepping to the config's own spec a strictly worse choice than
+prepping to three-quarters of it.
+
+Two arithmetic errors underneath it. `drawn` counts PARTIES, because that is
+what walks through a door; seekers were being counted in the same unit when a
+table of six that came for the wings wants six lots of wings. And
+`SEEKER_FRACTION` was applied to every arrival in the window rather than to the
+extra ones the sign caused, so 70% of a Wednesday became wing-seekers when the
+special had drawn about a third that many — which made the special a guaranteed
+loss at every prep level. A lever nobody should ever pull is as dead as one with
+no downside.
+
+They are the harness's numbers now, and they sit exactly ON the mean rather than
+safely above it. Prepping to spec therefore runs short about half the time,
+which is the decision: demand is Poisson by construction, so there is no safe
+answer, only a trade between bin liner and disappointed customers.
+
+## D062 — `.sheet-wrap` was a class that did not exist
+**Step 15. Status: active.**
+
+The specials panel was written with `<div className="sheet-wrap">`. Every other
+sheet in the game uses `.sheet-backdrop`. Nothing failed: no compile error, no
+test, no lint — the div simply rendered in normal flow inside the frame, under
+the absolutely-positioned bottom bar, and the lower half of the list could not
+be tapped.
+
+Found by `npm run look` driving the real UI, which reported
+`<footer class="bottombar"> intercepts pointer events` and timed out. That is
+the second time in two steps the screenshot harness has found something no test
+could have (D058 was the first). A misspelt class name is invisible to every
+gate this project has.

@@ -1237,3 +1237,93 @@ wrong rather than because a test failed.
 - **Covers and walkouts persist on screen overnight** with no "yesterday" mark.
 - D054's debt stands: the motion contrast is still gated structurally and never
   watched. `npm run look` takes stills, and a still frame contains no motion.
+
+---
+
+## Step 15 — SHIPPED: weekly specials
+
+**What is now playable.** Every Monday the shop picks next week's special from
+a pool that opens as the ladder is climbed, and says how much to prep. The panel
+puts all three of §18's sides on the row itself — what it draws (*Wed · +55%*),
+what it leans on (*the fryer*), and what it costs to be wrong (*24 to prep,
+binned if unsold*, in amber when the ingredient has no second life). Promoting
+it costs $140 for the week and roughly doubles the crowd.
+
+On the day, seekers walk in and buy it while there is stock. When it runs out
+they walk in, find it gone, and leave — through the same door, into the same
+walkout animation as anyone who got sick of the queue.
+
+### The exit criteria
+
+Measured, eight seeds, nine weeks, on a shop staffed to serve the crowd:
+
+```
+                       plain      promoted
+  never run it        -$1,547
+  under      (8)      -$1,076      -$2,385
+  to spec    (24)     -$1,101      -$1,163
+  sized      (46)          —       -$1,869
+  over    (60/110)      -$209      -$2,726
+  way over  (200)     -$3,318
+```
+
+- **A measurable cost for over-prepping.** −$3,318 at 8x spec against −$209 at
+  2.5x, and promoted −$2,726 against −$1,163. ✓
+- **A measurable cost for under-prepping.** Promoted, −$2,385 against −$1,163. ✓
+- **86'ing a promoted special is worse than never running one.** −$2,385
+  against −$1,547. ✓
+
+**Stated rather than hidden: the UNPROMOTED column is flat.** Between 8 and 60
+units the whole spread is inside the seed noise. Wings cost $2.40, so thirty-six
+spare ones is $86 a week, and the shop is throughput-limited on a Wednesday
+night so the small unpromoted uplift mostly becomes walkouts whatever is in the
+fridge. The criteria are asserted where the mechanism has signal — which is also
+the case §18's third clause names. Logged as DEBT below.
+
+### What I got wrong, and how
+
+Four attempts at §18's hardest clause, three of which measured fine at the time.
+Full account in D059. The short version: a withdrawal threshold made announcing
+an undeliverable special *free*; reconstructing the crowd at close counted a
+whole day for a dinner spike; credibility alone is self-limiting rather than
+punishing. It only became true when the disappointed stopped being book-keeping
+and started walking through the door and taking up room.
+
+- **The seeker roll shared the arrivals RNG stream** (D060), so switching
+  specials on changed the whole arrival *sequence*, not just its rate. Every A/B
+  in the harness was measuring the weather too. Three tests that passed against
+  the contaminated numbers failed honestly once it was fixed.
+- **Every `prepUnits` in the config was 2–3x too high** (D061). Two arithmetic
+  errors under it: parties counted as covers, and `SEEKER_FRACTION` applied to
+  every arrival in the window rather than the extra ones.
+- **`.sheet-wrap` was a class that does not exist** (D062). No compile error, no
+  test, no lint — the panel rendered under the bottom bar and half of it could
+  not be tapped. Found by `npm run look`, which is now 2 for 2 on finding things
+  no gate in this project can see.
+
+### Adversarial pass — the performance engineer's lens
+
+1. **The seeker roll shared the arrivals stream.** Highest severity, because it
+   silently poisoned every measurement the step is judged on. **Fixed.**
+2. `state.special.drawn` — written every tick by `ArrivalsSystem`, read by
+   nothing after attempt 4 replaced it. D043's shape again. **Deleted.**
+3. `openedThisWeek` — same. **Deleted.**
+4. A special whose named day *is* the selection day would be binned twice and
+   charged to `unitsProduced` twice. Nothing in the pool runs on a Monday, which
+   is precisely why it would ship broken. **Fixed** by binning the outgoing
+   special explicitly rather than whatever `running` happens to say.
+5. `SPECIAL_BY_ID` lookup on every tick of every day forever. Real but small;
+   short-circuits on `specialUplift <= 0` in the hot path. **Logged, not fixed.**
+
+### DEBT carried out of this step
+
+- **The unpromoted special is inside the noise.** Needs `uplift` and `unitCost`
+  revisited in a balance pass; both are provisional and both move when
+  `REAL_NUMBERS.md` lands.
+- **A four-staff shop is unprofitable** at every special setting. That predates
+  this step and is an over-staffing question, but it made the exit table read in
+  negative numbers throughout.
+- **No bot runs specials.** The five §25.2 bots ignore the mechanic entirely, so
+  `npm run balance` says nothing about it. The step-15 gates live in
+  `tests/step15.test.ts` instead.
+- The per-tick config lookup above.

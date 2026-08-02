@@ -185,6 +185,37 @@ export interface SimState {
   };
   /** §15.3's dead-zone detector. The last day anything was worth doing. */
   lastDecisionDay: number;
+
+  /**
+   * This week's special. §18.
+   *
+   * `running` is locked on Monday and `pending` is what next Monday will pick
+   * up — the same delayed-landing shape as §8.2's price change, and for the
+   * same reason: a special chosen mid-rush to catch a rush would be demand out
+   * of nothing.
+   */
+  readonly special: {
+    running: string | null;
+    pending: string | null;
+    /** How many units the PLAYER asked for. The whole decision lives here. */
+    prepTarget: number;
+    prepped: number;
+    preppedCost: number;
+    sold: number;
+    /** Seekers sent away because it ran out. §18's 86'ing. */
+    turnedAway: number;
+    /**
+     * 0..1 on how much a special the shop announces is still believed. §18.
+     *
+     * Falls when you 86, recovers over clean weeks. It is what makes running
+     * out compound rather than being a one-off cost, and it is the only reason
+     * deliberate under-prepping is not the best play in the game.
+     */
+    credibility: number;
+    /** §8's special-promotion channel. Paid weekly, lifts only this special. */
+    promoted: boolean;
+    pendingPromo: boolean;
+  };
   /**
    * Whether preventive maintenance is being paid. §14.4.
    *
@@ -330,6 +361,18 @@ export function createState(opts: StateOptions = {}): SimState {
     channelAwareness: {},
     marketingAwareness: NONE,
     specialUplift: NONE,
+    special: {
+      running: null,
+      pending: null,
+      prepTarget: NONE,
+      prepped: NONE,
+      preppedCost: NONE,
+      sold: NONE,
+      turnedAway: NONE,
+      credibility: ONE,
+      promoted: false,
+      pendingPromo: false,
+    },
     // §6.1: pinned at zero until Act III, present so it never needs adding.
     competitorPressure: NONE,
     // Seeded from the RUN, not the site: seeding from the site alone gave

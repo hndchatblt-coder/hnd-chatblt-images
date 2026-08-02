@@ -19,6 +19,7 @@ import {
   setMarketing,
   setPrice,
   setRoster,
+  setSpecial,
   type ActionResult,
 } from '@/sim/actions';
 import { MARKETING_CHANNELS, PRICING, type MarketingChannel } from '@/config/marketing';
@@ -29,6 +30,11 @@ import { hourlyCost, JURISDICTIONS } from '@/config/economy';
 import { starsOf } from '@/sim/systems/reputation';
 import { ladderProgress, nextRungs, unlocked } from '@/sim/systems/ladder';
 import { RUNGS_BY_ID } from '@/config/ladder';
+import { availableSpecials } from '@/sim/systems/specials';
+import { SPECIAL_RULES } from '@/config/specials';
+import { STATION_SPECS } from '@/config/stations';
+import { DAY_NAMES } from '@/config/time';
+import type { StationType } from '@/config/recipes';
 import { SHOPFRONT, type CatalogueItem } from '@/config/catalogue';
 import { buildScenario, type ScenarioOptions } from '@/sim/scenario';
 import type { World } from '@/sim/world';
@@ -301,6 +307,61 @@ export class Game {
       costPerCoverCents: costPerCover(state, this.world.clock.daysPerWeek).cents,
       awareness: state.marketingAwareness,
     };
+  }
+
+  /**
+   * The Monday choice. §18 — what draws people, what the kitchen can produce at
+   * volume, what you can prep without eating the waste.
+   *
+   * All three sides are on the row rather than behind a tap, because the whole
+   * mechanic is comparing them: the station it leans on IS the second question,
+   * and hiding it behind a detail view turns a decision into a menu.
+   */
+  specials(): {
+    running: string | null;
+    pending: string | null;
+    prepTarget: number;
+    promoted: boolean;
+    credibility: number;
+    options: {
+      id: string;
+      label: string;
+      blurb: string;
+      dayName: string;
+      station: string;
+      prepUnits: number;
+      unitCost: number;
+      exclusive: boolean;
+      uplift: number;
+    }[];
+    promoCost: number;
+    promoUplift: number;
+  } {
+    const state = this.world.state;
+    return {
+      running: state.special.running,
+      pending: state.special.pending,
+      prepTarget: state.special.prepTarget,
+      promoted: state.special.pendingPromo,
+      credibility: state.special.credibility,
+      options: availableSpecials(state).map((s) => ({
+        id: s.id,
+        label: s.label,
+        blurb: s.blurb,
+        dayName: DAY_NAMES[s.day] ?? '',
+        station: STATION_SPECS[s.station as StationType]?.label ?? s.station,
+        prepUnits: s.prepUnits,
+        unitCost: s.unitCost,
+        exclusive: s.exclusiveIngredient !== null,
+        uplift: s.uplift,
+      })),
+      promoCost: SPECIAL_RULES.PROMO_WEEKLY_COST,
+      promoUplift: SPECIAL_RULES.PROMO_UPLIFT,
+    };
+  }
+
+  setSpecial(specialId: string | null, prepUnits: number, promote: boolean): ActionResult {
+    return setSpecial(this.world.state, specialId, prepUnits, promote);
   }
 
   setMarketing(channelId: string, weeklyDollars: number): ActionResult {

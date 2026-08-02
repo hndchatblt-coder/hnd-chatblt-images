@@ -77,6 +77,17 @@ export interface Special {
    * running it".
    */
   readonly eightySixPenalty: number;
+  /**
+   * Rungs that must be banked before this appears in the pool. §18's
+   * *"unlocking pool"*, gated on ladder progress per §14.5.
+   *
+   * Deliberately a COUNT rather than a named rung. Giving each special its own
+   * rung would either lengthen §15.1's authored list or displace a capability
+   * already paired with one, and step 14 measured what happens when a rung's
+   * reward moves (D055, D056). A count uses the ladder as a clock without
+   * touching it.
+   */
+  readonly unlockedAfterRungs: number;
 }
 
 /**
@@ -86,6 +97,19 @@ export interface Special {
  * they cluster on fryer and grill, which is the point: the shop's existing
  * bottleneck decides which of them is affordable this week, and a special that
  * would be fine in an automated kitchen is a disaster in a hand-run one.
+ *
+ * **`prepUnits` is the MEASURED MEAN, and that is a design choice.** Every one
+ * of these was authored from intuition and every one was wrong — wings were set
+ * at 60 against a real seeker count of about 24. They are now the harness's
+ * numbers, rounded, and they sit exactly ON the mean rather than safely above
+ * it. A unit is one PARTY's order: a table of six that came for the wings
+ * orders the wings once and burgers for the rest.
+ *
+ * Which means prepping to spec loses half the time. That is the point: demand
+ * is Poisson and bursty by construction (§6.1), so "how much do I make" has no
+ * safe answer, only a trade — prep to the mean and you 86 one week in two, prep
+ * twenty percent over and you buy that safety with bin liner. §18 asks for a
+ * decision every Monday, and a number that is right every week is not one.
  */
 export const SPECIALS: readonly Special[] = [
   {
@@ -96,12 +120,13 @@ export const SPECIALS: readonly Special[] = [
     dinnerOnly: true,
     uplift: 0.55,
     station: 'fryer',
-    prepUnits: 60,
+    prepUnits: 24,
     exclusiveIngredient: 'wings',
     unitCost: 2.4,
     priceMultiple: 0.85,
     // Wings are a low-stakes promise. Running out is annoying, not a betrayal.
     eightySixPenalty: 1.6,
+    unlockedAfterRungs: 0,
   },
   {
     id: 'schnitzelThursday',
@@ -111,11 +136,12 @@ export const SPECIALS: readonly Special[] = [
     dinnerOnly: true,
     uplift: 0.5,
     station: 'prep',
-    prepUnits: 45,
+    prepUnits: 25,
     exclusiveIngredient: 'chickenBreast',
     unitCost: 4.1,
     priceMultiple: 1.2,
     eightySixPenalty: 1.9,
+    unlockedAfterRungs: 3,
   },
   {
     id: 'twoForTuesday',
@@ -133,6 +159,7 @@ export const SPECIALS: readonly Special[] = [
     unitCost: 0,
     priceMultiple: 0.6,
     eightySixPenalty: 1,
+    unlockedAfterRungs: 0,
   },
   {
     id: 'fridayBrisket',
@@ -142,13 +169,14 @@ export const SPECIALS: readonly Special[] = [
     dinnerOnly: true,
     uplift: 0.4,
     station: 'grill',
-    prepUnits: 50,
+    prepUnits: 26,
     exclusiveIngredient: 'brisket',
     unitCost: 6.8,
     priceMultiple: 1.45,
     // The dearest promise in the pool, on the busiest night. Running out of
     // this is the one people write about.
     eightySixPenalty: 2.6,
+    unlockedAfterRungs: 6,
   },
   {
     id: 'sundayRoastRoll',
@@ -161,11 +189,12 @@ export const SPECIALS: readonly Special[] = [
     // can produce at volume" is sometimes answered by moving the volume.
     uplift: 0.3,
     station: 'assembly',
-    prepUnits: 40,
+    prepUnits: 22,
     exclusiveIngredient: 'roastBeef',
     unitCost: 5.2,
     priceMultiple: 1.15,
     eightySixPenalty: 2.0,
+    unlockedAfterRungs: 4,
   },
 ];
 
@@ -205,4 +234,75 @@ export const SPECIAL_RULES = {
   SHARED_SURPLUS_RECOVERY: 0.6,
   /** Running none is always allowed and always free. §18 never forces a pick. */
   NONE: 'none',
+  /**
+   * Seconds of the host station's time each prepped unit costs.
+   *
+   * // PROVISIONAL — no real figure for this. Sixty wings or fifty briskets is
+   * a morning's work for one person, and a morning is about four hours, so
+   * ~240 seconds a unit at fifty units. Set below that because the prep day is
+   * a trading day and the station cannot be given over entirely.
+   */
+  PREP_SECONDS_PER_UNIT: 165,
+  /**
+   * Fraction of the uplift's extra arrivals who came specifically for the
+   * special and will not accept a burger instead.
+   *
+   * This is the number that makes §18's *"worse than never running it"* fall
+   * out of the mechanism rather than being bolted on. At 1.0 every extra
+   * customer is a special-seeker and an 86 costs you the entire uplift plus
+   * their opinion of you; at 0 the special is free advertising and running out
+   * costs nothing, which is the design §18 explicitly forbids.
+   *
+   * // PROVISIONAL — 0.7 says most of the crowd a special draws came for the
+   * special, and the rest were coming anyway and noticed the sign.
+   */
+  SEEKER_FRACTION: 0.7,
+  /** Reviews an 86'd seeker leaves, against §6.3's ordinary walkout rate. */
+  EIGHTY_SIX_LOUDNESS: 2.2,
+  /**
+   * How much of the shop's credibility a full 86 costs.
+   *
+   * **This is the mechanism that makes §18's hardest clause true**, and it is
+   * here because the obvious approach failed a measurement. Reviews alone were
+   * not enough: turning fifteen people away bought about three two-star
+   * reviews, which against a shop with hundreds of them is noise, so
+   * deliberately under-prepping was the single most profitable play in the game
+   * — $39,135 against $37,935 for never running a special at all. Exactly what
+   * §18 forbids.
+   *
+   * The honest fix is not a bigger number on the review. It is that **a promise
+   * you broke stops working.** A shop that ran out of wings last Wednesday
+   * draws a smaller crowd next Wednesday, because the people who drove over for
+   * nothing tell their mates and do not come back. That is what actually
+   * happens, it makes repeat offending compound instead of paying, and it needs
+   * no constant tuned against a gate to do it.
+   *
+   * Scaled by the fraction of seekers turned away, so running twenty short of a
+   * hundred is a scratch and opening with nothing is a scar.
+   */
+  CREDIBILITY_HIT: 0.55,
+  /** Fraction of the lost credibility that comes back each clean week. */
+  CREDIBILITY_RECOVERY: 0.28,
+  /** It never falls below this. §10 — nothing is unrecoverable. */
+  CREDIBILITY_FLOOR: 0.15,
+  /**
+   * Promoting the week's special. DESIGN.md §8's channel table, verbatim:
+   * *"Special promotion | Cheap | Only lifts the current week's special, high
+   * efficiency | Best value if you can serve it (§18)."*
+   *
+   * It is a separate lever from §8.3's letterbox and paid social because it
+   * multiplies `specialUplift` rather than adding to general awareness — it
+   * cannot bring anyone in on a Tuesday if the special runs on Wednesday, and
+   * it does nothing at all if no special is running.
+   *
+   * **This is what makes §18's hardest clause measurable.** *"86'ing a PROMOTED
+   * special is worse than never running it"* — promoted is the operative word.
+   * An unpromoted special that runs short costs some goodwill and a bit of
+   * stock. A promoted one that runs short means you paid cash to draw a bigger
+   * crowd and then turned it away, and both halves are on your side of the
+   * ledger.
+   */
+  PROMO_WEEKLY_COST: 140,
+  /** Multiplier on the special's uplift when promoted. */
+  PROMO_UPLIFT: 2.4,
 } as const;

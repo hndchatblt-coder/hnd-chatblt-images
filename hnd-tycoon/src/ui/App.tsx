@@ -21,6 +21,7 @@ import { Money } from './Money';
 import { Stars } from './Stars';
 import { Trade } from './Trade';
 import { TroublePanel } from './Trouble';
+import { Specials } from './Specials';
 import type { Game } from '@/render/Game';
 
 const HUD_HZ = 4;
@@ -74,6 +75,7 @@ export function App(): JSX.Element {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [troubleOpen, setTroubleOpen] = useState(false);
+  const [specialsOpen, setSpecialsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [landed, setLanded] = useState<{ label: string; unlocks: string } | null>(null);
   const [booted, setBooted] = useState(false);
@@ -259,6 +261,17 @@ export function App(): JSX.Element {
               Prices
             </button>
           )}
+          {/* §18. Rides on the trade panel's rung: pricing and promoting are the
+              same muscle, and a third gate for one more button is admin. */}
+          {readout.panels.trade && (
+            <button
+              type="button"
+              className="specials-open"
+              onClick={() => setSpecialsOpen(true)}
+            >
+              Special
+            </button>
+          )}
           {/* Only there when there IS something wrong. A permanently visible
               "problems" button on a shop with no problems trains the player to
               ignore it, which is the one thing this button cannot afford. */}
@@ -284,6 +297,13 @@ export function App(): JSX.Element {
       <TroublePanel
         open={troubleOpen}
         onClose={() => setTroubleOpen(false)}
+        game={() => game.current}
+        onMessage={setToast}
+      />
+
+      <Specials
+        open={specialsOpen}
+        onClose={() => setSpecialsOpen(false)}
         game={() => game.current}
         onMessage={setToast}
       />

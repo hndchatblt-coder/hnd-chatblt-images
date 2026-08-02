@@ -647,3 +647,55 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .unlock { animation: none; }
 }
+
+/* --- §18: the Monday choice. ---------------------------------------------
+   Three facts per row — the draw, the station, the waste — because the whole
+   mechanic is comparing them and a name with details behind a tap is a menu. */
+.specials { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.special {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 241, 234, 0.1);
+  background: rgba(244, 241, 234, 0.04);
+  color: var(--ink);
+  text-align: left;
+}
+.special.on { border-color: var(--warm); background: rgba(232, 163, 61, 0.14); }
+.special-label { font-size: 14px; font-weight: 600; }
+.special-blurb { font-size: 12px; line-height: 1.35; color: var(--ink-muted); }
+.special-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  opacity: 0.85;
+}
+/* An ingredient nothing else uses. The surplus has no second life, so the row
+   says so rather than leaving it to be discovered on Thursday. */
+.special-facts .exposed { color: #e8a33d; opacity: 1; }
+
+.prep { margin-bottom: 14px; }
+.prep label { display: block; font-size: 12.5px; margin-bottom: 6px; color: var(--ink); }
+.prep label em { font-style: normal; color: var(--ink-muted); }
+.prep label em.bad { color: #e8a33d; }
+.prep input[type='range'] { width: 100%; accent-color: var(--warm); }
+
+.promote {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.promote input { margin-top: 2px; accent-color: var(--warm); }
+.promote em { display: block; font-style: normal; font-size: 11.5px; color: var(--ink-muted); }
+
+.sheet-note { font-size: 12px; line-height: 1.4; color: var(--ink-muted); margin: 0 0 12px; }
+.sheet-note.bad { color: #e8a33d; }

@@ -58,6 +58,9 @@ describe('STEP 12 — automation must not dominate', () => {
 // more than 3 game days with nothing worth doing, and tests/step14.test.ts
 // proves the detector is capable of reporting one. See §15.3.
 
+// STEP 15's gate is live in tests/step15.test.ts: under- and over-prepping both
+// cost, and 86'ing a PROMOTED special is worse than never running one. See §18.
+
 describe('STEP 20 — ship criteria', () => {
   it.todo('bot:balanced reaches the venue-2 threshold at game day 45-60');
   it.todo('labour lands 28-34% unautomated, 22-26% automated');

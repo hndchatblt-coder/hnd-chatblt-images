@@ -50,6 +50,18 @@ await page.getByRole('button', { name: '4×' }).click();
 for (const moment of MOMENTS) {
   await page.waitForTimeout(moment.waitMs);
   await page.screenshot({ path: `${SHOTS}/${moment.name}.png` });
+  // §18's Monday choice, if the rung that opens it has landed.
+  if (moment.name === '4-after-three-days') {
+    const button = page.locator('.specials-open');
+    if (await button.count()) {
+      await button.click();
+      await page.waitForTimeout(400);
+      await page.locator('.special').nth(2).click();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${SHOTS}/5-the-monday-choice.png` });
+      await page.locator('.sheet-close').click();
+    }
+  }
   const headline = await page.locator('.headline').textContent().catch(() => null);
   const rungs = await page.locator('.rungs li .rung-label').allTextContents();
   const buttons = await page.locator('.actions button').allTextContents();
