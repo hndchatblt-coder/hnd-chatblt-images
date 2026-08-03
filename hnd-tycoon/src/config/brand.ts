@@ -9,18 +9,27 @@
  * NOT cream-and-terracotta editorial. This is a neon-and-steel subject.
  */
 export const BRAND = {
-  // Reserved signal hues — NOTHING decorative may use these. §21.3
+  /**
+   * Reserved signal hues. §21.3.
+   *
+   * **These must be the most saturated colours on screen**, and that is the
+   * rule rather than "no decorative colour may look like them" — see
+   * `config/palette.ts`. The ticket amber and red were raised here because
+   * measurement found the shop's own pilot lights (chroma 194) and sodium lamp
+   * (184) shouting louder than the ticket warning (171) that was supposed to
+   * leap off them.
+   */
   signal: {
     ticketFresh: 0xf4f1ea,
-    ticketWarning: 0xe8a33d,
-    ticketCritical: 0xd6453a,
+    ticketWarning: 0xffa50a,
+    ticketCritical: 0xf5231a,
     foodRaw: 0xc4707a,
     foodSeared: 0x9a5a34,
     foodPerfect: 0x6f3d21,
     foodBurnt: 0x2b1a12,
   },
   interior: {
-    warm: 0xffb347,
+    warm: 0xe0a055,
     floor: 0x2a2622,
     /** The alternate floor tile. A flat floor reads as a void. */
     floorAlt: 0x322d28,
@@ -42,8 +51,14 @@ export const BRAND = {
     enamelDark: 0x2f3438,
     /** Anything hot gets this on its cooking surface. */
     hotplate: 0x39322e,
-    /** Pilot lights and readouts: equipment should look ON at rest. §21.2 */
-    pilot: 0xff7a3d,
+    /**
+     * Pilot lights and readouts: equipment should look ON at rest. §21.2
+     *
+     * Pulled down from `0xff7a3d` (chroma 194). A pilot light is a small warm
+     * dot, which is also exactly what an ageing ticket looks like — being the
+     * single most saturated thing in the game made it the loudest.
+     */
+    pilot: 0xd96a35,
     oil: 0xc9a24a,
     timber: 0x6b5440,
     timberDark: 0x453425,
@@ -81,5 +96,5 @@ export const BRAND = {
   },
 
   /** Steam and haze. Never a signal hue. §21.3 */
-  fx: { steam: 0xd8d2c6, glow: 0xffb347 },
+  fx: { steam: 0xd8d2c6, glow: 0xe0a055 },
 } as const;

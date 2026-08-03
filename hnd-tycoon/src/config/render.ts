@@ -119,6 +119,39 @@ export const RENDER = {
    * the single distinction that does the most visual work, and says to
    * exaggerate it deliberately. These are the exaggeration.
    */
+  /**
+   * Motion budget. BUILD_PLAN step 17.
+   *
+   * *"Individual fidgets cull as density rises."*
+   *
+   * The per-person irregularity from step 13 — phase, speed, sway, bob, four
+   * separate sources of it — is what makes a crowd read as people rather than
+   * as a spreadsheet. It is also the only per-entity work in the renderer that
+   * scales with headcount, and at stage 4 there are eighty-odd of them.
+   *
+   * **Culled by DISTANCE-FROM-CAMERA rank, not at random.** Randomly freezing
+   * half the room produces a crowd where some people twitch and some are
+   * statues, which reads as broken. Dropping the fidget on whoever is furthest
+   * back reads as depth of field: the people you are looking at move, and the
+   * ones at the back of the room are a texture, which is what they are anyway.
+   *
+   * The thresholds are counts of moving bodies, not a frame-time reading. A
+   * budget that responds to measured fps oscillates — cull, get faster, un-cull,
+   * get slower — and the oscillation is far more visible than the culling.
+   */
+  MOTION_BUDGET: {
+    /** Everyone fidgets below this. §21.1's stages 1 and 2. */
+    FULL_UNTIL: 24,
+    /** Above this, only the nearest `NEAR_COUNT` keep their per-person motion. */
+    NEAR_COUNT: 18,
+    /**
+     * And past this, the sway goes too and only the walk cycle survives. A
+     * body still moves along its path — losing that would make the room look
+     * frozen, which is a lie about what the shop is doing.
+     */
+    WALK_ONLY_ABOVE: 56,
+  },
+
   MOTION: {
     /** Walk bob amplitude in pixels, and its cycle. */
     bobPixels: 1.6,
@@ -219,6 +252,13 @@ export const RENDER = {
      */
     perRow: 4,
     rows: 2,
+    /**
+     * The idle sway of somebody waiting. Was inline in `drawQueue` as `0.9` and
+     * `1.2`, which is the "just for now" constant CLAUDE.md warns about — it
+     * surfaced when step 17's motion budget needed to switch it off.
+     */
+    swayHz: 0.9,
+    swayPixels: 1.2,
     /**
      * Tiles between rows. `headOffset + (rows - 1) * rowPitch + rowPitch` must
      * stay inside `STREET_ROWS`, and there is a test for it.

@@ -1438,3 +1438,61 @@ instead of two.** A contract is not an addition to the objective list, it takes
 the top slot, because it is the only one that expires. §15.1's "two visible" is
 about the player always being able to see what is next, and a deadline is more
 next than a target with no date on it.
+
+## D067 — §21.3's reserved hues are a saturation rule, not a hue rule
+**Step 17. Status: active.**
+
+*"Nothing decorative uses ticket amber/red or the food ramp."* Taken literally
+and enforced with a perceptual distance, **twenty-eight of thirty decorative
+tokens failed.** The floor was too close to a burnt patty; the skin tone was too
+close to raw mince; the steam was too close to a fresh ticket.
+
+That is not a palette that needs fixing, it is a rule that cannot be satisfied.
+ticketFresh, ticketWarning, ticketCritical and the four-step food ramp between
+them occupy the entire warm half of the wheel, and §22.2's art direction is
+*"warm sodium-lamp interior against a cool blue-grey street"*. Every warm colour
+in a warm room is near a reserved one by construction.
+
+What actually makes a signal legible is what makes hi-vis legible: **not a hue
+nobody else may use, a saturation nothing else in the environment has.** So the
+enforced rule is:
+
+1. every chromatic ticket signal out-saturates every decorative token;
+2. the food ramp is internally separable and monotonically darker, because it is
+   read as an ordered sequence on a small object;
+3. no decorative token is exactly a reserved hue.
+
+**And measured against that, the game was failing.** The shop's pilot lights sat
+at chroma 194 and its sodium lamp at 184, against ticketWarning's 171 — the
+single most saturated thing on screen was a decorative dot on the front of a
+fryer, and an ageing ticket, which is also a small warm dot, had to compete with
+it. Signals raised to 245 and 219, decoration pulled to 164 and 139.
+
+`ink` is out of scope rather than exempted: §21.3 is about the venue rendering,
+and `ink.primary` is HUD type on a different layer that never sits next to a
+ticket. It is exactly `ticketFresh` and that is fine.
+
+## D068 — the motion budget steers on headcount, because fps here is noise
+**Step 17. Status: active.**
+
+*"Individual fidgets cull as density rises."* The obvious implementation reads
+measured frame time and culls when it slips. Two reasons not to:
+
+**It oscillates.** Cull, get faster, un-cull, get slower. The pulsing is far
+more visible than the culling it is hiding.
+
+**And here it would be steering on noise.** Two consecutive `npm run fps` runs
+on identical code reported 2.10ms and 5.40ms of render at stage 4 — a 2.6x swing
+with nothing changed. This container resolves order-of-magnitude regressions,
+which is a useful thing for a harness to do, and cannot resolve a 20% win.
+
+So the budget is a step function of bodies on screen, and it is **ranked by
+distance from the front, never random**. Freezing a random half of a crowd gives
+you a room where some people twitch and some are statues, which reads as a bug;
+dropping the fidget on whoever is furthest back reads as depth of field. The
+walk cycle is never culled at any density — a heaving shop frozen mid-stride is
+a worse lie than one where nobody fidgets.
+
+**No performance claim is made for it.** It is implemented, bounded and tested
+for its logic; whether it buys frames on real hardware is unmeasured and
+recorded as such.

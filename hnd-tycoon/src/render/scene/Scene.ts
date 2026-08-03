@@ -19,6 +19,7 @@
  */
 import { Container, Sprite } from 'pixi.js';
 import { RENDER } from '@/config/render';
+import { allowanceFor } from '../motionBudget';
 import { STATION_SPECS } from '@/config/stations';
 import { footprintOf } from '@/sim/floor';
 import { attentionSplit, downMachines } from '@/sim/systems/kitchen';
@@ -501,6 +502,20 @@ export class Scene {
    * exaggerated, and the per-person phase offset means two cooks never walk in
    * step, which is what will make the machines look mechanical at step 13.
    */
+  /**
+   * How many bodies are on screen and capable of moving. Step 17's budget reads
+   * this rather than a frame time: a budget that responds to measured fps
+   * oscillates — cull, get faster, un-cull, get slower — and the oscillation is
+   * far more visible than the culling ever was.
+   */
+  private movingBodies(state: SimState): number {
+    return state.workingToday.size + state.customers.size;
+  }
+
+  private fidgets(moving: number, rank: number): boolean {
+    return allowanceFor(moving, rank).fidget;
+  }
+
   private drawStaff(state: SimState): void {
     state.staff.forEach((staff, index) => {
       // Not in today: not in the building. A roster you cannot see on the
@@ -563,6 +578,10 @@ export class Scene {
    */
   private drawQueue(state: SimState, now: number): void {
     const waiting = [...state.customers.values()].filter((c) => c.state === 'waiting');
+    // Step 17's motion budget. `i` is already distance-from-door order, so the
+    // rank the budget wants is the loop index — the people you are looking at
+    // keep their fidget and the tail of the queue becomes texture.
+    const moving = this.movingBodies(state);
     const entry = state.site.entryTile;
     const shown = Math.min(waiting.length, QUEUE_MAX_VISIBLE);
 
@@ -575,8 +594,12 @@ export class Scene {
       sprite.anchor.set(0.5, 1);
 
       const at = this.queueSlot(entry, i);
-      // A tiny per-customer sway. People waiting are never quite still.
-      const sway = Math.sin((this.elapsed + i * 2.1) * 0.9) * 1.2;
+      // A tiny per-customer sway. People waiting are never quite still — until
+      // the room is heaving and there are eighty of them, at which point the
+      // ones down the back stop being individuals and start being a crowd.
+      const sway = this.fidgets(moving, i)
+        ? Math.sin((this.elapsed + i * 2.1) * RENDER.QUEUE.swayHz) * RENDER.QUEUE.swayPixels
+        : 0;
 
       /**
        * §6.2, "customer mood through posture". Nobody is annoyed for the first

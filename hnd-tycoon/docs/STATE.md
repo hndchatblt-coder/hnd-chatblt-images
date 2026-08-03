@@ -1396,3 +1396,64 @@ Both are safety properties, so both are tested at the mechanism:
   same one. Distinct enough to pass the "no two stresses alike" test, thinner
   than the other three in practice.
 - The per-tick `SPECIAL_BY_ID` lookup from step 15 is still there.
+
+---
+
+## Step 17 — PARTIAL: legibility done, density measured, two criteria unmet
+
+Logged honestly as partial rather than shipped. Two of the four exit criteria
+are met and proven, one is met on a proxy, and one is not attempted.
+
+### Met, and proven by test
+
+**Reserved-hue enforcement (§21.3).** The rule turned out to be a saturation
+rule rather than a hue rule — the literal reading failed 28 of 30 decorative
+tokens, because the food ramp and the room share the entire warm half of the
+wheel. See D067. Measured against the rule that survived, **the game was
+failing**: the pilot lights (chroma 194) and sodium lamp (184) were louder than
+ticketWarning (171), so the loudest thing on screen was a decorative dot.
+Signals raised, decoration calmed, and it is visible in the screenshot — the
+ticket rail is now unmistakably the thing your eye goes to.
+
+**Motion budget degradation.** Implemented as a pure, tested function: nothing
+culled below 24 bodies, capped at 18 fidgeting above that, ranked from the front
+so it reads as depth, and the walk cycle never culled at any density. D068.
+
+### Met on a proxy, stated as such
+
+**"60fps with 40 customers and 12 staff on a throttled mid-range Android."**
+There is no Android here. On Chromium at 4x CPU throttle, stage 4 (69–87
+customers, 12 staff) costs **7.3–9.2ms of a 16.7ms frame**, sim plus render.
+Comfortable, and the entity count is well past what the criterion asks for.
+
+But the wall-clock numbers this container reports are worthless: a flat 83.3ms
+per frame — exactly five vsync intervals — **unchanged from 16 entities to 86**.
+It has no GPU and paces requestAnimationFrame in whole intervals. Real-device
+frame rate is **unverified**, not met.
+
+### NOT met, and not attempted this step
+
+- **"Every shape readable at 12px."** The palette work is a necessary condition
+  for it and not the whole of it. No shape has been rendered at 12px and looked
+  at.
+- **"A full service played muted loses no information."** There is no audio in
+  the game, so it is trivially true and meaninglessly so. The real criterion —
+  every sound has a visual twin — cannot be tested until there are sounds.
+- **Particle systems with pooling** (steam, haze, conveyor motion): not built.
+- **Auto-surfacing overlays** (congestion, walk distance, utilisation, queue
+  age): not built.
+- **Tier 1 detail pass** and the zoom-in-on-one-patty reward: not built.
+
+### Found by looking, not fixed
+
+**The ticket rail is a wall.** Six tickets render as large white rectangles in
+front of the counter, hiding the kitchen they are reporting on. They also read
+as floating rather than hanging on a rail. The signal now correctly dominates —
+which is the moment its size becomes the problem. Next thing to fix in this
+step.
+
+### DEBT
+
+- Everything in "not attempted" above.
+- The fps harness cannot resolve better than ~2.6x. Fine as a regression
+  detector, useless as a benchmark.
