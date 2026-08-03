@@ -1444,13 +1444,18 @@ frame rate is **unverified**, not met.
   age): not built.
 - **Tier 1 detail pass** and the zoom-in-on-one-patty reward: not built.
 
-### Found by looking, not fixed
+### Found by looking, and fixed
 
-**The ticket rail is a wall.** Six tickets render as large white rectangles in
-front of the counter, hiding the kitchen they are reporting on. They also read
-as floating rather than hanging on a rail. The signal now correctly dominates —
-which is the moment its size becomes the problem. Next thing to fix in this
-step.
+**The ticket rail was a wall.** Six dockets rendered as large opaque white
+rectangles in front of the counter, hiding the kitchen they report on.
+
+The fix is the same rule as the palette work, applied to the rail's own two
+halves: the FLAG is the signal and the PAPER is only what carries it. The paper
+drops to 62% and the rail lifts clear of the counter; the flag stays fully
+opaque. Signal-to-noise up, signal untouched.
+
+**Not yet verified in a screenshot** — the shot that would show it caught the
+shop with an empty rail. Carried as debt rather than claimed.
 
 ### DEBT
 

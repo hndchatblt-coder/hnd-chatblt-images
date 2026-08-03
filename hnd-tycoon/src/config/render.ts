@@ -354,7 +354,21 @@ export const RENDER = {
      * equipment, not paper. Above the pass it is where a real one is, and it is
      * next to the food it is describing.
      */
-    liftPixels: 44,
+    liftPixels: 56,
+    /**
+     * How opaque the docket PAPER is. The FLAG stays at full opacity always.
+     *
+     * Step 17's saturation rule, applied to the rail's own two halves. Six
+     * dockets at full opacity are six big white rectangles hanging in front of
+     * the counter, hiding the kitchen they are reporting on — and the paper is
+     * not the signal. The band across the top is what ages and what has to be
+     * seen; the paper is only what carries it.
+     *
+     * Turning the carrier down raises the signal-to-noise of the rail without
+     * touching the signal at all, which is the cheapest legibility win in the
+     * step and was invisible until somebody looked at a screenshot.
+     */
+    paperAlpha: 0.62,
     /** The coloured band across the top of each docket. Only this ages. */
     flagHeight: 7,
     /** A degree or two of tilt each, so they read as paper and not as tiles. */

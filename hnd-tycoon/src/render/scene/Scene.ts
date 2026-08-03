@@ -746,6 +746,8 @@ export class Scene {
       const tilt = (((i % 3) - 1) * RENDER.RAIL.tiltDegrees * Math.PI) / 180;
       sprite.rotation = tilt;
       sprite.zIndex = 1000;
+      // The carrier, not the signal. See RENDER.RAIL.paperAlpha.
+      sprite.alpha = RENDER.RAIL.paperAlpha;
 
       // The band across the top. THIS is what ages — the paper stays paper.
       const flag = this.flagPool.take();
