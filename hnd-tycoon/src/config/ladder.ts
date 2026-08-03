@@ -171,6 +171,32 @@ export const LADDER = {
   /** §15.1: "Two rungs always in the HUD; the rest browsable." */
   VISIBLE: 2,
   /**
+   * Rungs that may land in one trading day. §15.1's "one per session", and
+   * D055 measured what happens without it: three on the first Sunday.
+   *
+   * Shared by both award paths — the intra-day one that makes the ladder feel
+   * responsive, and the close one that settles rungs needing a whole day.
+   */
+  PER_DAY: 1,
+  /**
+   * The one rung the per-day cap may not delay. §19's hook: *"first 30 minutes
+   * — watch food get made, understand the chain, see one bottleneck named,
+   * complete one ladder rung."*
+   *
+   * Measured, and it was failing. `thousandDay` fires at about forty-five
+   * covers because this shop takes over twenty dollars a head, so on two seeds
+   * in three it consumed day zero's single rung and `fiftyCovers` — the rung
+   * that opens pricing and marketing — waited until the next day. At 1x that is
+   * twenty real minutes before the player can touch the two levers they came
+   * looking for, and a playtester reported exactly that: *"you can't boost
+   * customers by doing weekly specials or paid advertising."*
+   *
+   * A player who does not see the ladder answer them in their first session
+   * does not learn there is a ladder. So the first rung is exempt: at most two
+   * things land on day zero, one of which is the game explaining itself.
+   */
+  ALWAYS_IMMEDIATE: 'fiftyCovers',
+  /**
    * Rungs measured over a week need a week. Checked on the payroll boundary so
    * "a week" means the shop's week and not a rolling seven days, which would
    * let a good Saturday and a good Sunday carry five bad days.

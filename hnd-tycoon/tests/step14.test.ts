@@ -151,18 +151,44 @@ describe('§15.1 — the ladder is the gate, and the gate is real in the sim', (
     expect(RUNGS.some((r) => r.reward.kind === 'panel' && r.reward.id === 'roster')).toBe(false);
   });
 
-  it('at most one rung lands per day — systems arrive one per session', () => {
-    // Without the cap this shop banks three on its first trading day: 139
-    // covers and $2,724 clears fifty covers, a hundred covers and a thousand
-    // dollars at once.
+  /**
+   * One rung a day, with exactly one exception, and the exception is the point.
+   *
+   * Without any cap this shop banks three on its first trading day (D055). With
+   * a flat cap of one it banked the WRONG one: `thousandDay` fires at about
+   * forty-five covers because the shop takes over twenty dollars a head, so on
+   * two seeds in three it consumed day zero and `fiftyCovers` — which opens
+   * pricing and marketing — waited until the next day. At 1x that is twenty
+   * real minutes before a new player can touch either lever, and a playtester
+   * reported precisely that.
+   *
+   * So the tutorial rung is exempt (`LADDER.ALWAYS_IMMEDIATE`): a player who
+   * does not see the ladder answer them in their first session does not learn
+   * there is a ladder. Day zero may bank two; every other day, one.
+   */
+  it('lands one rung a day, and never more than two even on day zero', () => {
     const world = buildScenario({ seed: 2 });
     let previous = 0;
     for (let day = 0; day < 30; day++) {
       world.runDays(1);
-      expect(world.state.rungs.length - previous).toBeLessThanOrEqual(1);
+      const landed = world.state.rungs.length - previous;
+      expect(landed, `day ${day} banked ${landed}`).toBeLessThanOrEqual(day === 0 ? 2 : 1);
       previous = world.state.rungs.length;
     }
     expect(previous).toBeGreaterThan(3);
+  });
+
+  it('never makes the player wait a day for the rung that opens pricing', () => {
+    // The regression this exists to catch, stated as a player outcome rather
+    // than as an implementation detail.
+    for (const seed of [1, 2, 3, 4]) {
+      const world = buildScenario({ seed });
+      world.runDays(1);
+      expect(
+        unlocked(world.state, 'panel', 'trade'),
+        `seed ${seed}: pricing still locked after the first day`,
+      ).toBe(true);
+    }
   });
 });
 

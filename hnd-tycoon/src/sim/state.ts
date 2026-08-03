@@ -164,6 +164,8 @@ export interface SimState {
   readonly rungs: string[];
   /** The rung that landed most recently, for the HUD to celebrate once. */
   justUnlocked: string | null;
+  /** Rungs banked today, so the per-day cap holds across both award paths. */
+  rungsToday: number;
   /** Today's one-line verdict. §15.2 */
   headline: string;
   /** Which template wrote it, and for how many days running. See `again`. */
@@ -354,6 +356,7 @@ export function createState(opts: StateOptions = {}): SimState {
     maintaining: true,
     rungs: [],
     justUnlocked: null,
+    rungsToday: NONE,
     headline: '',
     headlineId: null,
     headlineStreak: 0,

@@ -137,7 +137,7 @@ export class Game {
       const t0 = performance.now();
       if (this.running) this.step(dt);
       const t1 = performance.now();
-      this.scene.render(this.world.state, dt, this.world.clock.now as number);
+      this.scene.render(this.world.state, dt, this.world.clock.now as number, this.speed);
       // Rolling WORST, not last. A single frame sampled at an arbitrary instant
       // is a number you can re-roll until it flatters you; the worst frame in
       // the window is the one the player actually feels.

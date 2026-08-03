@@ -20,6 +20,7 @@
 import { Container, Sprite } from 'pixi.js';
 import { RENDER } from '@/config/render';
 import { allowanceFor } from '../motionBudget';
+import { SMOOTHING, Smoother } from '../smoothing';
 import { STATION_SPECS } from '@/config/stations';
 import { footprintOf } from '@/sim/floor';
 import { attentionSplit, downMachines } from '@/sim/systems/kitchen';
@@ -94,6 +95,11 @@ export class Scene {
   private readonly steam: Steam[] = [];
   private steamCarry = 0;
   private elapsed = 0;
+  /** Real seconds in the current frame, for the position chase. */
+  private frameDt = 0;
+  /** The game's speed multiplier, so the chase keeps up at 4x. */
+  private speed = 1;
+  private readonly smoother = new Smoother();
   private built = false;
 
   constructor(private readonly registry: ShapeRegistry) {
@@ -271,10 +277,13 @@ export class Scene {
    * stalled kitchen takes no new orders, so time would appear to stop and the
    * ticket rail would freeze white at exactly the moment it needed to go red.
    */
-  render(state: SimState, dt: number, now: number): void {
+  render(state: SimState, dt: number, now: number, speed = 1): void {
     this.build(state);
     this.reconcileStations(state, dt);
     this.elapsed += dt;
+    this.frameDt = dt;
+    this.speed = speed;
+    this.smoother.begin();
 
     this.staffPool.begin();
     this.customerPool.begin();
@@ -295,6 +304,8 @@ export class Scene {
     this.drawWalkouts(state, dt);
     this.drawRail(state, now);
     this.drawSteam(state, dt);
+
+    this.smoother.end();
 
     this.staffPool.end();
     this.customerPool.end();
@@ -525,7 +536,13 @@ export class Scene {
 
       const sprite = this.staffPool.take();
       sprite.anchor.set(0.5, 1);
-      const at = toScreen(staff.x, staff.y);
+      // Chase the simulated position rather than snapping to it. The sim runs
+      // at 10 Hz and this draws at 60 — without this the sprite sits still for
+      // 100ms and then jumps, which is the "popping around the screen" a
+      // playtest reported and no gate in this project could see.
+      const eased = this.smoother.chase(staff.id, staff.x, staff.y, this.frameDt, this.speed);
+      const at = toScreen(eased.x, eased.y);
+      sprite.alpha = eased.alpha;
 
       const job = staff.jobId === null ? null : state.jobs.get(staff.jobId);
       const walking = job?.phase === 'travel' || job?.phase === 'recall' || job?.phase === 'carry';
@@ -593,7 +610,19 @@ export class Scene {
       const sprite = pool.take();
       sprite.anchor.set(0.5, 1);
 
-      const at = this.queueSlot(entry, i);
+      const slot = this.queueSlot(entry, i);
+      // Keyed by the CUSTOMER, not the slot. Slots are reused as the queue
+      // moves up, so smoothing by slot would slide one person's position into
+      // the next person's — a worse pop than the one being fixed.
+      const eased = this.smoother.chase(
+        `q:${customer.id}`,
+        slot.x,
+        slot.y,
+        this.frameDt,
+        this.speed,
+        SMOOTHING.SNAP_PIXELS,
+      );
+      const at = { x: eased.x, y: eased.y };
       // A tiny per-customer sway. People waiting are never quite still — until
       // the room is heaving and there are eighty of them, at which point the
       // ones down the back stop being individuals and start being a crowd.

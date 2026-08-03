@@ -29,6 +29,22 @@ const NONE = 0;
 const ONE = 1;
 const CENTS = 100;
 
+/**
+ * Rungs whose test is a running total, so they can be judged during service.
+ *
+ * Everything NOT in here needs the whole day: "a full day with nobody walking
+ * out" is unknowable at two in the afternoon, and awarding it early would be a
+ * lie that the player catches at five.
+ */
+const INTRADAY: ReadonlySet<string> = new Set([
+  'fiftyCovers',
+  'hundredCovers',
+  'thousandDay',
+  'secondStaff',
+  'fourStars',
+  'unattendedService',
+]);
+
 /** Is a capability open yet? Everything not named by a rung is open from the start. */
 export function unlocked(state: SimState, kind: string, id: string): boolean {
   const gate = RUNGS.find((r) => r.reward.kind === kind && r.reward.id === id);
@@ -119,6 +135,31 @@ export class LadderSystem implements System {
   readonly name = 'ladder';
 
   /**
+   * Award the rungs that can be judged mid-service, the moment they are earned.
+   *
+   * **A playtest found this and no gate could have.** Rungs used to land only
+   * at day close, and a game day at 1x is twelve real minutes — of which six
+   * and a half are the shop being shut. So a returning player served their
+   * fiftieth cover, nothing happened, and the pricing and specials panels the
+   * rung opens stayed invisible for another eight minutes of watching an empty
+   * room. The reported symptom was *"you can't boost customers by doing weekly
+   * specials or paid advertising"*, and it was true: they were unreachable.
+   *
+   * Only the counters that are monotonic within a day are checked here —
+   * covers, takings, hands on the floor. A rung about the SHAPE of a whole day
+   * ("nobody walked out") cannot be known until the day is over and is still
+   * settled at close.
+   */
+  onOpen(world: World): void {
+    world.state.rungsToday = NONE;
+  }
+
+  tick(world: World): void {
+    if (!world.clock.isOpen) return;
+    this.award(world.state, world, factsFor(world.state, world), INTRADAY);
+  }
+
+  /**
    * Runs at CLOSE, not at cycle end, because the headline is a verdict on the
    * trading day and the player reads it with the P&L.
    */
@@ -192,15 +233,22 @@ export class LadderSystem implements System {
    * failing — but it is the kind of true-and-surprising thing that gets "fixed"
    * by somebody who has not read this paragraph.
    */
-  private award(state: SimState, world: World, facts: DayFacts): void {
+  private award(state: SimState, world: World, facts: DayFacts, only?: ReadonlySet<string>): void {
     for (const rung of RUNGS) {
       if (state.rungs.includes(rung.id)) continue;
       if (rung.act !== ONE) continue;
+      if (only && !only.has(rung.id)) continue;
+      // D055's pacing, now shared across BOTH award paths. Awarding during
+      // service made the ladder responsive; without this it also made it
+      // possible to bank two rungs in one day, which is the firehose D055
+      // measured and capped in the first place.
+      if (state.rungsToday >= LADDER.PER_DAY && rung.id !== LADDER.ALWAYS_IMMEDIATE) return;
       if (!this.met(rung, state, world, facts)) continue;
       state.rungs.push(rung.id);
       // §15.1: a capability, never cash. Nothing here touches the ledger, and
       // there is a test asserting exactly that.
       state.justUnlocked = rung.id;
+      state.rungsToday += ONE;
       world.record('rung', rung.label);
       return;
     }
