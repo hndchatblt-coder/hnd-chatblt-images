@@ -1,0 +1,687 @@
+/*
+ * DESIGN_TOKENS.md, pass 3 — the ground warmed up. Pass 2 made brushed steel the ground and
+ * the whole app read cold; steel is an accent now and the chrome sits in warm charcoal.
+ * Two button objects only: a docket (paper, torn top, monospace price) and a steel plate.
+ * Nothing rounder than a steel edge (radius <= 3px). No gradient pills, no starbursts.
+ */
+:root {
+  --steel: #a8afb6;
+  --steel-dark: #4a403a;
+  --steel-deep: #2e2724;
+  --char: #241f1c;
+  --lamp: #ff9e1b;
+  --sear: #e2401c;
+  --docket: #f6f1e4;
+
+  --font-display: "Haettenschweiler", "Arial Narrow", "Helvetica Neue Condensed",
+    "Liberation Sans Narrow", system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --radius: 3px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--steel-deep);
+  color: var(--docket);
+  font-family: var(--font-body);
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  min-height: 100dvh;
+  max-width: 440px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #4c423b, var(--steel-deep) 320px);
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.till {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.till__brand {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d3c7b7;
+  font-weight: 700;
+}
+
+.till__brand b {
+  color: var(--lamp);
+  font-weight: 700;
+}
+
+.till__cash {
+  font-family: var(--font-num);
+  font-size: 40px;
+  line-height: 0.95;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: #fff8ec;
+  text-shadow: 0 0 18px rgba(255, 158, 27, 0.35);
+  margin-top: 2px;
+}
+
+.till__rate {
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: #c4b8a8;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+
+.till__rate b {
+  color: var(--lamp);
+  font-weight: 700;
+}
+
+.iconbtn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: #3a322d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 0 #241e1b;
+  border-radius: var(--radius);
+  font-size: 15px;
+}
+
+.iconbtn:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* ----------------------------------------------------------------- horizon */
+/* What's next, and how long until you can have it. Turns waiting into watching. */
+
+.horizon {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 14px 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: #b6a999;
+  overflow: hidden;
+}
+
+.horizon__label {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8b8073;
+  flex: none;
+}
+
+.horizon__name {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e8dcc9;
+  font-weight: 700;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horizon__cost {
+  flex: none;
+  color: #e8dcc9;
+}
+
+.horizon__eta {
+  flex: none;
+  min-width: 6.5ch;
+  text-align: right;
+  color: #8b8073;
+}
+
+.horizon--ready {
+  background: rgba(255, 158, 27, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 158, 27, 0.4);
+}
+
+.horizon--ready .horizon__eta {
+  color: var(--lamp);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* ------------------------------------------------------------------ ticker */
+
+.ticker {
+  margin: 0 14px 6px;
+  padding: 7px 10px;
+  background: var(--docket);
+  color: var(--char);
+  border-radius: var(--radius);
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  line-height: 1.35;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* ------------------------------------------------------------------- scene */
+
+.scene {
+  position: relative;
+  margin: 0 10px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 10px 26px -12px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  line-height: 0;
+}
+
+.scene canvas {
+  width: 100%;
+  display: block;
+  touch-action: manipulation;
+}
+
+.scene__hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 240, 216, 0.55);
+  pointer-events: none;
+  animation: hint-fade 2.4s ease-in-out infinite;
+}
+
+@keyframes hint-fade {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* -------------------------------------------------------------------- shop */
+
+.shop {
+  padding: 12px 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shop__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 4px;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #a89b8c;
+}
+
+/* The ladder is two different things: stations you arrange, and venues you don't. Say which. */
+.shop__group {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-family: var(--font-num);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lamp);
+}
+
+.shop__group span:last-child {
+  color: #8b8073;
+  letter-spacing: 0.08em;
+}
+
+/* A docket: thermal paper, torn top edge, monospace price. One of only two button objects. */
+.docketbtn {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 12px 11px;
+  text-align: left;
+  background: var(--docket);
+  color: var(--char);
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+  --tear: 7px;
+  -webkit-mask-image: radial-gradient(circle var(--tear) at var(--tear) 0, transparent 98%, #000 100%),
+    linear-gradient(#000, #000);
+  -webkit-mask-repeat: repeat-x, no-repeat;
+  -webkit-mask-size: calc(var(--tear) * 2) var(--tear), 100% 100%;
+  -webkit-mask-position: 0 0, 0 var(--tear);
+  mask-image: radial-gradient(circle var(--tear) at var(--tear) 0, transparent 98%, #000 100%),
+    linear-gradient(#000, #000);
+  mask-repeat: repeat-x, no-repeat;
+  mask-size: calc(var(--tear) * 2) var(--tear), 100% 100%;
+  mask-position: 0 0, 0 var(--tear);
+  transition: transform 0.06s;
+}
+
+/* Bought: the paper you tapped tears off and goes. The docket metaphor should cost something. */
+.docketbtn--torn {
+  animation: docket-tear 0.42s ease-out;
+}
+
+@keyframes docket-tear {
+  0% {
+    transform: translateY(2px);
+    filter: brightness(1);
+  }
+  22% {
+    transform: translateY(-3px) rotate(-0.7deg);
+    filter: brightness(1.25);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg);
+    filter: brightness(1);
+  }
+}
+
+.docketbtn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.docketbtn:disabled {
+  background: #b9b3a6;
+  color: #6b665c;
+  cursor: default;
+}
+
+.docketbtn__name {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+.docketbtn__flavour {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: #5f584c;
+  margin-top: 5px;
+  max-width: 25ch;
+}
+
+.docketbtn__price {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.docketbtn__owned {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 10px;
+  color: #6f6759;
+  text-align: right;
+  margin-top: 5px;
+  white-space: nowrap;
+}
+
+.docketbtn__each {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  color: #7a7264;
+  text-align: right;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.docketbtn--afford .docketbtn__price {
+  color: #a83a12;
+}
+
+.locked {
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius);
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9b8f81;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* -------------------------------------------------------------------- wall */
+/* Forty achievements that were, until now, entirely invisible. */
+
+.wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.wall__item {
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-family: var(--font-num);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6d6459;
+}
+
+.wall__item--got {
+  background: var(--docket);
+  color: var(--char);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* ------------------------------------------------------------------ footer */
+
+.stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  color: #968a7d;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats b {
+  color: #c4b8a8;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(10px);
+  width: min(400px, calc(100% - 28px));
+  padding: 11px 14px;
+  background: var(--docket);
+  color: var(--char);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.75);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 30;
+}
+
+.toast--show {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+
+:focus-visible {
+  outline: 2px solid var(--lamp);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene__hint {
+    animation: none;
+  }
+  .docketbtn,
+  .toast {
+    transition: none;
+  }
+  .docketbtn--torn {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------- tabs */
+/* Steel plates. The patty stays on screen; these swap the shop list beneath it. */
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 12px 10px 0;
+}
+
+.tab {
+  position: relative;
+  padding: 11px 4px;
+  border-radius: var(--radius);
+  background: #3a322d;
+  color: #c3b7a8;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
+}
+
+.tab--on {
+  background: var(--docket);
+  color: var(--char);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+.tab:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.tab__dot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--lamp);
+  color: #2a1408;
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.bulk {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.bulk__btn {
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: #3a322d;
+  color: #c3b7a8;
+  font-family: var(--font-num);
+  font-size: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.bulk__btn--on {
+  background: var(--lamp);
+  color: #2a1408;
+  font-weight: 700;
+}
+
+.docketbtn__kind {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9a8f7d;
+  margin-bottom: 3px;
+}
+
+.docketbtn__meta {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 9px;
+  color: #7a7264;
+  margin-top: 5px;
+}
+
+
+/* ------------------------------------------------------------------- line */
+/* What the bench arrangement is worth, and one tap to fix it. */
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 6px 6px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-family: var(--font-num);
+  font-size: 9.5px;
+}
+
+.line__label {
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8b8073;
+  flex: none;
+}
+
+.line__value {
+  flex: 1 1 auto;
+  color: var(--lamp);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line__auto {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: #3a322d;
+  color: #c3b7a8;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
+  line-height: 1;
+}
+
+/* Lit only when a better line is actually available — teaches the mechanic, never nags. */
+.line__auto--wants {
+  background: var(--lamp);
+  color: #2a1408;
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+.line__auto:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+/* -------------------------------------------------------------------- zoom */
+/* Steel plates under the scene — never over it, or they sit on the heat lamps.
+   The camera can always come back to the counter. */
+
+.zoom {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  margin: 8px 10px 0;
+}
+
+.zoom__btn {
+  padding: 8px 6px;
+  border-radius: var(--radius);
+  background: #3a322d;
+  color: #c3b7a8;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #241e1b;
+  line-height: 1;
+}
+
+.zoom__btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.zoom__btn--on {
+  background: var(--docket);
+  color: var(--char);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
