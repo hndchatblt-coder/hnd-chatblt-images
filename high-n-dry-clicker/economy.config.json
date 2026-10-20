@@ -1,0 +1,931 @@
+{
+  "version": "1.0.0",
+  "comment": "SINGLE SOURCE OF TRUTH for every number in High N' Dry: Clicker. Engine code contains no numeric literals except 0, 1 and array indices. Generator cost/rate ladder is Cookie Clicker's proven building curve renamed into the real business (brief: the loop is load-bearing, don't invent).",
+  "save": {
+    "schemaVersion": 1,
+    "autosaveSeconds": 10,
+    "storageKey": "hnd-clicker:save"
+  },
+  "click": {
+    "baseCash": 1,
+    "baseCpsShare": 0.01,
+    "comment": "clickPower = (baseCash * clickMult + perGeneratorBonus * generatorsOwned + cpsShare * cps) * globalMult, where cpsShare = baseCpsShare * (product of cpsShareMult upgrades). A tap is worth that share of one second's production. The base is deliberately tiny and non-zero so the 'convert production into click power' upgrades MULTIPLY an existing term instead of switching one on — switching it on from zero was a 294x cliff and broke the 25x step assertion (see PROGRESS.md M0)."
+  },
+  "generators": {
+    "costGrowth": 1.15,
+    "ladderComment": "Cookie Clicker's building curve (cost ~x10, rate ~x8 per rung), renamed. A compressed x8/x5 ladder was trialled during M2 to make the top rungs reachable inside the 3h sim; it did that, but it also sent the tryhard profile exponential (1e36 in an hour) and made the prestige loop chaotic. Reverted. Reachability of the top rungs is a real open G4 item — see PROGRESS.md M2.",
+    "list": [
+      {
+        "id": "tongs",
+        "name": "Second pair of tongs",
+        "baseCost": 15,
+        "baseRate": 0.1,
+        "flavour": "You bought a second pair of tongs. You still do all the work.",
+        "sceneName": "Tongs"
+      },
+      {
+        "id": "fryer",
+        "name": "Fryer",
+        "baseCost": 100,
+        "baseRate": 1,
+        "flavour": "Chips sell themselves.",
+        "sceneName": "Fryer"
+      },
+      {
+        "id": "grillHand",
+        "name": "Grill hand",
+        "baseCost": 1100,
+        "baseRate": 8,
+        "flavour": "Turns up. Mostly.",
+        "sceneName": "Grill hand"
+      },
+      {
+        "id": "frontOfHouse",
+        "name": "Front of house",
+        "baseCost": 12000,
+        "baseRate": 47,
+        "flavour": "Someone else takes the orders now.",
+        "sceneName": "Front of house"
+      },
+      {
+        "id": "uberEats",
+        "name": "Uber Eats listing",
+        "baseCost": 130000,
+        "baseRate": 260,
+        "flavour": "Strangers, at scale, with opinions.",
+        "sceneName": "Uber Eats"
+      },
+      {
+        "id": "rosebery",
+        "name": "Rosebery",
+        "baseCost": 1400000,
+        "baseRate": 1400,
+        "flavour": "Second venue."
+      },
+      {
+        "id": "neutralBay",
+        "name": "Neutral Bay",
+        "baseCost": 20000000,
+        "baseRate": 7800,
+        "flavour": "Third venue. Different POS, don't ask."
+      },
+      {
+        "id": "ghostKitchen",
+        "name": "Ghost kitchen",
+        "baseCost": 330000000,
+        "baseRate": 44000,
+        "flavour": "A burger shop that isn't anywhere."
+      },
+      {
+        "id": "franchise",
+        "name": "Franchise program",
+        "baseCost": 5100000000,
+        "baseRate": 260000,
+        "flavour": "Other people's rent."
+      },
+      {
+        "id": "pattyFactory",
+        "name": "Patty factory",
+        "baseCost": 75000000000,
+        "baseRate": 1600000,
+        "flavour": "8mm then 6mm, forever."
+      },
+      {
+        "id": "cattleStation",
+        "name": "Cattle station",
+        "baseCost": 1000000000000,
+        "baseRate": 10000000,
+        "flavour": "Now employs more people than the burger shop."
+      },
+      {
+        "id": "beefFutures",
+        "name": "Beef futures desk",
+        "baseCost": 14000000000000,
+        "baseRate": 65000000,
+        "flavour": "You are, technically, a commodities trader."
+      }
+    ],
+    "comment": " sceneName is the short label the shop scene uses for a station; it must read as the same object as name, never a generic role word."
+  },
+  "generatorTiers": {
+    "comment": "Per-generator x2 upgrades unlocked at owned thresholds. Cost = generator.baseCost * costMultipliers[tier]. 12 generators x 3 tiers = 36 upgrades. Thresholds 100/150 held back for a later content pass (see GAME.md CALL).",
+    "thresholds": [
+      10,
+      25,
+      50
+    ],
+    "multiplier": 2,
+    "costMultipliers": [
+      10,
+      100,
+      1000
+    ],
+    "names": [
+      "{name} x10",
+      "{name} x25",
+      "{name} x50"
+    ]
+  },
+  "clickUpgrades": [
+    {
+      "id": "clk-grip",
+      "name": "Rubberised tongs",
+      "cost": 100,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "Grip like you mean it."
+    },
+    {
+      "id": "clk-stpp",
+      "name": "The STPP patty formula",
+      "cost": 1000,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "Salt, then pepper, then press. Not negotiable."
+    },
+    {
+      "id": "clk-grind",
+      "name": "Double grind",
+      "cost": 25000,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "Twice through the mincer. You can taste it."
+    },
+    {
+      "id": "clk-plate",
+      "name": "Seasoned plate",
+      "cost": 500000,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "Never washed. Deliberately."
+    },
+    {
+      "id": "clk-char",
+      "name": "Char technique",
+      "cost": 20000000,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "The bit that can't be written down."
+    },
+    {
+      "id": "clk-press",
+      "name": "Weighted press",
+      "cost": 1000000000,
+      "effect": "clickMult",
+      "value": 2,
+      "flavour": "Heavy enough to be a liability."
+    },
+    {
+      "id": "clk-window",
+      "name": "Service window",
+      "cost": 5000,
+      "effect": "perGenerator",
+      "value": 0.1,
+      "flavour": "Every hire makes your own hands worth more."
+    },
+    {
+      "id": "clk-twohands",
+      "name": "Two hands",
+      "cost": 100000,
+      "effect": "perGeneratorMult",
+      "value": 5,
+      "flavour": "Both of them, at once, all night."
+    },
+    {
+      "id": "clk-muscle",
+      "name": "Muscle memory",
+      "cost": 10000000,
+      "effect": "perGeneratorMult",
+      "value": 5,
+      "flavour": "You stopped thinking about it in 2019."
+    },
+    {
+      "id": "clk-regulars",
+      "name": "Regulars know the order",
+      "cost": 1000000000,
+      "effect": "perGeneratorMult",
+      "value": 10,
+      "flavour": "They order by nodding."
+    },
+    {
+      "id": "clk-tapandgo",
+      "name": "Tap and go",
+      "cost": 100000000000,
+      "effect": "perGeneratorMult",
+      "value": 10,
+      "flavour": "The terminal beeps before they reach it."
+    },
+    {
+      "id": "clk-reads",
+      "name": "Reads the room",
+      "cost": 1000000,
+      "effect": "cpsShareMult",
+      "value": 5,
+      "flavour": "You know which order to call before it's placed."
+    },
+    {
+      "id": "clk-docket",
+      "name": "Docket rhythm",
+      "cost": 500000000,
+      "effect": "cpsShareMult",
+      "value": 5,
+      "flavour": "The rail sets the tempo. You keep it."
+    },
+    {
+      "id": "clk-expo",
+      "name": "Expo instinct",
+      "cost": 50000000000,
+      "effect": "cpsShareMult",
+      "value": 4,
+      "flavour": "One pass of the eyes clears the whole rail."
+    }
+  ],
+  "globalUpgrades": [
+    {
+      "id": "glb-special",
+      "name": "Weekly special board",
+      "cost": 50000,
+      "value": 1.1,
+      "flavour": "Laminated. Reused. Corner missing."
+    },
+    {
+      "id": "glb-lightspeed",
+      "name": "Lightspeed integration",
+      "cost": 500000,
+      "value": 1.15,
+      "flavour": "The reports finally agree with the till."
+    },
+    {
+      "id": "glb-printer",
+      "name": "Ticket printer",
+      "cost": 2000000,
+      "value": 1.1,
+      "flavour": "Prints. Jams. Prints."
+    },
+    {
+      "id": "glb-archie",
+      "name": "Hire Archie",
+      "cost": 20000000,
+      "value": 1.25,
+      "flavour": "Builds the roster three weeks out. Nobody knows how."
+    },
+    {
+      "id": "glb-reel",
+      "name": "A reel goes viral",
+      "cost": 200000000,
+      "value": 1.2,
+      "flavour": "Eleven seconds of cheese pull. Four hundred thousand views."
+    },
+    {
+      "id": "glb-fridge",
+      "name": "Second cold room",
+      "cost": 2000000000,
+      "value": 1.15,
+      "flavour": "You can finally buy mince like you mean it."
+    },
+    {
+      "id": "glb-supplier",
+      "name": "Supplier handshake",
+      "cost": 20000000000,
+      "value": 1.2,
+      "flavour": "No contract. Never late."
+    },
+    {
+      "id": "glb-training",
+      "name": "Actual staff training",
+      "cost": 200000000000,
+      "value": 1.2,
+      "flavour": "Quietly, properly, once."
+    },
+    {
+      "id": "glb-mince",
+      "name": "Bulk mince contract",
+      "cost": 2000000000000,
+      "value": 1.25,
+      "flavour": "Priced by the tonne. Discussed by the gram."
+    },
+    {
+      "id": "glb-night",
+      "name": "Late night trade",
+      "cost": 20000000000000,
+      "value": 1.25,
+      "flavour": "Nothing good happens after 1am. It all sells, though."
+    },
+    {
+      "id": "glb-fleet",
+      "name": "Own delivery fleet",
+      "cost": 200000000000000,
+      "value": 1.3,
+      "flavour": "Your drivers. Your rules. Your parking fines."
+    },
+    {
+      "id": "glb-licensing",
+      "name": "Brand licensing",
+      "cost": 2000000000000000,
+      "value": 1.3,
+      "flavour": "The logo is on a fridge in Jakarta."
+    },
+    {
+      "id": "glb-vertical",
+      "name": "Vertical integration",
+      "cost": 20000000000000000,
+      "value": 1.35,
+      "flavour": "Paddock to bun to shareholder."
+    },
+    {
+      "id": "glb-orbital",
+      "name": "Orbital flame-grill",
+      "cost": 200000000000000000,
+      "value": 1.5,
+      "flavour": "Flame-grilled from low earth orbit. The char marks are visible from the ground."
+    }
+  ],
+  "golden": {
+    "comment": "Spawns on a randomised timer, drifts across screen, tappable for durationSeconds. Health inspector is the only negative and never removes progress.",
+    "firstSpawnSecondsMin": 90,
+    "firstSpawnSecondsMax": 180,
+    "spawnSecondsMin": 180,
+    "spawnSecondsMax": 420,
+    "durationSeconds": 13,
+    "effects": [
+      {
+        "id": "frenzy",
+        "name": "Frenzy",
+        "weight": 42,
+        "type": "productionMult",
+        "value": 7,
+        "seconds": 77,
+        "line": "Word's out. Everyone is here at once."
+      },
+      {
+        "id": "lucky",
+        "name": "Lucky",
+        "weight": 34,
+        "type": "instantCash",
+        "bankShare": 0.15,
+        "secondsOfProduction": 900,
+        "line": "A bus tour stopped. Nobody knows why."
+      },
+      {
+        "id": "bell",
+        "name": "Service bell",
+        "weight": 20,
+        "type": "clickMult",
+        "value": 777,
+        "seconds": 13,
+        "line": "Someone found the bell. They are using the bell."
+      },
+      {
+        "id": "inspector",
+        "name": "Health inspector",
+        "weight": 4,
+        "type": "productionMult",
+        "value": 0.5,
+        "seconds": 60,
+        "line": "Health inspector is here. Everything slows down and nothing is wrong."
+      }
+    ]
+  },
+  "prestige": {
+    "comment": "Sell the business. goodwill = floor(scale * (lifetimeRevenue / divisor) ^ exponent). minLifetimeRevenueToSell tuned by playbot so the first sale lands 45-120 min into casual play.",
+    "minLifetimeRevenueToSell": 8000000,
+    "goodwillScale": 12,
+    "goodwillDivisor": 1000000,
+    "goodwillExponent": 0.3333333333333333,
+    "multiplierPerGoodwill": 0.02,
+    "perks": [
+      {
+        "id": "prk-reputation",
+        "name": "Reputation precedes you",
+        "cost": 5,
+        "effect": "globalMult",
+        "value": 1.25,
+        "flavour": "They already know the name."
+      },
+      {
+        "id": "prk-openings",
+        "name": "Strong opening",
+        "cost": 8,
+        "effect": "startingCash",
+        "value": 5000,
+        "flavour": "You don't start from nothing twice."
+      },
+      {
+        "id": "prk-goldrate",
+        "name": "Word of mouth",
+        "cost": 12,
+        "effect": "goldenRateMult",
+        "value": 0.7,
+        "flavour": "Golden patties turn up sooner."
+      },
+      {
+        "id": "prk-goldlong",
+        "name": "Longer lunch",
+        "cost": 15,
+        "effect": "goldenDurationMult",
+        "value": 1.5,
+        "flavour": "The good runs last longer."
+      },
+      {
+        "id": "prk-offline",
+        "name": "Runs without you",
+        "cost": 20,
+        "effect": "offlineRateMult",
+        "value": 1.5,
+        "flavour": "The place keeps trading while you sleep."
+      },
+      {
+        "id": "prk-tongs",
+        "name": "Muscle you kept",
+        "cost": 25,
+        "effect": "clickMult",
+        "value": 3,
+        "flavour": "The hands remember."
+      }
+    ]
+  },
+  "offline": {
+    "comment": "Reduced rate while away, hard cap. No punishment for leaving, no timers to come back for.",
+    "rateShare": 0.5,
+    "capHours": 8,
+    "minSecondsToReport": 60
+  },
+  "layout": {
+    "comment": "PLAN_THE_LINE.md PART TWO. The bench is bays in the order food travels; arranging stations well pays a bonus and arranging them badly pays nothing. Hard rule 4 means this can never be a tax: every arrangement scores at least 1.0, so a player who ignores layout entirely is playing correctly. flowBonus is per adjacent pair whose roles are in order; pairBonus is a person standing next to equipment of their own role. maxMultiplier is the ceiling on the two combined and is asserted by A8 — it is deliberately worth less than one tier upgrade. NOTE bays < placeable.length is the whole point: there are more stations than bench, so which ones get the good spots is a real decision, and it changes as different generators come to dominate your income. With as many bays as stations the default line was already optimal and the system was inert (measured, see PROGRESS.md F1).",
+    "bays": 3,
+    "roleOrder": [
+      "prep",
+      "cook",
+      "assemble",
+      "serve"
+    ],
+    "generatorRoles": [
+      "prep",
+      "cook",
+      "cook",
+      "serve",
+      "serve",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none"
+    ],
+    "generatorIsPerson": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "placeable": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "flowBonus": 0.08,
+    "pairBonus": 0.2,
+    "maxMultiplier": 1.4,
+    "fitoutComment": "Each fitout adds one bay. A fitout never raises the bonus cap — it lets more of what you own be on the line at once, which is a different and safer lever: A8 stays true no matter how long the bench gets.",
+    "fitouts": [
+      {
+        "id": "fit-bench",
+        "name": "Extend the bench",
+        "cost": 400000,
+        "flavour": "Two metres of stainless from a place in Marrickville. Delivered on a Sunday."
+      },
+      {
+        "id": "fit-corner",
+        "name": "Take the corner out",
+        "cost": 9000000,
+        "flavour": "The wall was not structural. The council took some convincing."
+      }
+    ]
+  },
+  "momentum": {
+    "comment": "The ticker occasionally states how much faster the business is than it was. A sense of progress is a derivative and the UI never showed one (PLAN_THE_LINE.md 2.4). windowSeconds is how far back to compare; minRatio is how much better it has to be before it is worth saying; minSecondsBetween stops it becoming a nag.",
+    "windowSeconds": 300,
+    "minRatio": 1.8,
+    "minSecondsBetween": 120
+  },
+  "ticker": {
+    "cycleSeconds": 10,
+    "comment": "Lines live in content/ticker.json, gated by progress tier."
+  },
+  "notation": {
+    "shortSuffixes": [
+      "",
+      "k",
+      "M",
+      "B",
+      "T",
+      "Qa",
+      "Qi",
+      "Sx",
+      "Sp",
+      "Oc",
+      "No",
+      "Dc"
+    ],
+    "groupSize": 1000,
+    "decimalsBelowThousand": 0,
+    "decimalsAbove": 2,
+    "scientificThresholdExponent": 33
+  },
+  "time": {
+    "comment": "Unit conversions, not balance values. Here so engine code holds no numeric literals.",
+    "msPerSecond": 1000,
+    "secondsPerMinute": 60,
+    "secondsPerHour": 3600
+  },
+  "sim": {
+    "comment": "Playbot profiles for the G3/G4 gates. dutyCycle = fraction of each minute spent tapping. goldenCatchRate = share of golden patties tapped.",
+    "tickSeconds": 1,
+    "hours": 3,
+    "profiles": [
+      {
+        "id": "idle",
+        "tapsPerSecond": 0,
+        "dutyCycle": 0,
+        "goldenCatchRate": 0,
+        "bootstrapTaps": true
+      },
+      {
+        "id": "casual",
+        "tapsPerSecond": 2,
+        "dutyCycle": 0.3333333333333333,
+        "goldenCatchRate": 0.5,
+        "bootstrapTaps": false
+      },
+      {
+        "id": "tryhard",
+        "tapsPerSecond": 8,
+        "dutyCycle": 1,
+        "goldenCatchRate": 1,
+        "bootstrapTaps": false
+      }
+    ],
+    "bootstrapComment": "The idle profile taps ONLY until it owns its first generator, then never again. A literal zero-tap profile can never earn its first dollar (cash 0, cps 0) — that is true of Cookie Clicker too. 'Idle-only' here means 'idle after the opening', which is what the G3 softlock assertion is actually about. Flagged in PROGRESS.md.",
+    "prestigeHeuristic": {
+      "comment": "When the bot sells. Selling costs you every generator, so it is only worth it when the permanent multiplier jumps hard. Sell when the post-sale global multiplier would be at least this many times the current one. A gain-based rule instead made the bot reset constantly and never climb the ladder.",
+      "minMultiplierGain": 2
+    },
+    "gates": {
+      "firstPrestigeMinutesMin": 45,
+      "firstPrestigeMinutesMax": 120,
+      "activeVsIdleRatioMin": 2,
+      "activeVsIdleRatioMax": 3,
+      "activeVsIdleWindowMinutes": 30,
+      "maxUpgradeStep": 25,
+      "maxDeadWindowSeconds": 90,
+      "maxUnboughtMinutesAfterUnlock": 20
+    }
+  },
+  "achievements": [
+    {
+      "id": "ach-first",
+      "name": "Open for business",
+      "trigger": {
+        "type": "taps",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-taps100",
+      "name": "Warm hands",
+      "trigger": {
+        "type": "taps",
+        "value": 100
+      }
+    },
+    {
+      "id": "ach-taps1000",
+      "name": "On the tools",
+      "trigger": {
+        "type": "taps",
+        "value": 1000
+      }
+    },
+    {
+      "id": "ach-taps10000",
+      "name": "Owner-operator",
+      "trigger": {
+        "type": "taps",
+        "value": 10000
+      }
+    },
+    {
+      "id": "ach-taps100000",
+      "name": "See someone about that",
+      "trigger": {
+        "type": "taps",
+        "value": 100000
+      }
+    },
+    {
+      "id": "ach-cash1k",
+      "name": "Float sorted",
+      "trigger": {
+        "type": "cash",
+        "value": 1000
+      }
+    },
+    {
+      "id": "ach-cash1m",
+      "name": "First million, gross",
+      "trigger": {
+        "type": "cash",
+        "value": 1000000
+      }
+    },
+    {
+      "id": "ach-cash1b",
+      "name": "Accountant has questions",
+      "trigger": {
+        "type": "cash",
+        "value": 1000000000
+      }
+    },
+    {
+      "id": "ach-cash1t",
+      "name": "Beyond the spreadsheet",
+      "trigger": {
+        "type": "cash",
+        "value": 1000000000000
+      }
+    },
+    {
+      "id": "ach-rev1m",
+      "name": "Turnover is vanity",
+      "trigger": {
+        "type": "lifetimeRevenue",
+        "value": 1000000
+      }
+    },
+    {
+      "id": "ach-rev1b",
+      "name": "Profit is sanity",
+      "trigger": {
+        "type": "lifetimeRevenue",
+        "value": 1000000000
+      }
+    },
+    {
+      "id": "ach-rev1t",
+      "name": "Cash is reality",
+      "trigger": {
+        "type": "lifetimeRevenue",
+        "value": 1000000000000
+      }
+    },
+    {
+      "id": "ach-understaffed",
+      "name": "Understaffed",
+      "trigger": {
+        "type": "cashWithNoGenerators",
+        "value": 10000
+      }
+    },
+    {
+      "id": "ach-tradingdown",
+      "name": "Trading down",
+      "trigger": {
+        "type": "boughtBefore",
+        "target": "beefFutures",
+        "other": "fryer"
+      }
+    },
+    {
+      "id": "ach-tongs10",
+      "name": "Two pairs is plenty",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "tongs",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-tongs50",
+      "name": "Drawer full of tongs",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "tongs",
+        "value": 50
+      }
+    },
+    {
+      "id": "ach-fryer10",
+      "name": "Chip shop energy",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "fryer",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-grill10",
+      "name": "Roster looks healthy",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "grillHand",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-foh10",
+      "name": "Someone else answers",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "frontOfHouse",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-uber10",
+      "name": "Four point six stars",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "uberEats",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-rosebery1",
+      "name": "Second venue",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "rosebery",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-neutral1",
+      "name": "Different POS",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "neutralBay",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-ghost1",
+      "name": "Nowhere, specifically",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "ghostKitchen",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-franchise1",
+      "name": "Other people's rent",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "franchise",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-factory1",
+      "name": "Eight then six",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "pattyFactory",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-cattle1",
+      "name": "Vertical",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "cattleStation",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-futures1",
+      "name": "Technically a trader",
+      "trigger": {
+        "type": "generatorOwned",
+        "target": "beefFutures",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-allgens",
+      "name": "Whole operation",
+      "trigger": {
+        "type": "allGeneratorsOwned",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-gens100",
+      "name": "Payroll",
+      "trigger": {
+        "type": "totalGenerators",
+        "value": 100
+      }
+    },
+    {
+      "id": "ach-gens500",
+      "name": "Group of companies",
+      "trigger": {
+        "type": "totalGenerators",
+        "value": 500
+      }
+    },
+    {
+      "id": "ach-cps100",
+      "name": "Hundred a second",
+      "trigger": {
+        "type": "cps",
+        "value": 100
+      }
+    },
+    {
+      "id": "ach-cps1m",
+      "name": "Million a second",
+      "trigger": {
+        "type": "cps",
+        "value": 1000000
+      }
+    },
+    {
+      "id": "ach-golden1",
+      "name": "Caught one",
+      "trigger": {
+        "type": "goldenCaught",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-golden25",
+      "name": "Quick hands",
+      "trigger": {
+        "type": "goldenCaught",
+        "value": 25
+      }
+    },
+    {
+      "id": "ach-inspector",
+      "name": "No notes",
+      "trigger": {
+        "type": "inspectorSurvived",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-upgrades10",
+      "name": "Reinvesting",
+      "trigger": {
+        "type": "upgradesOwned",
+        "value": 10
+      }
+    },
+    {
+      "id": "ach-upgrades40",
+      "name": "Capex",
+      "trigger": {
+        "type": "upgradesOwned",
+        "value": 40
+      }
+    },
+    {
+      "id": "ach-prestige1",
+      "name": "Sold the business",
+      "trigger": {
+        "type": "prestigeCount",
+        "value": 1
+      }
+    },
+    {
+      "id": "ach-prestige5",
+      "name": "Serial operator",
+      "trigger": {
+        "type": "prestigeCount",
+        "value": 5
+      }
+    },
+    {
+      "id": "ach-goodwill100",
+      "name": "Goodwill, intangible",
+      "trigger": {
+        "type": "goodwill",
+        "value": 100
+      }
+    }
+  ]
+}

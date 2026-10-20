@@ -1,0 +1,55 @@
+{
+  "comment": "Rivals NEVER attack player territory (Pillar 1). They expand into neutral tiles at expansionRate tiles per game-week. Taunts fire on: rival captures a tile, player fails an attack, player captures a rival tile. Voice: dry, specific, one level of escalation max.",
+  "rivals": [
+    {
+      "id": "grillzilla",
+      "name": "Grillzilla Franchise Group",
+      "personality": "corporate",
+      "phase": 2,
+      "expansionRate": 0.5,
+      "defenseStyle": "high defense on office tiles, weak on lateNight",
+      "preferredDemographics": ["office", "families"],
+      "flavour": "A 340-store franchise machine. Their burgers are assembled, not cooked. Their margins are spectacular.",
+      "taunts": {
+        "onCapture": [
+          "Grillzilla has opened store #341. The ribbon was cut by a regional manager who has never eaten there.",
+          "Another suburb secured. Head office celebrated by reducing patty weight 4 grams.",
+          "Grillzilla's expansion continues, per the five-year plan. There is always a five-year plan."
+        ],
+        "onPlayerFailedAttack": [
+          "Grillzilla's legal team has noted your attempt. They note everything.",
+          "Your campaign was reviewed at the Tuesday standup. It did not make the minutes."
+        ],
+        "onPlayerCapture": [
+          "Store #217 has been reclassified as 'underperforming asset'. Head office moves on.",
+          "Grillzilla has filed the loss under 'market conditions'. Grillzilla files everything under 'market conditions'."
+        ]
+      }
+    },
+    {
+      "id": "pattycvlt",
+      "name": "PATTY CVLT",
+      "personality": "hipster",
+      "phase": 2,
+      "expansionRate": 0.35,
+      "defenseStyle": "high defense on student and lateNight tiles, weak on families",
+      "preferredDemographics": ["students", "lateNight"],
+      "flavour": "Smash burgers, no menu, no bookings, no vowels. The queue is the marketing.",
+      "taunts": {
+        "onCapture": [
+          "PATTY CVLT has opened in another warehouse. There is no signage. The line is around the block.",
+          "New location dropped. They announced it by not announcing it.",
+          "PATTY CVLT expands again. The burger is $26 and comes with a philosophy."
+        ],
+        "onPlayerFailedAttack": [
+          "PATTY CVLT's regulars noticed your flyers. One of them wrote a zine about it.",
+          "Your push was discussed on their Discord. The verdict: 'mid'."
+        ],
+        "onPlayerCapture": [
+          "PATTY CVLT has left the suburb, calling it 'over'. They were planning to leave anyway. They insist.",
+          "The warehouse is yours. The philosophy has relocated."
+        ]
+      }
+    }
+  ]
+}

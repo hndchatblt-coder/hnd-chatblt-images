@@ -1,0 +1,30 @@
+{
+  "comment": "The crew. Carried over from the parked project's manager roster — Ben's copy, and the best character-per-word in the whole project. Quirks are flavour only: they never modify the economy, so the sim stays honest and nobody has to balance a joke. A new crew is rolled each run, which is its own small pleasure after a sale.",
+  "staff": [
+    { "name": "Archie T.",   "quirk": "Builds the roster three weeks out. Nobody knows how. Nobody asks." },
+    { "name": "Kimberley R.", "quirk": "Has never once run out of brioche. Suppliers fear her." },
+    { "name": "Deano",       "quirk": "Gun on the grill. Availability described as spiritual." },
+    { "name": "Soph M.",     "quirk": "Replies to every review within the hour, including the unhinged ones." },
+    { "name": "Trung N.",    "quirk": "Runs the pass like air traffic control. Headset optional but preferred." },
+    { "name": "Bec W.",      "quirk": "Slow. Reliable. Has closed every Sunday for four years without comment." },
+    { "name": "Jonno",       "quirk": "Over-orders buns every single week. Also never 86'd a burger during a rush." },
+    { "name": "Priya K.",    "quirk": "Keeps a spreadsheet of which regulars order what. It is 40 tabs deep." },
+    { "name": "Macca",       "quirk": "17 years in hospo. Moves at one speed. It is the correct speed." },
+    { "name": "Ellie F.",    "quirk": "Invented three specials that went on the permanent menu. Takes full credit. Fair enough." },
+    { "name": "Hass",        "quirk": "Can smell a health inspector from the car park." },
+    { "name": "Georgia P.",  "quirk": "Trains every new starter the same way: quietly, properly, once." },
+    { "name": "Vinnie",      "quirk": "Negotiates with the delivery drivers like it's a hostage situation." },
+    { "name": "Tash L.",     "quirk": "The fryer section has never once beaten her. The fryer section has tried." },
+    { "name": "Robbo",       "quirk": "Cheapest hire on the board. You get exactly what you pay for, on time, every time." },
+    { "name": "Chen W.",     "quirk": "Does the stocktake to two decimal places. Found the till discrepancy from 2024." },
+    { "name": "Freya D.",    "quirk": "Doubles output during a rush. Requires a debrief afterwards." },
+    { "name": "Sammy O.",    "quirk": "Knows every regular's order and exactly one fact about their dog." },
+    { "name": "Kez",         "quirk": "Locks up, sets the alarm, texts 'done'. Has never elaborated." },
+    { "name": "Dougie B.",   "quirk": "Once catered a wedding out of the delivery window during a Friday service. Never again. Probably." }
+  ],
+  "regularsComment": "Names for the customers who keep coming back. Ordinary on purpose — a regular is not a character, they're a face you know.",
+  "regulars": [
+    "Kev", "Marg", "Bazza", "Trish", "Sanjay", "Nonna", "Dave from 12", "Loz",
+    "The Tradie", "Mrs P", "Young Tom", "Deb", "Salim", "Two-Burger Ray", "Ange"
+  ]
+}

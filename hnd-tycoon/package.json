@@ -1,0 +1,40 @@
+{
+  "name": "hnd-tycoon",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sim": "tsx scripts/sim.ts",
+    "floor": "tsx scripts/floor.ts",
+    "balance": "tsx scripts/balance.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "boundaries": "node scripts/check-boundaries.mjs",
+    "gate": "npm run boundaries && npm run typecheck && npm run test && npm run balance",
+    "dev": "vite",
+    "build": "vite build",
+    "look": "node scripts/look.mjs",
+    "fps": "node scripts/fps.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright": "^1.56.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.21",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "pixi.js": "^8.19.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
